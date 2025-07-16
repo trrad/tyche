@@ -4,8 +4,6 @@
 
 A TypeScript library for Bayesian inference and experimental design, running entirely in the browser with automatic differentiation and GPU acceleration (coming soon).
 
-> **Note on naming**: Other strong candidates included Pythia (the Oracle at Delphi), Moirai (the Fates), and Episteme (scientific knowledge). We chose Tyche for her direct connection to probability and chance.
-
 ## Core Features
 
 - 🎯 **Experimental Design Focus**: Built specifically for A/B testing, power analysis, and business experiments

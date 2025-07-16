@@ -3,8 +3,8 @@
  */
 
 import { describe, test, expect, beforeEach } from 'vitest';
-import { RandomVariable, add, multiply, log, exp, sigmoid } from '../src/core/RandomVariable';
-import { ComputationGraph } from '../src/core/ComputationGraph';
+import { RandomVariable, add, multiply, log, exp, sigmoid } from '../core/RandomVariable';
+import { ComputationGraph } from '../core/ComputationGraph';
 
 describe('RandomVariable', () => {
   let graph: ComputationGraph;
