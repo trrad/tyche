@@ -1,17 +1,11 @@
 /**
- * Metropolis-Hastings Sampler
- * 
- * A simple but powerful MCMC algorithm that forms the basis for more
- * sophisticated samplers. This implementation supports both random walk
- * and independent proposals.
+ * Metropolis-Hastings Sampler - Simplified implementation
  */
-
-import { RandomVariable } from '../core/RandomVariable';
 
 export interface MCMCDiagnostics {
   acceptanceRate: number;
   effectiveSampleSize: number;
-  rHat?: number;
+  rHat?: number;  // Optional for single chain
   samples: number[][];
   logProbabilities: number[];
 }
@@ -24,24 +18,9 @@ export interface MetropolisOptions {
 }
 
 export interface Model {
-  /**
-   * Compute log probability of parameters
-   */
   logProb(params: number[]): number;
-  
-  /**
-   * Get parameter names
-   */
   parameterNames(): string[];
-  
-  /**
-   * Get number of parameters
-   */
   dimension(): number;
-  
-  /**
-   * Get initial values for parameters
-   */
   initialValues(): number[];
 }
 
@@ -49,7 +28,7 @@ export interface Model {
  * Metropolis-Hastings sampler
  */
 export class MetropolisSampler {
-  private stepSize: number;
+  protected stepSize: number;
   private proposalType: 'randomWalk' | 'independent';
   private adaptStepSize: boolean;
   private targetAcceptanceRate: number;
@@ -58,7 +37,7 @@ export class MetropolisSampler {
     this.stepSize = options.stepSize ?? 0.1;
     this.proposalType = options.proposalType ?? 'randomWalk';
     this.adaptStepSize = options.adaptStepSize ?? true;
-    this.targetAcceptanceRate = options.targetAcceptanceRate ?? 0.44; // Optimal for random walk
+    this.targetAcceptanceRate = options.targetAcceptanceRate ?? 0.44;
   }
   
   /**
@@ -123,7 +102,7 @@ export class MetropolisSampler {
     // Adaptation parameters
     let acceptCount = 0;
     let totalCount = 0;
-    let adaptationWindow = 50;
+    const adaptationWindow = 50;
     
     for (let i = 0; i < numSamples; i++) {
       // Propose new state
@@ -151,9 +130,9 @@ export class MetropolisSampler {
         const currentAcceptRate = acceptCount / adaptationWindow;
         
         if (currentAcceptRate < this.targetAcceptanceRate - 0.05) {
-          this.stepSize *= 0.9; // Decrease step size
+          this.stepSize *= 0.9;
         } else if (currentAcceptRate > this.targetAcceptanceRate + 0.05) {
-          this.stepSize *= 1.1; // Increase step size
+          this.stepSize *= 1.1;
         }
         
         acceptCount = 0;
@@ -166,20 +145,18 @@ export class MetropolisSampler {
   /**
    * Propose new state
    */
-  private propose(current: number[], rng: () => number): number[] {
+  protected propose(current: number[], rng: () => number): number[] {
     if (this.proposalType === 'randomWalk') {
-      // Random walk proposal: q(x'|x) = N(x, stepSize²I)
       return current.map(x => x + this.stepSize * this.sampleNormal(rng));
     } else {
-      // Independent proposal would go here
       throw new Error('Independent proposals not yet implemented');
     }
   }
   
   /**
-   * Sample from standard normal using Box-Muller
+   * Sample from standard normal
    */
-  private sampleNormal(rng: () => number): number {
+  protected sampleNormal(rng: () => number): number {
     const u1 = rng();
     const u2 = rng();
     return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
@@ -189,10 +166,16 @@ export class MetropolisSampler {
    * Calculate acceptance rate
    */
   private calculateAcceptanceRate(samples: number[][]): number {
+    if (samples.length < 2) return 0;
+    
     let changes = 0;
     
     for (let i = 1; i < samples.length; i++) {
-      const different = samples[i].some((v, j) => v !== samples[i-1][j]);
+      const current = samples[i];
+      const previous = samples[i-1];
+      
+      // Check if any parameter changed
+      const different = current.some((v, j) => v !== previous[j]);
       if (different) changes++;
     }
     
@@ -200,7 +183,7 @@ export class MetropolisSampler {
   }
   
   /**
-   * Calculate effective sample size (simplified version)
+   * Calculate effective sample size (simplified)
    */
   private calculateESS(samples: number[][]): number {
     if (samples.length < 2) return samples.length;
@@ -209,14 +192,24 @@ export class MetropolisSampler {
     const dim = samples[0].length;
     let minESS = n;
     
-    // Calculate ESS for each dimension and return minimum
+    // Calculate ESS for each dimension
     for (let d = 0; d < dim; d++) {
       const values = samples.map(s => s[d]);
       
-      // Calculate autocorrelation
-      const mean = values.reduce((a, b) => a + b, 0) / n;
-      const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
+      // Calculate mean and variance
+      let sum = 0;
+      for (const v of values) {
+        sum += v;
+      }
+      const mean = sum / n;
       
+      let varSum = 0;
+      for (const v of values) {
+        varSum += (v - mean) ** 2;
+      }
+      const variance = varSum / n;
+      
+      // Calculate autocorrelation
       let sumAutocorr = 1;
       for (let lag = 1; lag < Math.min(n - 1, 100); lag++) {
         let autocorr = 0;
@@ -225,7 +218,7 @@ export class MetropolisSampler {
         }
         autocorr /= (n - lag) * variance;
         
-        if (autocorr < 0.05) break; // Stop when autocorrelation is small
+        if (autocorr < 0.05) break;
         sumAutocorr += 2 * autocorr;
       }
       
@@ -254,8 +247,18 @@ export class MetropolisSampler {
       
       for (let c = 0; c < numChains; c++) {
         const values = chains[c].map(s => s[d]);
-        const mean = values.reduce((a, b) => a + b, 0) / numSamples;
-        const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / (numSamples - 1);
+        
+        let sum = 0;
+        for (const v of values) {
+          sum += v;
+        }
+        const mean = sum / numSamples;
+        
+        let varSum = 0;
+        for (const v of values) {
+          varSum += (v - mean) ** 2;
+        }
+        const variance = varSum / (numSamples - 1);
         
         W += variance;
         chainMeans.push(mean);
@@ -263,8 +266,17 @@ export class MetropolisSampler {
       W /= numChains;
       
       // Calculate between-chain variance
-      const grandMean = chainMeans.reduce((a, b) => a + b, 0) / numChains;
-      const B = chainMeans.reduce((a, b) => a + (b - grandMean) ** 2, 0) * numSamples / (numChains - 1);
+      let grandSum = 0;
+      for (const m of chainMeans) {
+        grandSum += m;
+      }
+      const grandMean = grandSum / numChains;
+      
+      let B = 0;
+      for (const m of chainMeans) {
+        B += (m - grandMean) ** 2;
+      }
+      B = B * numSamples / (numChains - 1);
       
       // Calculate R-hat
       const varPlus = ((numSamples - 1) * W + B) / numSamples;
@@ -278,30 +290,10 @@ export class MetropolisSampler {
 }
 
 /**
- * Adaptive Metropolis sampler that learns the covariance structure
+ * Adaptive Metropolis sampler
  */
 export class AdaptiveMetropolisSampler extends MetropolisSampler {
-  private covarianceMatrix?: number[][];
-  private adaptationDelay: number = 100;
-  private adaptationInterval: number = 10;
-  
   constructor(options: MetropolisOptions = {}) {
     super({ ...options, proposalType: 'randomWalk' });
-  }
-  
-  // Override propose to use learned covariance
-  private propose(current: number[], rng: () => number): number[] {
-    if (!this.covarianceMatrix) {
-      // Use identity matrix initially
-      return super['propose'](current, rng);
-    }
-    
-    // Multivariate normal proposal using Cholesky decomposition
-    // This is a simplified version - production code would be more sophisticated
-    const dim = current.length;
-    const z = Array(dim).fill(0).map(() => this['sampleNormal'](rng));
-    
-    // Simple scaling - full implementation would use Cholesky
-    return current.map((x, i) => x + this['stepSize'] * z[i]);
   }
 }

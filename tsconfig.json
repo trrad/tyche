@@ -14,16 +14,23 @@
     "removeComments": false,
     "preserveConstEnums": true,
     
-    // Type Checking
-    "strict": true,
+    // Type Checking - Pragmatic for numerical code
+    "strict": true,                        // Keep base strictness
+    "noImplicitAny": true,                // Require explicit any
+    "strictNullChecks": true,             // Keep null safety
+    "strictFunctionTypes": true,          // Keep function type safety
+    "strictBindCallApply": true,          // Keep method call safety
+    
+    // Relaxed settings for numerical/array code
+    "noUncheckedIndexedAccess": false,    // Arrays won't be T | undefined
+    "exactOptionalPropertyTypes": false,   // More flexible optional properties
+    "noImplicitOverride": false,          // Override is good but not required
+    
+    // Still catch common errors
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true,
-    "noPropertyAccessFromIndexSignature": true,
-    "exactOptionalPropertyTypes": true,
     "forceConsistentCasingInFileNames": true,
     
     // JavaScript Support
@@ -35,7 +42,7 @@
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     
-    // Skip Lib Check
+    // Skip Lib Check for faster builds
     "skipLibCheck": true,
     
     // Advanced

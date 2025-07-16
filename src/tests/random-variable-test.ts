@@ -1,9 +1,10 @@
 /**
  * Tests for RandomVariable and automatic differentiation
+ * Simplified to work with pragmatic types
  */
 
 import { describe, test, expect, beforeEach } from 'vitest';
-import { RandomVariable, add, multiply, log, exp, sigmoid } from '../core/RandomVariable';
+import { RandomVariable, sigmoid } from '../core/RandomVariable';
 import { ComputationGraph } from '../core/ComputationGraph';
 
 describe('RandomVariable', () => {
