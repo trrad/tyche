@@ -1,9 +1,7 @@
 /**
  * Core RandomVariable abstraction for probabilistic programming with automatic differentiation
  * 
- * This class represents both random variables and deterministic computations in our
- * probabilistic models. It tracks the computational graph for automatic differentiation
- * and provides operator overloading for natural mathematical syntax.
+ * Simplified version without complex generics - focuses on practical use cases
  */
 
 import { ComputationGraph, ComputationNode, GradientTape } from './ComputationGraph';
@@ -12,22 +10,15 @@ export type Shape = number[];
 export type Tensor = number | number[] | number[][];
 
 /**
- * Base class for all random variables and computations in the probabilistic model
+ * Random variable representing both probabilistic and deterministic values
+ * Simplified to always work with scalar values internally, with shape tracking for future tensor support
  */
-export class RandomVariable<T extends Tensor = number> {
-  private readonly node: ComputationNode;
-  private readonly shape: Shape;
-  private readonly graph: ComputationGraph;
-
+export class RandomVariable {
   constructor(
-    node: ComputationNode,
-    shape: Shape = [],
-    graph: ComputationGraph = ComputationGraph.current()
-  ) {
-    this.node = node;
-    this.shape = shape;
-    this.graph = graph;
-  }
+    private readonly node: ComputationNode,
+    private readonly shape: Shape = [],
+    private readonly graph: ComputationGraph = ComputationGraph.current()
+  ) {}
 
   /**
    * Get the computation node for AD
@@ -53,148 +44,145 @@ export class RandomVariable<T extends Tensor = number> {
   /**
    * Forward pass - compute the value
    */
-  forward(): T {
-    return this.node.forward() as T;
+  forward(): number {
+    return this.node.forward();
   }
 
   /**
    * Backward pass - compute gradients
    */
-  backward(gradient: T = 1 as T): Map<ComputationNode, number> {
+  backward(gradient: number = 1): Map<ComputationNode, number> {
     const tape = new GradientTape();
-    this.node.backward(gradient as number, tape);
+    this.node.backward(gradient, tape);
     return tape.gradients;
   }
 
   /**
    * Sample from this random variable
-   * @param rng Random number generator
-   * @param shape Optional shape for multiple samples
+   * Default implementation - should be overridden by distributions
    */
-  sample(rng: () => number, shape?: Shape): T {
-    // Default implementation - should be overridden by distributions
+  sample(_rng: () => number): number {
     return this.forward();
   }
 
   /**
    * Compute log probability of a value
-   * @param value The value to compute probability for
+   * Default implementation - should be overridden by distributions
    */
-  logProb(value: T): RandomVariable<number> {
-    // Default implementation - should be overridden by distributions
+  logProb(_value: number | RandomVariable): RandomVariable {
     throw new Error('logProb not implemented for this variable');
   }
 
-  // Operator overloading for natural syntax
+  // Arithmetic operations - all return RandomVariable for chaining
 
   /**
    * Addition: a + b
    */
-  add(other: RandomVariable<T> | T): RandomVariable<T> {
+  add(other: RandomVariable | number): RandomVariable {
     const otherVar = RandomVariable.constant(other);
     const node = this.graph.createNode(
       'add',
       [this.node, otherVar.node],
-      (inputs) => (inputs[0] + inputs[1]) as T,
-      (grad, inputs, cache) => [grad, grad]
+      (inputs) => inputs[0] + inputs[1],
+      () => [1, 1]  // Both inputs get gradient 1
     );
-    return new RandomVariable<T>(node, this.shape, this.graph);
+    return new RandomVariable(node, this.shape, this.graph);
   }
 
   /**
    * Subtraction: a - b
    */
-  subtract(other: RandomVariable<T> | T): RandomVariable<T> {
+  subtract(other: RandomVariable | number): RandomVariable {
     const otherVar = RandomVariable.constant(other);
     const node = this.graph.createNode(
       'subtract',
       [this.node, otherVar.node],
-      (inputs) => (inputs[0] - inputs[1]) as T,
-      (grad, inputs, cache) => [grad, -grad]
+      (inputs) => inputs[0] - inputs[1],
+      () => [1, -1]  // Gradient is 1 for first input, -1 for second
     );
-    return new RandomVariable<T>(node, this.shape, this.graph);
+    return new RandomVariable(node, this.shape, this.graph);
   }
 
   /**
    * Multiplication: a * b
    */
-  multiply(other: RandomVariable<T> | T): RandomVariable<T> {
+  multiply(other: RandomVariable | number): RandomVariable {
     const otherVar = RandomVariable.constant(other);
     const node = this.graph.createNode(
       'multiply',
       [this.node, otherVar.node],
-      (inputs) => (inputs[0] * inputs[1]) as T,
-      (grad, inputs, cache) => [grad * inputs[1], grad * inputs[0]]
+      (inputs) => inputs[0] * inputs[1],
+      (grad, inputs) => [grad * inputs[1], grad * inputs[0]]
     );
-    return new RandomVariable<T>(node, this.shape, this.graph);
+    return new RandomVariable(node, this.shape, this.graph);
   }
 
   /**
    * Division: a / b
    */
-  divide(other: RandomVariable<T> | T): RandomVariable<T> {
+  divide(other: RandomVariable | number): RandomVariable {
     const otherVar = RandomVariable.constant(other);
     const node = this.graph.createNode(
       'divide',
       [this.node, otherVar.node],
-      (inputs) => (inputs[0] / inputs[1]) as T,
-      (grad, inputs, cache) => [
+      (inputs) => inputs[0] / inputs[1],
+      (grad, inputs) => [
         grad / inputs[1],
         -grad * inputs[0] / (inputs[1] * inputs[1])
       ]
     );
-    return new RandomVariable<T>(node, this.shape, this.graph);
+    return new RandomVariable(node, this.shape, this.graph);
   }
 
   /**
    * Power: a ** b
    */
-  pow(exponent: number): RandomVariable<T> {
+  pow(exponent: number): RandomVariable {
     const node = this.graph.createNode(
       'pow',
       [this.node],
-      (inputs) => Math.pow(inputs[0], exponent) as T,
-      (grad, inputs, cache) => [
+      (inputs) => Math.pow(inputs[0], exponent),
+      (grad, inputs) => [
         grad * exponent * Math.pow(inputs[0], exponent - 1)
       ]
     );
-    return new RandomVariable<T>(node, this.shape, this.graph);
+    return new RandomVariable(node, this.shape, this.graph);
   }
 
   /**
    * Natural logarithm
    */
-  log(): RandomVariable<T> {
+  log(): RandomVariable {
     const node = this.graph.createNode(
       'log',
       [this.node],
-      (inputs) => Math.log(inputs[0]) as T,
-      (grad, inputs, cache) => [grad / inputs[0]]
+      (inputs) => Math.log(inputs[0]),
+      (grad, inputs) => [grad / inputs[0]]
     );
-    return new RandomVariable<T>(node, this.shape, this.graph);
+    return new RandomVariable(node, this.shape, this.graph);
   }
 
   /**
    * Exponential
    */
-  exp(): RandomVariable<T> {
+  exp(): RandomVariable {
     const node = this.graph.createNode(
       'exp',
       [this.node],
-      (inputs) => Math.exp(inputs[0]) as T,
+      (inputs) => Math.exp(inputs[0]),
       (grad, inputs, cache) => {
-        const expVal = cache || Math.exp(inputs[0]);
+        const expVal = cache ?? Math.exp(inputs[0]);
         return [grad * expVal];
       }
     );
-    return new RandomVariable<T>(node, this.shape, this.graph);
+    return new RandomVariable(node, this.shape, this.graph);
   }
 
   /**
    * Negation: -a
    */
-  neg(): RandomVariable<T> {
-    return this.multiply(-1 as T);
+  neg(): RandomVariable {
+    return this.multiply(-1);
   }
 
   // Static factory methods
@@ -202,70 +190,65 @@ export class RandomVariable<T extends Tensor = number> {
   /**
    * Create a constant random variable
    */
-  static constant<T extends Tensor>(value: T | RandomVariable<T>): RandomVariable<T> {
+  static constant(value: number | RandomVariable): RandomVariable {
     if (value instanceof RandomVariable) {
       return value;
     }
     
     const graph = ComputationGraph.current();
-    const shape = Array.isArray(value) ? [value.length] : [];
     const node = graph.createNode(
       'constant',
       [],
       () => value,
       () => []
     );
-    return new RandomVariable<T>(node, shape, graph);
+    return new RandomVariable(node, [], graph);
   }
 
   /**
    * Create a parameter (trainable variable)
    */
-  static parameter<T extends Tensor>(
-    initialValue: T,
-    name?: string
-  ): RandomVariable<T> {
+  static parameter(initialValue: number, name?: string): RandomVariable {
     const graph = ComputationGraph.current();
-    const shape = Array.isArray(initialValue) ? [initialValue.length] : [];
-    const node = graph.createParameter(initialValue as number, name);
-    return new RandomVariable<T>(node, shape, graph);
+    const node = graph.createParameter(initialValue, name);
+    return new RandomVariable(node, [], graph);
   }
 }
 
-// Common mathematical functions as free functions
+// Common mathematical functions as free functions for convenience
 
-export function add<T extends Tensor>(a: RandomVariable<T> | T, b: RandomVariable<T> | T): RandomVariable<T> {
+export function add(a: RandomVariable | number, b: RandomVariable | number): RandomVariable {
   return RandomVariable.constant(a).add(b);
 }
 
-export function subtract<T extends Tensor>(a: RandomVariable<T> | T, b: RandomVariable<T> | T): RandomVariable<T> {
+export function subtract(a: RandomVariable | number, b: RandomVariable | number): RandomVariable {
   return RandomVariable.constant(a).subtract(b);
 }
 
-export function multiply<T extends Tensor>(a: RandomVariable<T> | T, b: RandomVariable<T> | T): RandomVariable<T> {
+export function multiply(a: RandomVariable | number, b: RandomVariable | number): RandomVariable {
   return RandomVariable.constant(a).multiply(b);
 }
 
-export function divide<T extends Tensor>(a: RandomVariable<T> | T, b: RandomVariable<T> | T): RandomVariable<T> {
+export function divide(a: RandomVariable | number, b: RandomVariable | number): RandomVariable {
   return RandomVariable.constant(a).divide(b);
 }
 
-export function pow<T extends Tensor>(base: RandomVariable<T> | T, exponent: number): RandomVariable<T> {
+export function pow(base: RandomVariable | number, exponent: number): RandomVariable {
   return RandomVariable.constant(base).pow(exponent);
 }
 
-export function log<T extends Tensor>(x: RandomVariable<T> | T): RandomVariable<T> {
+export function log(x: RandomVariable | number): RandomVariable {
   return RandomVariable.constant(x).log();
 }
 
-export function exp<T extends Tensor>(x: RandomVariable<T> | T): RandomVariable<T> {
+export function exp(x: RandomVariable | number): RandomVariable {
   return RandomVariable.constant(x).exp();
 }
 
 /**
  * Sigmoid function: 1 / (1 + exp(-x))
  */
-export function sigmoid(x: RandomVariable<number> | number): RandomVariable<number> {
+export function sigmoid(x: RandomVariable | number): RandomVariable {
   const xVar = RandomVariable.constant(x);
   return RandomVariable.constant(1).divide(
     RandomVariable.constant(1).add(xVar.neg().exp())
@@ -275,7 +258,7 @@ export function sigmoid(x: RandomVariable<number> | number): RandomVariable<numb
 /**
  * Logit function: log(p / (1 - p))
  */
-export function logit(p: RandomVariable<number> | number): RandomVariable<number> {
+export function logit(p: RandomVariable | number): RandomVariable {
   const pVar = RandomVariable.constant(p);
   return pVar.divide(RandomVariable.constant(1).subtract(pVar)).log();
 }

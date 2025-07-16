@@ -1,9 +1,7 @@
 /**
  * Computation Graph for Automatic Differentiation
  * 
- * This implements a reverse-mode automatic differentiation (backpropagation)
- * system optimized for probabilistic models. It tracks all operations and
- * can compute gradients efficiently.
+ * Simplified with pragmatic array handling and clearer invariants
  */
 
 export type ForwardFn = (inputs: number[]) => number;
@@ -22,6 +20,7 @@ export class ComputationNode {
   private backwardFn: BackwardFn;
   private cachedValue?: number;
   private isStale: boolean = true;
+  private dependents: Set<ComputationNode> = new Set();
   
   constructor(
     name: string,
@@ -38,8 +37,6 @@ export class ComputationNode {
     // Register this node as dependent on its inputs
     inputs.forEach(input => input.addDependent(this));
   }
-  
-  private dependents: Set<ComputationNode> = new Set();
   
   addDependent(node: ComputationNode): void {
     this.dependents.add(node);
@@ -83,10 +80,16 @@ export class ComputationNode {
     const inputValues = this.inputs.map(input => input.forward());
     const inputGradients = this.backwardFn(gradient, inputValues, this.cachedValue);
     
+    // Ensure we have gradients for all inputs
+    if (inputGradients.length !== this.inputs.length) {
+      throw new Error(`Backward function returned ${inputGradients.length} gradients but node has ${this.inputs.length} inputs`);
+    }
+    
     // Propagate gradients to inputs
     this.inputs.forEach((input, i) => {
-      if (inputGradients[i] !== 0) {
-        input.backward(inputGradients[i], tape);
+      const grad = inputGradients[i];
+      if (grad !== 0) {
+        input.backward(grad, tape);
       }
     });
   }
@@ -123,6 +126,10 @@ export class ParameterNode extends ComputationNode {
   updateWithGradient(gradient: number, learningRate: number): void {
     this.setValue(this.value - learningRate * gradient);
   }
+  
+  override forward(): number {
+    return this.value;
+  }
 }
 
 /**
@@ -145,7 +152,7 @@ export class GradientTape {
  * Computation graph manages all nodes and operations
  */
 export class ComputationGraph {
-  private static current_graph: ComputationGraph = new ComputationGraph();
+  private static currentGraph: ComputationGraph = new ComputationGraph();
   
   private nodes: Set<ComputationNode> = new Set();
   private parameters: Map<string, ParameterNode> = new Map();
@@ -154,14 +161,14 @@ export class ComputationGraph {
    * Get the current default graph
    */
   static current(): ComputationGraph {
-    return ComputationGraph.current_graph;
+    return ComputationGraph.currentGraph;
   }
   
   /**
    * Set the current default graph
    */
   static setCurrent(graph: ComputationGraph): void {
-    ComputationGraph.current_graph = graph;
+    ComputationGraph.currentGraph = graph;
   }
   
   /**
@@ -242,7 +249,7 @@ export class ComputationGraph {
 export class GraphContext {
   private previousGraph: ComputationGraph;
   
-  constructor(private graph: ComputationGraph) {
+  constructor(graph: ComputationGraph) {
     this.previousGraph = ComputationGraph.current();
     ComputationGraph.setCurrent(graph);
   }

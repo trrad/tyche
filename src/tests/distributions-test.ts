@@ -3,16 +3,9 @@
  */
 
 import { describe, test, expect, beforeEach } from 'vitest';
-import { 
-  beta, 
-  binomial, 
-  bernoulli,
-  normal,
-  standardNormal,
-  halfNormal 
-} from '../src/core/distributions';
-import { RandomVariable } from '../src/core/RandomVariable';
-import { ComputationGraph } from '../src/core/ComputationGraph';
+import { beta, binomial, bernoulli, normal, standardNormal, halfNormal } from '../core/distributions';
+import { RandomVariable } from '../core/RandomVariable';
+import { ComputationGraph } from '../core/ComputationGraph';
 
 describe('Distributions', () => {
   let graph: ComputationGraph;
