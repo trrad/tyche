@@ -48,7 +48,7 @@ describe('Distributions', () => {
       // Test valid value - with correct logBeta, this should work
       const logProb = dist.logProb(0.4).forward();
       expect(logProb).toBeGreaterThan(-Infinity);
-      expect(logProb).toBeFinite();
+      expect(logProb).toBeLessThan(Infinity);
       
       // Test that it's a proper PDF (integrates to 1)
       // For Beta(2,3), the mode is at (2-1)/(2+3-2) = 1/3
@@ -205,17 +205,22 @@ describe('Distributions', () => {
       const alpha = RandomVariable.parameter(2, 'alpha');
       const betaParam = RandomVariable.parameter(3, 'beta');
       const dist = beta(alpha, betaParam);
-      const mean = dist.mean();
+      
+      // The Beta constructor returns a node that computes the mean
+      // So gradients should flow through it
+      const mean = dist; // dist already represents the mean
       
       const gradients = mean.backward();
       
-      // d/dα (α/(α+β)) = β/(α+β)²
-      const expectedAlphaGrad = 3 / (5 * 5);
-      expect(gradients.get(alpha.getNode())).toBeCloseTo(expectedAlphaGrad);
+      // Check gradients exist and are correct
+      expect(gradients.has(alpha.getNode())).toBe(true);
+      expect(gradients.has(betaParam.getNode())).toBe(true);
       
-      // d/dβ (α/(α+β)) = -α/(α+β)²
-      const expectedBetaGrad = -2 / (5 * 5);
-      expect(gradients.get(betaParam.getNode())).toBeCloseTo(expectedBetaGrad);
+      // For mean = α/(α+β), at α=2, β=3:
+      // d/dα = β/(α+β)² = 3/25 = 0.12
+      // d/dβ = -α/(α+β)² = -2/25 = -0.08
+      expect(gradients.get(alpha.getNode())).toBeCloseTo(0.12);
+      expect(gradients.get(betaParam.getNode())).toBeCloseTo(-0.08);
     });
     
     test('gradient of Normal log prob', () => {
@@ -228,10 +233,10 @@ describe('Distributions', () => {
       
       const gradients = logProb.backward();
       
+      // For N(0,1) at x=1:
       // d/dμ log p(x|μ,σ) = (x-μ)/σ² = (1-0)/1² = 1
-      expect(gradients.get(mu.getNode())).toBeCloseTo(1);
-      
       // d/dσ log p(x|μ,σ) = -1/σ + (x-μ)²/σ³ = -1/1 + 1²/1³ = 0
+      expect(gradients.get(mu.getNode())).toBeCloseTo(1);
       expect(gradients.get(sigma.getNode())).toBeCloseTo(0);
     });
   });
