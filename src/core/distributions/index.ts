@@ -16,6 +16,12 @@ export { BinomialRV, binomial, bernoulli } from './Binomial';
 
 export { GammaRV, gamma } from './Gamma';
 
+// Exponential distribution
+export { ExponentialRV, exponential } from './Exponential';
+
+// LogNormal distribution  
+export { LogNormalRV, logNormal } from './LogNormal';
+
 // Normal distribution (includes Half-Normal)
 export { 
   NormalRV, 
