@@ -14,6 +14,8 @@ export { BetaRV, beta } from './Beta';
 // Binomial distribution (includes Bernoulli)
 export { BinomialRV, binomial, bernoulli } from './Binomial';
 
+export { GammaRV, gamma } from './Gamma';
+
 // Normal distribution (includes Half-Normal)
 export { 
   NormalRV, 

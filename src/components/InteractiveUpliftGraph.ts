@@ -1,6 +1,7 @@
 // src/components/InteractiveUpliftGraph.ts
 import * as d3 from 'd3';
 import { beta } from '../core/distributions/Beta';
+import { RNG } from '../core/math/random';
 
 interface UpliftStats {
   samples: number[];
@@ -142,18 +143,18 @@ export class InteractiveUpliftGraph {
     treatmentTotal: number,
     nSamples: number = 10000
   ): UpliftStats {
+    const rng = new RNG(); // or just new RNG() for random seed
     // Create posterior distributions
-    const controlDist = beta(1 + controlConv, 1 + controlTotal - controlConv);
-    const treatmentDist = beta(1 + treatmentConv, 1 + treatmentTotal - treatmentConv);
+    const controlDist = beta(1 + controlConv, 1 + controlTotal - controlConv, rng);
+    const treatmentDist = beta(1 + treatmentConv, 1 + treatmentTotal - treatmentConv, rng);
     
     // Generate samples
     const samples: number[] = [];
     let positiveCount = 0;
-    const rng = () => Math.random();
     
     for (let i = 0; i < nSamples; i++) {
-      const c = controlDist.sample(rng);
-      const t = treatmentDist.sample(rng);
+      const c = controlDist.sample();
+      const t = treatmentDist.sample();
       
       if (t > c) positiveCount++;
       
