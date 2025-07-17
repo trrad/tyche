@@ -49,13 +49,14 @@ export {
   defaultRNG,
   uniform,
   normal as normalSample,
-  gamma,
+  gamma as gammaSample,
   beta as betaSample,
   binomial as binomialSample
 } from './core/math/random';
 
 // Distribution exports
 export { BetaRV, beta } from './core/distributions/Beta';
+export { GammaRV, gamma } from './core/distributions/Gamma';
 export { BinomialRV, binomial, bernoulli } from './core/distributions/Binomial';
 export { 
   NormalRV, 
