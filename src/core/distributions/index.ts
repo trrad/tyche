@@ -5,6 +5,9 @@
  * support for Bayesian inference.
  */
 
+// Re-export the RNG for convenience
+export { RNG, defaultRNG } from '../math/random';
+
 // Beta distribution
 export { BetaRV, beta } from './Beta';
 
@@ -27,26 +30,38 @@ export type { RandomVariable, Shape, Tensor } from '../RandomVariable';
  * Common distribution patterns for Bayesian modeling
  */
 
+import { beta } from './Beta';
+import { RNG } from '../math/random';
+
 /**
  * Weakly informative prior for probability parameters
  * Beta(2, 2) - slight preference for values away from 0 and 1
  */
-export { beta as weaklyInformativeBeta } from './Beta';
+export function weaklyInformativeBeta(rng?: RNG) {
+  return beta(2, 2, rng);
+}
 
 /**
  * Jeffreys prior for probability parameters
  * Beta(0.5, 0.5) - invariant under reparameterization
  */
-export function jeffreysBeta() {
-  const { beta } = require('./Beta');
-  return beta(0.5, 0.5);
+export function jeffreysBeta(rng?: RNG) {
+  return beta(0.5, 0.5, rng);
 }
 
 /**
  * Uniform prior for probability parameters
  * Beta(1, 1) - all values equally likely
  */
-export function uniformBeta() {
-  const { beta } = require('./Beta');
-  return beta(1, 1);
+export function uniformBeta(rng?: RNG) {
+  return beta(1, 1, rng);
+}
+
+/**
+ * Haldane prior (improper)
+ * Beta(0, 0) - use with caution
+ */
+export function haldaneBeta(rng?: RNG) {
+  console.warn('Haldane prior Beta(0,0) is improper and may cause numerical issues');
+  return beta(1e-10, 1e-10, rng); // Small values to approximate
 }

@@ -1,67 +1,33 @@
 /**
- * Binomial Distribution - Pragmatic implementation
+ * Binomial Distribution - Updated to use math libraries
  */
 
 import { RandomVariable, log, subtract, multiply, add } from '../RandomVariable';
 import { ComputationGraph } from '../ComputationGraph';
-
-/**
- * Log factorial using simple iteration for small n, Stirling for large
- */
-function logFactorial(n: number): number {
-  if (n < 0) return -Infinity;
-  if (n === 0 || n === 1) return 0;
-  
-  if (n < 20) {
-    let result = 0;
-    for (let i = 2; i <= n; i++) {
-      result += Math.log(i);
-    }
-    return result;
-  }
-  
-  // Stirling's approximation
-  const logTwoPi = Math.log(2 * Math.PI);
-  return n * Math.log(n) - n + 0.5 * Math.log(n) + 0.5 * logTwoPi;
-}
-
-/**
- * Log binomial coefficient
- */
-function logBinomialCoefficient(n: number, k: number): number {
-  if (k > n || k < 0) return -Infinity;
-  if (k === 0 || k === n) return 0;
-  
-  // Use symmetry
-  if (k > n - k) {
-    k = n - k;
-  }
-  
-  if (n < 20) {
-    let result = 0;
-    for (let i = 0; i < k; i++) {
-      result += Math.log(n - i) - Math.log(i + 1);
-    }
-    return result;
-  }
-  
-  return logFactorial(n) - logFactorial(k) - logFactorial(n - k);
-}
+import { logBinomial } from '../math/special';
+import { RNG } from '../math/random';
 
 /**
  * Binomial distribution random variable
  */
 export class BinomialRV extends RandomVariable {
   private nValue: number;
+  private rng: RNG;
   
   constructor(
     n: number | RandomVariable,
     private p: RandomVariable,
-    graph?: ComputationGraph
+    graph?: ComputationGraph,
+    rng?: RNG
   ) {
     // Store n as a number for simplicity
     const nRV = RandomVariable.constant(n);
     const nVal = nRV.forward();
+    
+    // Validate n
+    if (nVal < 0 || nVal !== Math.floor(nVal)) {
+      throw new Error(`Invalid binomial parameter n=${nVal}. Must be a non-negative integer.`);
+    }
     
     const node = (graph || ComputationGraph.current()).createNode(
       'binomial',
@@ -83,85 +49,109 @@ export class BinomialRV extends RandomVariable {
     
     super(node, [], graph || ComputationGraph.current());
     this.nValue = nVal;
+    this.rng = rng || new RNG();
   }
   
   /**
-   * Sample from Binomial distribution
+   * Sample from Binomial distribution using better RNG
    */
-  override sample(rng: () => number): number {
+  override sample(customRng?: () => number): number {
     const n = this.nValue;
-    const p = this.p.forward();
+    const pVal = this.p.forward();
     
-    // Validate
-    if (n < 0 || n !== Math.floor(n)) {
-      throw new Error('n must be a non-negative integer');
+    // Validate p
+    if (pVal < 0 || pVal > 1) {
+      throw new Error(`Invalid probability p=${pVal}. Must be in [0, 1].`);
     }
     
-    // Direct method for small n
+    // If custom RNG provided, use basic implementation
+    if (customRng) {
+      return this.sampleBasic(n, pVal, customRng);
+    }
+    
+    // Use the better RNG implementation
+    return this.rng.binomial(n, pVal);
+  }
+  
+  /**
+   * Basic sampling for backward compatibility
+   */
+  private sampleBasic(n: number, p: number, rng: () => number): number {
+    // For small n, use direct method
     if (n < 30) {
       let successes = 0;
       for (let i = 0; i < n; i++) {
-        if (rng() < p) {
-          successes++;
-        }
+        if (rng() < p) successes++;
       }
       return successes;
     }
     
-    // Normal approximation for large n
-    if (n * p > 10 && n * (1 - p) > 10) {
-      const mean = n * p;
-      const stdDev = Math.sqrt(n * p * (1 - p));
-      const z = this.sampleNormal(0, 1, rng);
+    // For large n with appropriate p, use normal approximation
+    const mean = n * p;
+    const stdDev = Math.sqrt(n * p * (1 - p));
+    
+    if (mean > 10 && stdDev > 3) {
+      const z = this.normalFromUniform(rng);
       const sample = Math.round(mean + stdDev * z);
-      
       return Math.max(0, Math.min(n, sample));
     }
     
-    // Fallback to inverse CDF
-    return this.sampleInverseCDF(n, p, rng);
-  }
-  
-  private sampleInverseCDF(n: number, p: number, rng: () => number): number {
-    const u = rng();
-    let cdf = Math.pow(1 - p, n);
-    let k = 0;
-    
-    while (u > cdf && k < n) {
-      k++;
-      const prob = Math.exp(
-        logBinomialCoefficient(n, k) + 
-        k * Math.log(p) + 
-        (n - k) * Math.log(1 - p)
-      );
-      cdf += prob;
+    // Otherwise, use direct method
+    let successes = 0;
+    for (let i = 0; i < n; i++) {
+      if (rng() < p) successes++;
     }
-    
-    return k;
+    return successes;
   }
   
-  private sampleNormal(mean: number, stdDev: number, rng: () => number): number {
+  private normalFromUniform(rng: () => number): number {
     const u1 = rng();
     const u2 = rng();
-    const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    return z0 * stdDev + mean;
+    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
   }
   
   /**
-   * Log probability mass function
+   * Sample multiple values efficiently
+   */
+  sampleMultiple(size: number, customRng?: () => number): number[] {
+    const samples: number[] = new Array(size);
+    const n = this.nValue;
+    const pVal = this.p.forward();
+    
+    if (customRng) {
+      for (let i = 0; i < size; i++) {
+        samples[i] = this.sampleBasic(n, pVal, customRng);
+      }
+    } else {
+      for (let i = 0; i < size; i++) {
+        samples[i] = this.rng.binomial(n, pVal);
+      }
+    }
+    
+    return samples;
+  }
+  
+  /**
+   * Log probability mass function using imported logBinomial
    */
   override logProb(k: number | RandomVariable): RandomVariable {
     const kRV = RandomVariable.constant(k);
     const kVal = typeof k === 'number' ? k : k.forward();
     const n = this.nValue;
     
-    // Validate
+    // Validate k
     if (kVal < 0 || kVal > n || kVal !== Math.floor(kVal)) {
       return RandomVariable.constant(-Infinity);
     }
     
     // log(n choose k)
-    const logBinCoeff = logBinomialCoefficient(n, kVal);
+    const logBinCoeffNode = ComputationGraph.current().createNode(
+      'logBinomial',
+      [], // No dependencies on RandomVariables, just constants
+      () => logBinomial(n, kVal),
+      () => [] // No gradients for the binomial coefficient
+    );
+    const logBinCoeff = new RandomVariable(logBinCoeffNode);
     
     // k*log(p)
     const successTerm = multiply(kRV, log(this.p));
@@ -172,10 +162,8 @@ export class BinomialRV extends RandomVariable {
       log(subtract(1, this.p))
     );
     
-    return add(
-      RandomVariable.constant(logBinCoeff),
-      add(successTerm, failureTerm)
-    );
+    // Combine: log(n choose k) + k*log(p) + (n-k)*log(1-p)
+    return add(logBinCoeff, add(successTerm, failureTerm));
   }
   
   /**
@@ -200,25 +188,53 @@ export class BinomialRV extends RandomVariable {
   }
   
   /**
-   * Mode
+   * Standard deviation
+   */
+  stdDev(): RandomVariable {
+    return this.variance().pow(0.5);
+  }
+  
+  /**
+   * Mode: floor((n+1)*p)
    */
   mode(): number {
-    const p = this.p.forward();
-    return Math.floor((this.nValue + 1) * p);
+    const pVal = this.p.forward();
+    return Math.floor((this.nValue + 1) * pVal);
+  }
+  
+  /**
+   * Probability of success
+   */
+  getP(): RandomVariable {
+    return this.p;
+  }
+  
+  /**
+   * Number of trials
+   */
+  getN(): number {
+    return this.nValue;
   }
 }
 
 /**
  * Factory function for Binomial distribution
  */
-export function binomial(n: number, p: number | RandomVariable): BinomialRV {
+export function binomial(
+  n: number, 
+  p: number | RandomVariable,
+  rng?: RNG
+): BinomialRV {
   const pRV = RandomVariable.constant(p);
-  return new BinomialRV(n, pRV);
+  return new BinomialRV(n, pRV, undefined, rng);
 }
 
 /**
  * Bernoulli distribution (Binomial with n=1)
  */
-export function bernoulli(p: number | RandomVariable): BinomialRV {
-  return binomial(1, p);
+export function bernoulli(
+  p: number | RandomVariable,
+  rng?: RNG
+): BinomialRV {
+  return binomial(1, p, rng);
 }

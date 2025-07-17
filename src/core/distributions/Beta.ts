@@ -1,54 +1,34 @@
 /**
- * Beta Distribution - Refactored for pragmatic TypeScript usage
+ * Beta Distribution - Updated to use math libraries
  */
 
 import { RandomVariable, log, subtract, multiply, add } from '../RandomVariable';
 import { ComputationGraph } from '../ComputationGraph';
-
-/**
- * Log of the Beta function with basic validation
- */
-function logBeta(a: number, b: number): number {
-  if (a <= 0 || b <= 0) {
-    return -Infinity;
-  }
-  return logGamma(a) + logGamma(b) - logGamma(a + b);
-}
-
-/**
- * Simple log-gamma implementation
- */
-function logGamma(x: number): number {
-  if (x < 0.5) {
-    throw new Error('logGamma not implemented for x < 0.5');
-  }
-  
-  const logTwoPi = Math.log(2 * Math.PI);
-  return (x - 0.5) * Math.log(x) - x + 0.5 * logTwoPi;
-}
+import { logBeta, logGamma } from '../math/special';
+import { RNG } from '../math/random';
 
 /**
  * Beta distribution random variable
  */
 export class BetaRV extends RandomVariable {
+  private rng: RNG;
+  
   constructor(
     private alpha: RandomVariable,
     private beta: RandomVariable,
-    graph?: ComputationGraph
+    graph?: ComputationGraph,
+    rng?: RNG
   ) {
     const node = (graph || ComputationGraph.current()).createNode(
       'beta',
       [alpha.getNode(), beta.getNode()],
       (inputs) => {
-        // Validate inputs
         if (inputs.length < 2) return 0;
         const [a, b] = inputs;
-        
         // Forward pass returns mean of Beta distribution: alpha / (alpha + beta)
         return a / (a + b);
       },
       (grad, inputs) => {
-        // Validate inputs
         if (inputs.length < 2) return [0, 0];
         const [a, b] = inputs;
         
@@ -65,68 +45,99 @@ export class BetaRV extends RandomVariable {
     );
     
     super(node, [], graph || ComputationGraph.current());
+    this.rng = rng || new RNG();
   }
   
   /**
-   * Sample from Beta distribution
+   * Sample from Beta distribution using better RNG
    */
-  override sample(rng: () => number): number {
+  override sample(customRng?: () => number): number {
     const a = this.alpha.forward();
     const b = this.beta.forward();
     
-    // Sample from Gamma distributions
-    const gammaA = this.sampleGamma(a, 1, rng);
-    const gammaB = this.sampleGamma(b, 1, rng);
+    // Validate parameters
+    if (a <= 0 || b <= 0) {
+      throw new Error(`Invalid Beta parameters: alpha=${a}, beta=${b}`);
+    }
     
-    return gammaA / (gammaA + gammaB);
+    // If custom RNG provided, use it for backward compatibility
+    if (customRng) {
+      // Simple implementation for custom RNG
+      const x = this.sampleGammaBasic(a, 1, customRng);
+      const y = this.sampleGammaBasic(b, 1, customRng);
+      return x / (x + y);
+    }
+    
+    // Use the better RNG implementation
+    return this.rng.beta(a, b);
   }
   
   /**
-   * Sample from Gamma distribution (simplified)
+   * Basic gamma sampling for backward compatibility
    */
-  private sampleGamma(shape: number, scale: number, rng: () => number): number {
+  private sampleGammaBasic(shape: number, scale: number, rng: () => number): number {
+    // Simplified Marsaglia & Tsang method
     if (shape < 1) {
       const u = rng();
-      return this.sampleGamma(shape + 1, scale, rng) * Math.pow(u, 1 / shape);
+      return this.sampleGammaBasic(shape + 1, scale, rng) * Math.pow(u, 1 / shape);
     }
     
-    // For shape >= 1, use Marsaglia & Tsang method
     const d = shape - 1/3;
     const c = 1 / Math.sqrt(9 * d);
     
     while (true) {
-      let x, v;
+      const z = this.normalFromUniform(rng);
+      const v = 1 + c * z;
       
-      do {
-        x = this.sampleNormal(0, 1, rng);
-        v = 1 + c * x;
-      } while (v <= 0);
+      if (v <= 0) continue;
       
-      v = v * v * v;
+      const v3 = v * v * v;
       const u = rng();
       
-      if (u < 1 - 0.0331 * x * x * x * x) {
-        return d * v * scale;
+      if (u < 1 - 0.0331 * z * z * z * z) {
+        return d * v3 * scale;
       }
       
-      if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) {
-        return d * v * scale;
+      if (Math.log(u) < 0.5 * z * z + d * (1 - v3 + Math.log(v3))) {
+        return d * v3 * scale;
       }
     }
   }
   
-  /**
-   * Sample from standard normal using Box-Muller
-   */
-  private sampleNormal(mean: number, stdDev: number, rng: () => number): number {
+  private normalFromUniform(rng: () => number): number {
+    // Box-Muller transform
     const u1 = rng();
     const u2 = rng();
-    const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    return z0 * stdDev + mean;
+    return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
   }
   
   /**
-   * Log probability density function
+   * Sample multiple values efficiently
+   */
+  sampleMultiple(n: number, customRng?: () => number): number[] {
+    const samples: number[] = new Array(n);
+    const a = this.alpha.forward();
+    const b = this.beta.forward();
+    
+    if (customRng) {
+      // Use basic implementation
+      for (let i = 0; i < n; i++) {
+        const x = this.sampleGammaBasic(a, 1, customRng);
+        const y = this.sampleGammaBasic(b, 1, customRng);
+        samples[i] = x / (x + y);
+      }
+    } else {
+      // Use better RNG
+      for (let i = 0; i < n; i++) {
+        samples[i] = this.rng.beta(a, b);
+      }
+    }
+    
+    return samples;
+  }
+  
+  /**
+   * Log probability density function using imported logBeta
    */
   override logProb(value: number | RandomVariable): RandomVariable {
     const x = RandomVariable.constant(value);
@@ -149,30 +160,33 @@ export class BetaRV extends RandomVariable {
       log(subtract(1, x))
     );
     
-    // log(B(α, β))
+    // -log(B(α, β))
     const logBetaNode = ComputationGraph.current().createNode(
       'logBeta',
       [this.alpha.getNode(), this.beta.getNode()],
       (inputs) => {
         if (inputs.length < 2) return -Infinity;
-        return logBeta(inputs[0], inputs[1]);
+        return -logBeta(inputs[0], inputs[1]); // negative because we subtract it
       },
       (grad, inputs) => {
         if (inputs.length < 2) return [0, 0];
         const [a, b] = inputs;
         
-        // Approximate gradients using finite differences
-        return [
-          grad * (Math.log(a) - Math.log(a + b)),
-          grad * (Math.log(b) - Math.log(a + b))
-        ];
+        // d/da(-log(B(a,b))) = -d/da(log(B(a,b)))
+        // = -[ψ(a) - ψ(a+b)] where ψ is digamma
+        // For now, use finite differences
+        const h = 1e-8;
+        const grad_a = -(logBeta(a + h, b) - logBeta(a, b)) / h;
+        const grad_b = -(logBeta(a, b + h) - logBeta(a, b)) / h;
+        
+        return [grad * grad_a, grad * grad_b];
       }
     );
     
-    const logBetaRV = new RandomVariable(logBetaNode);
+    const negLogBetaRV = new RandomVariable(logBetaNode);
     
-    // Combine terms
-    return add(term1, term2).subtract(logBetaRV);
+    // Combine terms: (α-1)log(x) + (β-1)log(1-x) - log(B(α,β))
+    return add(add(term1, term2), negLogBetaRV);
   }
   
   /**
@@ -183,7 +197,7 @@ export class BetaRV extends RandomVariable {
   }
   
   /**
-   * Mean of the Beta distribution
+   * Mean of the Beta distribution: α/(α+β)
    */
   mean(): RandomVariable {
     return this.alpha.divide(this.alpha.add(this.beta));
@@ -193,6 +207,7 @@ export class BetaRV extends RandomVariable {
    * Mode of the Beta distribution (for α > 1, β > 1)
    */
   mode(): RandomVariable {
+    // (α-1)/(α+β-2)
     return subtract(this.alpha, 1).divide(
       add(this.alpha, this.beta).subtract(2)
     );
@@ -202,6 +217,7 @@ export class BetaRV extends RandomVariable {
    * Variance of the Beta distribution
    */
   variance(): RandomVariable {
+    // αβ / ((α+β)²(α+β+1))
     const alphaPlusBeta = this.alpha.add(this.beta);
     const numerator = this.alpha.multiply(this.beta);
     const denominator = alphaPlusBeta
@@ -210,6 +226,13 @@ export class BetaRV extends RandomVariable {
     
     return numerator.divide(denominator);
   }
+  
+  /**
+   * Standard deviation
+   */
+  stdDev(): RandomVariable {
+    return this.variance().pow(0.5);
+  }
 }
 
 /**
@@ -217,10 +240,11 @@ export class BetaRV extends RandomVariable {
  */
 export function beta(
   alpha: number | RandomVariable,
-  beta: number | RandomVariable
+  beta: number | RandomVariable,
+  rng?: RNG
 ): BetaRV {
   const alphaRV = RandomVariable.constant(alpha);
   const betaRV = RandomVariable.constant(beta);
   
-  return new BetaRV(alphaRV, betaRV);
+  return new BetaRV(alphaRV, betaRV, undefined, rng);
 }
