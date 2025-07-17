@@ -84,21 +84,19 @@ export class RandomVariable {
       'add',
       [this.node, otherVar.node],
       (inputs) => inputs[0] + inputs[1],
-      () => [1, 1]  // Both inputs get gradient 1
+      (grad) => [grad, grad]  // FIX: Multiply by incoming gradient
     );
     return new RandomVariable(node, this.shape, this.graph);
   }
-
-  /**
-   * Subtraction: a - b
-   */
+  
+  // Replace the subtract method:
   subtract(other: RandomVariable | number): RandomVariable {
     const otherVar = RandomVariable.constant(other);
     const node = this.graph.createNode(
-      'subtract',
+      'subtract', 
       [this.node, otherVar.node],
       (inputs) => inputs[0] - inputs[1],
-      () => [1, -1]  // Gradient is 1 for first input, -1 for second
+      (grad) => [grad, -grad]  // FIX: Multiply by incoming gradient
     );
     return new RandomVariable(node, this.shape, this.graph);
   }
