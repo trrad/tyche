@@ -18,7 +18,9 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:example": "vite serve --config vite.config.ts",
     "build": "tsc && vite build",
+    "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
@@ -40,6 +42,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "@types/random-js": "^1.0.31",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
     "@vitest/coverage-v8": "^1.2.0",
@@ -51,10 +54,12 @@
     "vite": "^5.0.11",
     "vitest": "^1.2.0"
   },
-  "peerDependencies": {
-    "d3": "^7.8.0"
-  },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "gamma": "^1.0.0",
+    "math-erf": "^1.0.0",
+    "random-js": "^2.1.0"
   }
 }

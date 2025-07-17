@@ -32,6 +32,28 @@ export {
   withGraph
 } from './core/ComputationGraph';
 
+// Mathematical utilities
+export {
+  logGamma,
+  logBeta,
+  logFactorial,
+  logBinomial,
+  erf,
+  erfc,
+  erfInv
+} from './core/math/special';
+
+// Random number generation
+export {
+  RNG,
+  defaultRNG,
+  uniform,
+  normal as normalSample,
+  gamma,
+  beta as betaSample,
+  binomial as binomialSample
+} from './core/math/random';
+
 // Distribution exports
 export { BetaRV, beta } from './core/distributions/Beta';
 export { BinomialRV, binomial, bernoulli } from './core/distributions/Binomial';
@@ -44,7 +66,12 @@ export {
 } from './core/distributions/Normal';
 
 // Common distribution patterns
-export { jeffreysBeta, uniformBeta } from './core/distributions';
+export { 
+  jeffreysBeta, 
+  uniformBeta,
+  weaklyInformativeBeta,
+  haldaneBeta
+} from './core/distributions';
 
 // Sampler exports
 export {
@@ -63,10 +90,13 @@ export const VERSION = '0.1.0';
  * 
  * @example
  * ```typescript
- * import { beta, MetropolisSampler } from 'tyche';
+ * import { beta, RNG, MetropolisSampler } from 'tyche';
  * 
- * // Define a simple model
- * const prior = beta(1, 1);
+ * // Create a reproducible RNG
+ * const rng = new RNG(12345);
+ * 
+ * // Define a model with better sampling
+ * const prior = beta(1, 1, rng);
  * 
  * // Run inference
  * const sampler = new MetropolisSampler();

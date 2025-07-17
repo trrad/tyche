@@ -250,9 +250,19 @@ export function exp(x: RandomVariable | number): RandomVariable {
  */
 export function sigmoid(x: RandomVariable | number): RandomVariable {
   const xVar = RandomVariable.constant(x);
-  return RandomVariable.constant(1).divide(
-    RandomVariable.constant(1).add(xVar.neg().exp())
+  const graph = ComputationGraph.current();
+  
+  const node = graph.createNode(
+    'sigmoid',
+    [xVar.getNode()],
+    (inputs) => 1 / (1 + Math.exp(-inputs[0])),
+    (grad, inputs) => {
+      const sig = 1 / (1 + Math.exp(-inputs[0]));
+      return [grad * sig * (1 - sig)];
+    }
   );
+  
+  return new RandomVariable(node, [], graph);
 }
 
 /**

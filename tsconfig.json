@@ -48,10 +48,14 @@
     // Advanced
     "allowUnusedLabels": false,
     "allowUnreachableCode": false,
-    "assumeChangesOnlyAffectDirectDependencies": true
+    "assumeChangesOnlyAffectDirectDependencies": true,
+    
+    // Include type declarations
+    "typeRoots": ["./node_modules/@types", "./src/types"]
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "examples/**/*"
   ],
   "exclude": [
     "node_modules",
