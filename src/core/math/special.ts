@@ -1,111 +1,101 @@
 // src/core/math/special.ts
 /**
- * Special mathematical functions using best-in-class micro-libraries
+ * Special mathematical functions - standalone implementations
  */
 
-// Note: You'll need to install these packages:
-// npm install --save gamma math-erf
-
-// Import from micro-libraries (these provide correct implementations)
-export { logGamma } from 'gamma';
-export { erf, erfc, erfInv } from 'math-erf';
-
-// Re-import for local use
-import { logGamma } from 'gamma';
-
-/**
- * Log of the beta function: log(B(a,b)) = log(Γ(a)) + log(Γ(b)) - log(Γ(a+b))
- */
-export function logBeta(a: number, b: number): number {
-  if (a <= 0 || b <= 0) return -Infinity;
-  return logGamma(a) + logGamma(b) - logGamma(a + b);
-}
-
-/**
- * Log factorial - efficient implementation
- */
-export function logFactorial(n: number): number {
-  if (n < 0) return -Infinity;
-  if (n <= 1) return 0;
-  
-  // For small n, use exact calculation
-  if (n < 20) {
-    let result = 0;
-    for (let i = 2; i <= n; i++) {
-      result += Math.log(i);
+// Simple but accurate logGamma using Stirling's approximation
+export function logGamma(x: number): number {
+    if (x <= 0) return NaN;
+    
+    if (x > 10) {
+      const LOG_SQRT_TWO_PI = 0.91893853320467274178;
+      return (x - 0.5) * Math.log(x) - x + LOG_SQRT_TWO_PI + 1/(12*x);
     }
-    return result;
-  }
-  
-  // For large n, use gamma function
-  // n! = Γ(n+1), so log(n!) = log(Γ(n+1))
-  return logGamma(n + 1);
-}
-
-/**
- * Log binomial coefficient: log(n choose k)
- */
-export function logBinomial(n: number, k: number): number {
-  if (k > n || k < 0 || n < 0) return -Infinity;
-  if (k === 0 || k === n) return 0;
-  
-  // Use symmetry property
-  if (k > n - k) {
-    k = n - k;
-  }
-  
-  // For small values, use direct calculation for accuracy
-  if (n < 20) {
+    
     let result = 0;
-    for (let i = 0; i < k; i++) {
-      result += Math.log(n - i) - Math.log(i + 1);
+    while (x < 10) {
+      result -= Math.log(x);
+      x += 1;
     }
-    return result;
+    
+    const LOG_SQRT_TWO_PI = 0.91893853320467274178;
+    return result + (x - 0.5) * Math.log(x) - x + LOG_SQRT_TWO_PI + 1/(12*x);
   }
   
-  // For large values, use gamma function
-  // (n choose k) = n! / (k! * (n-k)!)
-  // log(n choose k) = log(n!) - log(k!) - log((n-k)!)
-  return logGamma(n + 1) - logGamma(k + 1) - logGamma(n - k + 1);
-}
-
-/**
- * Digamma function (psi function) - derivative of log gamma
- * Simple approximation for now
- */
-export function digamma(x: number): number {
-  if (x <= 0) return NaN;
-  
-  // For large x, use asymptotic expansion
-  if (x > 10) {
-    return Math.log(x) - 0.5/x - 1/(12*x*x);
+  // Error function - good enough for Normal CDF
+  export function erf(x: number): number {
+    const a1 =  0.254829592;
+    const a2 = -0.284496736;
+    const a3 =  1.421413741;
+    const a4 = -1.453152027;
+    const a5 =  1.061405429;
+    const p  =  0.3275911;
+    
+    const sign = x < 0 ? -1 : 1;
+    x = Math.abs(x);
+    
+    const t = 1.0 / (1.0 + p * x);
+    const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+    
+    return sign * y;
   }
   
-  // For small x, use recurrence relation to shift to large x
-  let result = 0;
-  while (x < 10) {
-    result -= 1/x;
-    x += 1;
+  export function erfc(x: number): number {
+    return 1 - erf(x);
   }
   
-  return result + Math.log(x) - 0.5/x - 1/(12*x*x);
-}
-
-/**
- * Log of the absolute value of the gamma function
- * Returns [log|Γ(x)|, sign of Γ(x)]
- */
-export function logAbsGamma(x: number): [number, number] {
-  if (x > 0) {
-    return [logGamma(x), 1];
+  // Inverse error function - simple approximation
+  export function erfInv(x: number): number {
+    if (x >= 1) return Infinity;
+    if (x <= -1) return -Infinity;
+    if (x === 0) return 0;
+    
+    // Simple approximation that's good enough
+    const sign = x < 0 ? -1 : 1;
+    const a = Math.abs(x);
+    
+    const t = Math.sqrt(-2 * Math.log((1 - a) / 2));
+    const c0 = 2.515517;
+    const c1 = 0.802853;
+    const c2 = 0.010328;
+    
+    return sign * (t - (c0 + c1*t + c2*t*t) / (1 + 1.432788*t + 0.189269*t*t + 0.001308*t*t*t));
   }
   
-  // For negative x, use reflection formula
-  // Γ(x)Γ(1-x) = π/sin(πx)
-  const logAbsValue = Math.log(Math.PI) - Math.log(Math.abs(Math.sin(Math.PI * x))) - logGamma(1 - x);
+  // Rest of your functions...
+  export function logBeta(a: number, b: number): number {
+    if (a <= 0 || b <= 0) return -Infinity;
+    return logGamma(a) + logGamma(b) - logGamma(a + b);
+  }
   
-  // Sign alternates for negative integers
-  const sign = Math.floor(-x) % 2 === 0 ? 1 : -1;
+  export function logFactorial(n: number): number {
+    if (n < 0) return -Infinity;
+    if (n <= 1) return 0;
+    
+    if (n < 20) {
+      let result = 0;
+      for (let i = 2; i <= n; i++) {
+        result += Math.log(i);
+      }
+      return result;
+    }
+    
+    return logGamma(n + 1);
+  }
   
-  return [logAbsValue, sign];
-}
+  export function logBinomial(n: number, k: number): number {
+    if (k > n || k < 0 || n < 0) return -Infinity;
+    if (k === 0 || k === n) return 0;
+    
+    if (k > n - k) k = n - k;
+    
+    if (n < 20) {
+      let result = 0;
+      for (let i = 0; i < k; i++) {
+        result += Math.log(n - i) - Math.log(i + 1);
+      }
+      return result;
+    }
+    
+    return logGamma(n + 1) - logGamma(k + 1) - logGamma(n - k + 1);
+  }
