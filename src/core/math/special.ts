@@ -44,22 +44,29 @@ export function logGamma(x: number): number {
     return 1 - erf(x);
   }
   
-  // Inverse error function - simple approximation
+  // Inverse error function - approximation
   export function erfInv(x: number): number {
     if (x >= 1) return Infinity;
     if (x <= -1) return -Infinity;
     if (x === 0) return 0;
     
-    // Simple approximation that's good enough
+    // More accurate implementation using rational approximation
+    // Based on "A handy approximation for the error function and its inverse"
+    // by Sergei Winitzki
+    
+    const a = 0.147;  // Winitzki's constant
     const sign = x < 0 ? -1 : 1;
-    const a = Math.abs(x);
+    x = Math.abs(x);
     
-    const t = Math.sqrt(-2 * Math.log((1 - a) / 2));
-    const c0 = 2.515517;
-    const c1 = 0.802853;
-    const c2 = 0.010328;
+    const ln1mx2 = Math.log(1 - x * x);
+    const firstTerm = 2 / (Math.PI * a) + ln1mx2 / 2;
+    const secondTerm = ln1mx2 / a;
     
-    return sign * (t - (c0 + c1*t + c2*t*t) / (1 + 1.432788*t + 0.189269*t*t + 0.001308*t*t*t));
+    const result = Math.sqrt(
+      Math.sqrt(firstTerm * firstTerm - secondTerm) - firstTerm
+    );
+    
+    return sign * result;
   }
   
   // Rest of your functions...
