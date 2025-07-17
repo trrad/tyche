@@ -1,277 +1,255 @@
-// examples/ab-test-app.ts
-import { 
-  beta, 
-  ComputationGraph,
-  RandomVariable 
-} from '../src/index';
+// src/ab-test-app.ts
+import { beta } from '../src/core/distributions/Beta';
+import { UpliftGraph } from '../src/components/UpliftGraph';
 
-interface ABTestData {
-  control: { conversions: number; total: number };
-  treatment: { conversions: number; total: number };
-}
-
-interface ABTestResults {
-  controlRate: number;
-  treatmentRate: number;
-  probabilityTreatmentBetter: number;
-  expectedUplift: number;
-  upliftInterval: [number, number];
-  controlPosterior: { alpha: number; beta: number };
-  treatmentPosterior: { alpha: number; beta: number };
-}
-
-export class ABTestAnalyzer {
-  constructor(
-    private priorAlpha: number = 1,
-    private priorBeta: number = 1
-  ) {}
-
-  analyze(data: ABTestData, numSamples: number = 10000): ABTestResults {
-    // Create computation graph context
-    const graph = new ComputationGraph();
-    ComputationGraph.setCurrent(graph);
-
-    // Calculate posterior parameters using conjugacy
-    const controlPosterior = {
-      alpha: this.priorAlpha + data.control.conversions,
-      beta: this.priorBeta + data.control.total - data.control.conversions
-    };
-
-    const treatmentPosterior = {
-      alpha: this.priorAlpha + data.treatment.conversions,
-      beta: this.priorBeta + data.treatment.total - data.treatment.conversions
-    };
-
-    // Create Beta distributions
-    const controlDist = beta(controlPosterior.alpha, controlPosterior.beta);
-    const treatmentDist = beta(treatmentPosterior.alpha, treatmentPosterior.beta);
-
+/**
+ * Complete A/B Test Analysis Application with Uplift Visualization
+ * Shows how all the pieces come together in a real browser app
+ */
+export class ABTestApp {
+  private controlTotal = 1000;
+  private controlConversions = 87;
+  private treatmentTotal = 1000;
+  private treatmentConversions = 113;
+  private upliftGraph: UpliftGraph;
+  
+  constructor() {
+    this.setupUI();
+    this.upliftGraph = new UpliftGraph('uplift-graph-container');
+    this.updateResults();
+  }
+  
+  private setupUI() {
+    document.body.innerHTML = `
+      <div style="max-width: 1200px; margin: 0 auto; padding: 20px; font-family: system-ui, -apple-system, sans-serif;">
+        <h1 style="color: #1f2937; margin-bottom: 30px;">Bayesian A/B Test Calculator</h1>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px;">
+          <!-- Control Group -->
+          <div style="background: #f3f4f6; padding: 20px; border-radius: 8px;">
+            <h2 style="color: #374151; margin-bottom: 15px;">Control Group</h2>
+            <div style="margin-bottom: 15px;">
+              <label style="display: block; margin-bottom: 5px; color: #4b5563;">
+                Total Visitors:
+                <input type="number" id="control-total" value="${this.controlTotal}" 
+                       style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #d1d5db; border-radius: 4px;">
+              </label>
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 5px; color: #4b5563;">
+                Conversions:
+                <input type="number" id="control-conversions" value="${this.controlConversions}"
+                       style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #d1d5db; border-radius: 4px;">
+              </label>
+            </div>
+            <div style="margin-top: 15px; padding: 10px; background: white; border-radius: 4px;">
+              <p style="margin: 0; color: #6b7280; font-size: 14px;">
+                Conversion Rate: <span id="control-rate" style="font-weight: bold; color: #1f2937;">8.7%</span>
+              </p>
+            </div>
+          </div>
+          
+          <!-- Treatment Group -->
+          <div style="background: #e0e7ff; padding: 20px; border-radius: 8px;">
+            <h2 style="color: #4338ca; margin-bottom: 15px;">Treatment Group</h2>
+            <div style="margin-bottom: 15px;">
+              <label style="display: block; margin-bottom: 5px; color: #4b5563;">
+                Total Visitors:
+                <input type="number" id="treatment-total" value="${this.treatmentTotal}"
+                       style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #d1d5db; border-radius: 4px;">
+              </label>
+            </div>
+            <div>
+              <label style="display: block; margin-bottom: 5px; color: #4b5563;">
+                Conversions:
+                <input type="number" id="treatment-conversions" value="${this.treatmentConversions}"
+                       style="width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #d1d5db; border-radius: 4px;">
+              </label>
+            </div>
+            <div style="margin-top: 15px; padding: 10px; background: white; border-radius: 4px;">
+              <p style="margin: 0; color: #6b7280; font-size: 14px;">
+                Conversion Rate: <span id="treatment-rate" style="font-weight: bold; color: #4338ca;">11.3%</span>
+              </p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Results Section -->
+        <div style="background: white; border: 1px solid #e5e7eb; padding: 30px; border-radius: 8px; margin-bottom: 30px;">
+          <h2 style="color: #1f2937; margin-bottom: 20px;">Results</h2>
+          
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 20px;">
+            <div style="text-align: center; padding: 20px; background: #f9fafb; border-radius: 8px;">
+              <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 14px;">Probability of Improvement</p>
+              <p id="prob-improvement" style="margin: 0; font-size: 36px; font-weight: bold; color: #10b981;">92.3%</p>
+            </div>
+            
+            <div style="text-align: center; padding: 20px; background: #f9fafb; border-radius: 8px;">
+              <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 14px;">Expected Relative Uplift</p>
+              <p id="expected-uplift" style="margin: 0; font-size: 36px; font-weight: bold; color: #3b82f6;">+29.9%</p>
+            </div>
+            
+            <div style="text-align: center; padding: 20px; background: #f9fafb; border-radius: 8px;">
+              <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 14px;">95% Credible Interval</p>
+              <p id="credible-interval" style="margin: 0; font-size: 24px; font-weight: bold; color: #6366f1;">[+5.4%, +60.1%]</p>
+            </div>
+          </div>
+          
+          <div id="recommendation" style="padding: 20px; background: #d1fae5; border-radius: 8px; margin-bottom: 20px;">
+            <p style="margin: 0; color: #065f46; font-weight: bold;">
+              ✓ Treatment is likely better. Consider implementing the change.
+            </p>
+          </div>
+        </div>
+        
+        <!-- Uplift Distribution Graph -->
+        <div style="background: white; border: 1px solid #e5e7eb; padding: 30px; border-radius: 8px;">
+          <div id="uplift-graph-container"></div>
+        </div>
+        
+        <!-- Advanced Settings (collapsed by default) -->
+        <details style="margin-top: 30px;">
+          <summary style="cursor: pointer; padding: 15px; background: #f9fafb; border-radius: 8px; outline: none;">
+            Advanced Settings
+          </summary>
+          <div style="padding: 20px; background: #f9fafb; border-radius: 0 0 8px 8px; margin-top: -8px;">
+            <p style="margin: 0 0 15px 0; color: #6b7280;">
+              Prior Distribution: Beta(1, 1) - Uniform prior (Jeffrey's prior)
+            </p>
+            <p style="margin: 0; color: #6b7280;">
+              Monte Carlo Samples: 10,000
+            </p>
+          </div>
+        </details>
+      </div>
+    `;
+    
+    // Add event listeners
+    ['control-total', 'control-conversions', 'treatment-total', 'treatment-conversions'].forEach(id => {
+      const element = document.getElementById(id) as HTMLInputElement;
+      element.addEventListener('input', () => this.handleInputChange());
+    });
+  }
+  
+  private handleInputChange() {
+    // Update values from inputs
+    this.controlTotal = parseInt((document.getElementById('control-total') as HTMLInputElement).value) || 0;
+    this.controlConversions = parseInt((document.getElementById('control-conversions') as HTMLInputElement).value) || 0;
+    this.treatmentTotal = parseInt((document.getElementById('treatment-total') as HTMLInputElement).value) || 0;
+    this.treatmentConversions = parseInt((document.getElementById('treatment-conversions') as HTMLInputElement).value) || 0;
+    
+    // Validate inputs
+    this.controlConversions = Math.min(this.controlConversions, this.controlTotal);
+    this.treatmentConversions = Math.min(this.treatmentConversions, this.treatmentTotal);
+    
+    // Update UI with validated values
+    (document.getElementById('control-conversions') as HTMLInputElement).value = this.controlConversions.toString();
+    (document.getElementById('treatment-conversions') as HTMLInputElement).value = this.treatmentConversions.toString();
+    
+    this.updateResults();
+  }
+  
+  private updateResults() {
+    // Update conversion rates
+    const controlRate = this.controlTotal > 0 ? (this.controlConversions / this.controlTotal * 100) : 0;
+    const treatmentRate = this.treatmentTotal > 0 ? (this.treatmentConversions / this.treatmentTotal * 100) : 0;
+    
+    document.getElementById('control-rate')!.textContent = `${controlRate.toFixed(1)}%`;
+    document.getElementById('treatment-rate')!.textContent = `${treatmentRate.toFixed(1)}%`;
+    
+    // Calculate Bayesian results
+    const results = this.calculateBayesianResults();
+    
+    // Update UI
+    document.getElementById('prob-improvement')!.textContent = `${(results.probabilityOfImprovement * 100).toFixed(1)}%`;
+    document.getElementById('expected-uplift')!.textContent = 
+      results.expectedUplift >= 0 ? `+${results.expectedUplift.toFixed(1)}%` : `${results.expectedUplift.toFixed(1)}%`;
+    document.getElementById('credible-interval')!.textContent = 
+      `[${results.credibleInterval[0] >= 0 ? '+' : ''}${results.credibleInterval[0].toFixed(1)}%, ${results.credibleInterval[1] >= 0 ? '+' : ''}${results.credibleInterval[1].toFixed(1)}%]`;
+    
+    // Update recommendation
+    const recommendationEl = document.getElementById('recommendation')!;
+    if (results.probabilityOfImprovement > 0.95) {
+      recommendationEl.style.background = '#d1fae5';
+      recommendationEl.innerHTML = `
+        <p style="margin: 0; color: #065f46; font-weight: bold;">
+          ✓ Treatment is significantly better. Implement the change with confidence.
+        </p>
+      `;
+    } else if (results.probabilityOfImprovement > 0.8) {
+      recommendationEl.style.background = '#fef3c7';
+      recommendationEl.innerHTML = `
+        <p style="margin: 0; color: #92400e; font-weight: bold;">
+          ⚠ Treatment shows promise but needs more data for confidence.
+        </p>
+      `;
+    } else if (results.probabilityOfImprovement < 0.2) {
+      recommendationEl.style.background = '#fee2e2';
+      recommendationEl.innerHTML = `
+        <p style="margin: 0; color: #991b1b; font-weight: bold;">
+          ✗ Control is likely better. Consider keeping the original.
+        </p>
+      `;
+    } else {
+      recommendationEl.style.background = '#f3f4f6';
+      recommendationEl.innerHTML = `
+        <p style="margin: 0; color: #374151; font-weight: bold;">
+          ↔ No clear winner yet. Continue testing.
+        </p>
+      `;
+    }
+    
+    // Update the uplift graph
+    this.upliftGraph.update(
+      this.controlConversions,
+      this.controlTotal,
+      this.treatmentConversions,
+      this.treatmentTotal
+    );
+  }
+  
+  private calculateBayesianResults() {
+    // Create posterior distributions
+    const controlDist = beta(1 + this.controlConversions, 1 + this.controlTotal - this.controlConversions);
+    const treatmentDist = beta(1 + this.treatmentConversions, 1 + this.treatmentTotal - this.treatmentConversions);
+    
     // Monte Carlo simulation
-    const rng = () => Math.random();
+    const nSamples = 10000;
     let treatmentWins = 0;
-    const upliftSamples: number[] = [];
-
-    for (let i = 0; i < numSamples; i++) {
+    const uplifts: number[] = [];
+    const rng = () => Math.random();
+    
+    for (let i = 0; i < nSamples; i++) {
       const controlSample = controlDist.sample(rng);
       const treatmentSample = treatmentDist.sample(rng);
-
+      
       if (treatmentSample > controlSample) {
         treatmentWins++;
       }
-
-      const uplift = (treatmentSample - controlSample) / controlSample;
-      upliftSamples.push(uplift);
-    }
-
-    // Calculate statistics
-    upliftSamples.sort((a, b) => a - b);
-    const medianUplift = upliftSamples[Math.floor(numSamples / 2)];
-    const lowerUplift = upliftSamples[Math.floor(numSamples * 0.025)];
-    const upperUplift = upliftSamples[Math.floor(numSamples * 0.975)];
-
-    return {
-      controlRate: data.control.conversions / data.control.total,
-      treatmentRate: data.treatment.conversions / data.treatment.total,
-      probabilityTreatmentBetter: treatmentWins / numSamples,
-      expectedUplift: medianUplift,
-      upliftInterval: [lowerUplift, upperUplift],
-      controlPosterior,
-      treatmentPosterior
-    };
-  }
-
-  // Get posterior samples for visualization
-  getPosteriorSamples(
-    posterior: { alpha: number; beta: number }, 
-    numSamples: number = 1000
-  ): number[] {
-    const dist = beta(posterior.alpha, posterior.beta);
-    const rng = () => Math.random();
-    const samples: number[] = [];
-    
-    for (let i = 0; i < numSamples; i++) {
-      samples.push(dist.sample(rng));
-    }
-    
-    return samples;
-  }
-}
-
-// Export functions for the UI
-export function runAnalysis(): void {
-  const analyzer = new ABTestAnalyzer();
-  
-  // Get input values
-  const controlConversions = parseInt(
-    (document.getElementById('control-conversions') as HTMLInputElement).value
-  );
-  const controlTotal = parseInt(
-    (document.getElementById('control-total') as HTMLInputElement).value
-  );
-  const treatmentConversions = parseInt(
-    (document.getElementById('treatment-conversions') as HTMLInputElement).value
-  );
-  const treatmentTotal = parseInt(
-    (document.getElementById('treatment-total') as HTMLInputElement).value
-  );
-
-  // Validate
-  if (controlConversions > controlTotal || treatmentConversions > treatmentTotal) {
-    showError('Conversions cannot exceed total visitors');
-    return;
-  }
-
-  // Run analysis
-  const results = analyzer.analyze({
-    control: { conversions: controlConversions, total: controlTotal },
-    treatment: { conversions: treatmentConversions, total: treatmentTotal }
-  });
-
-  // Display results
-  displayResults(results);
-  
-  // Draw visualizations
-  drawPosteriorChart(analyzer, results);
-  drawUpliftChart(results);
-}
-
-function showError(message: string): void {
-  const errorDiv = document.getElementById('error-message');
-  if (errorDiv) {
-    errorDiv.textContent = message;
-    errorDiv.style.display = 'block';
-  }
-}
-
-function displayResults(results: ABTestResults): void {
-  const resultsDiv = document.getElementById('results');
-  if (resultsDiv) {
-    resultsDiv.style.display = 'block';
-  }
-
-  // Update metric cards
-  updateMetric('control-rate', `${(results.controlRate * 100).toFixed(1)}%`);
-  updateMetric('treatment-rate', `${(results.treatmentRate * 100).toFixed(1)}%`);
-  updateMetric('prob-improvement', `${(results.probabilityTreatmentBetter * 100).toFixed(1)}%`);
-  updateMetric('expected-uplift', `${(results.expectedUplift * 100).toFixed(1)}%`);
-  updateMetric(
-    'uplift-interval', 
-    `[${(results.upliftInterval[0] * 100).toFixed(1)}%, ${(results.upliftInterval[1] * 100).toFixed(1)}%]`
-  );
-
-  // Add visual indicator for significance
-  const probDiv = document.getElementById('prob-improvement-card');
-  if (probDiv) {
-    probDiv.classList.remove('winner', 'no-difference');
-    if (results.probabilityTreatmentBetter > 0.95) {
-      probDiv.classList.add('winner');
-    } else if (results.probabilityTreatmentBetter < 0.05) {
-      probDiv.classList.add('no-difference');
-    }
-  }
-}
-
-function updateMetric(id: string, value: string): void {
-  const element = document.getElementById(id);
-  if (element) {
-    element.textContent = value;
-  }
-}
-
-function drawPosteriorChart(analyzer: ABTestAnalyzer, results: ABTestResults): void {
-  const canvas = document.getElementById('posterior-chart') as HTMLCanvasElement;
-  if (!canvas) return;
-  
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  // Get samples for KDE
-  const controlSamples = analyzer.getPosteriorSamples(results.controlPosterior, 2000);
-  const treatmentSamples = analyzer.getPosteriorSamples(results.treatmentPosterior, 2000);
-
-  // Simple KDE visualization
-  const width = canvas.width;
-  const height = canvas.height;
-  const margin = 40;
-
-  // Clear canvas
-  ctx.clearRect(0, 0, width, height);
-
-  // Calculate density estimates
-  const xMin = 0;
-  const xMax = Math.max(...controlSamples, ...treatmentSamples) * 1.1;
-  const numPoints = 200;
-  const bandwidth = 0.02;
-
-  function kde(samples: number[], x: number): number {
-    let sum = 0;
-    for (const sample of samples) {
-      const diff = (x - sample) / bandwidth;
-      sum += Math.exp(-0.5 * diff * diff) / Math.sqrt(2 * Math.PI);
-    }
-    return sum / (samples.length * bandwidth);
-  }
-
-  // Draw axes
-  ctx.strokeStyle = '#718096';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(margin, height - margin);
-  ctx.lineTo(width - margin, height - margin);
-  ctx.moveTo(margin, margin);
-  ctx.lineTo(margin, height - margin);
-  ctx.stroke();
-
-  // Draw distributions
-  const drawDist = (samples: number[], color: string) => {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-
-    let maxDensity = 0;
-    const densities: number[] = [];
-
-    // Calculate densities
-    for (let i = 0; i < numPoints; i++) {
-      const x = xMin + (i / numPoints) * (xMax - xMin);
-      const density = kde(samples, x);
-      densities.push(density);
-      maxDensity = Math.max(maxDensity, density);
-    }
-
-    // Draw curve
-    for (let i = 0; i < numPoints; i++) {
-      const x = margin + (i / numPoints) * (width - 2 * margin);
-      const y = height - margin - (densities[i] / maxDensity) * (height - 2 * margin);
       
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
+      if (controlSample > 0) {
+        const uplift = (treatmentSample - controlSample) / controlSample * 100;
+        uplifts.push(uplift);
       }
     }
-    ctx.stroke();
-  };
-
-  drawDist(controlSamples, '#e53e3e');
-  drawDist(treatmentSamples, '#38a169');
-
-  // Legend
-  ctx.fillStyle = '#e53e3e';
-  ctx.fillRect(width - 150, 20, 15, 15);
-  ctx.fillStyle = '#2d3748';
-  ctx.font = '14px sans-serif';
-  ctx.fillText('Control', width - 130, 32);
-
-  ctx.fillStyle = '#38a169';
-  ctx.fillRect(width - 150, 45, 15, 15);
-  ctx.fillText('Treatment', width - 130, 57);
+    
+    // Sort for percentiles
+    uplifts.sort((a, b) => a - b);
+    
+    return {
+      probabilityOfImprovement: treatmentWins / nSamples,
+      expectedUplift: uplifts[Math.floor(uplifts.length * 0.5)],
+      credibleInterval: [
+        uplifts[Math.floor(uplifts.length * 0.025)],
+        uplifts[Math.floor(uplifts.length * 0.975)]
+      ] as [number, number]
+    };
+  }
 }
 
-function drawUpliftChart(results: ABTestResults): void {
-  // Similar implementation for uplift distribution
-  // This would show a histogram of the uplift samples
+// Initialize the app when the DOM is ready
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', () => {
+    new ABTestApp();
+  });
 }
-
-// Make functions available globally for HTML
-(window as any).runAnalysis = runAnalysis;
