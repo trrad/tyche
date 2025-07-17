@@ -1,6 +1,6 @@
 // src/ab-test-app.ts
 import { beta } from '../src/core/distributions/Beta';
-import { UpliftGraph } from '../src/components/UpliftGraph';
+import { InteractiveUpliftGraph as UpliftGraph} from '../src/components/InteractiveUpliftGraph';
 
 /**
  * Complete A/B Test Analysis Application with Uplift Visualization
@@ -17,6 +17,8 @@ export class ABTestApp {
     this.setupUI();
     this.upliftGraph = new UpliftGraph('uplift-graph-container');
     this.updateResults();
+
+    
   }
   
   private setupUI() {
