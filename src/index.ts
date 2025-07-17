@@ -58,6 +58,8 @@ export {
 export { BetaRV, beta } from './core/distributions/Beta';
 export { GammaRV, gamma } from './core/distributions/Gamma';
 export { BinomialRV, binomial, bernoulli } from './core/distributions/Binomial';
+export { ExponentialRV, exponential } from './core/distributions/Exponential';
+export { LogNormalRV, logNormal } from './core/distributions/LogNormal';
 export { 
   NormalRV, 
   normal, 
