@@ -3,17 +3,18 @@
  */
 
 import { describe, test, expect, beforeEach } from 'vitest';
-import { beta, binomial, bernoulli, normal, standardNormal, halfNormal } from '../core/distributions';
+import { beta, binomial, bernoulli, normal, standardNormal, halfNormal, RNG } from '../core/distributions';
 import { RandomVariable } from '../core/RandomVariable';
 import { ComputationGraph } from '../core/ComputationGraph';
 
 describe('Distributions', () => {
   let graph: ComputationGraph;
-  const rng = () => Math.random(); // Simple RNG for testing
+  let rng: RNG;
   
   beforeEach(() => {
     graph = new ComputationGraph();
     ComputationGraph.setCurrent(graph);
+    rng = new RNG(12345); // Seeded for reproducibility
   });
   
   describe('Beta Distribution', () => {
@@ -30,9 +31,9 @@ describe('Distributions', () => {
     });
     
     test('sampling produces values in [0, 1]', () => {
-      const dist = beta(2, 3);
+      const dist = beta(2, 3, rng);
       for (let i = 0; i < 100; i++) {
-        const sample = dist.sample(rng);
+        const sample = dist.sample();
         expect(sample).toBeGreaterThanOrEqual(0);
         expect(sample).toBeLessThanOrEqual(1);
       }
@@ -73,10 +74,10 @@ describe('Distributions', () => {
     
     test('sampling produces integers in [0, n]', () => {
       const n = 10;
-      const dist = binomial(n, 0.3);
+      const dist = binomial(n, 0.3, rng);
       
       for (let i = 0; i < 100; i++) {
-        const sample = dist.sample(rng);
+        const sample = dist.sample();
         expect(sample).toBeGreaterThanOrEqual(0);
         expect(sample).toBeLessThanOrEqual(n);
         expect(Number.isInteger(sample)).toBe(true);
@@ -179,10 +180,10 @@ describe('Distributions', () => {
   
   describe('Half-Normal Distribution', () => {
     test('sampling produces non-negative values', () => {
-      const dist = halfNormal(2);
+      const dist = halfNormal(2, rng);
       
       for (let i = 0; i < 100; i++) {
-        const sample = dist.sample(rng);
+        const sample = dist.sample();
         expect(sample).toBeGreaterThanOrEqual(0);
       }
     });
