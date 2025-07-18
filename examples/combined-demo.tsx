@@ -29,6 +29,21 @@ function BayesianAnalysisDemo() {
   const [revenueResults, setRevenueResults] = useState<any>(null);
   const [dataInput, setDataInput] = useState('');
   const [parsedData, setParsedData] = useState<Map<string, UserData[]> | null>(null);
+  const [showRawData, setShowRawData] = useState(false);
+  
+  // Data generation controls
+  const [genConfig, setGenConfig] = useState({
+    controlSize: 1000,
+    treatmentSize: 1000,
+    controlConvRate: 0.05,
+    treatmentConvRate: 0.055,
+    controlRevMean: 100,
+    treatmentRevMean: 105,
+    controlRevStd: 30,
+    treatmentRevStd: 35,
+    includeOutlier: false,
+    outlierValue: 2500
+  });
   
   // Compute posteriors with actual samples for simple A/B test
   const posteriorResults = useMemo(() => {
@@ -60,33 +75,6 @@ function BayesianAnalysisDemo() {
       median: sorted[Math.floor(samples.length / 2)],
       mean: samples.reduce((a, b) => a + b) / samples.length
     };
-  };
-  
-  // Revenue analysis functions
-  const generateRevenueData = () => {
-    const sampleCSV = `variant,converted,value
-Control,1,95.50
-Control,0,0
-Control,1,120.00
-Control,0,0
-Control,1,85.25
-Control,1,110.00
-Control,0,0
-Control,1,105.00
-Control,0,0
-Control,1,92.00
-Treatment,1,125.00
-Treatment,0,0
-Treatment,1,95.00
-Treatment,1,2500.00
-Treatment,1,110.00
-Treatment,0,0
-Treatment,1,105.00
-Treatment,1,115.00
-Treatment,0,0
-Treatment,1,88.00`;
-    
-    setDataInput(sampleCSV);
   };
   
   const analyzeRevenue = async () => {
@@ -146,6 +134,55 @@ Treatment,1,88.00`;
       console.error('Analysis error:', error);
       alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  };
+  
+  // Generate synthetic data based on config
+  const generateData = () => {
+    // Box-Muller transform for normal distribution
+    const randn = () => {
+      const u = 1 - Math.random();
+      const v = Math.random();
+      return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    };
+    
+    // Generate revenue value (log-normal distribution)
+    const generateRevenue = (mean: number, std: number): number => {
+      // Convert to log-normal parameters
+      const variance = std * std;
+      const meanLog = Math.log(mean * mean / Math.sqrt(variance + mean * mean));
+      const stdLog = Math.sqrt(Math.log(1 + variance / (mean * mean)));
+      return Math.exp(meanLog + randn() * stdLog);
+    };
+    
+    let csv = 'variant,converted,value\n';
+    let outlierAdded = false;
+    
+    // Generate Control data
+    for (let i = 0; i < genConfig.controlSize; i++) {
+      const converted = Math.random() < genConfig.controlConvRate;
+      const value = converted ? generateRevenue(genConfig.controlRevMean, genConfig.controlRevStd) : 0;
+      csv += `Control,${converted ? 1 : 0},${value.toFixed(2)}\n`;
+    }
+    
+    // Generate Treatment data
+    for (let i = 0; i < genConfig.treatmentSize; i++) {
+      const converted = Math.random() < genConfig.treatmentConvRate;
+      let value = 0;
+      
+      if (converted) {
+        // Add one outlier to treatment if enabled
+        if (genConfig.includeOutlier && !outlierAdded && Math.random() < 0.1) {
+          value = genConfig.outlierValue;
+          outlierAdded = true;
+        } else {
+          value = generateRevenue(genConfig.treatmentRevMean, genConfig.treatmentRevStd);
+        }
+      }
+      
+      csv += `Treatment,${converted ? 1 : 0},${value.toFixed(2)}\n`;
+    }
+    
+    setDataInput(csv.trim());
   };
   
   const formatPercent = (value: number, decimals: number = 1) => 
@@ -283,32 +320,233 @@ Treatment,1,88.00`;
         </div>
       ) : (
         <div className="space-y-6">
+          {/* Revenue Data Generator */}
+          <div className="bg-white p-4 rounded shadow">
+            <h2 className="text-xl font-semibold mb-4">Generate Test Data</h2>
+            
+            {/* Quick Presets */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => {
+                  setGenConfig({
+                    controlSize: 2000,
+                    treatmentSize: 2000,
+                    controlConvRate: 0.05,
+                    treatmentConvRate: 0.052,
+                    controlRevMean: 100,
+                    treatmentRevMean: 102,
+                    controlRevStd: 30,
+                    treatmentRevStd: 30,
+                    includeOutlier: false,
+                    outlierValue: 2500
+                  });
+                }}
+                className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm hover:bg-blue-200"
+              >
+                Small Effect
+              </button>
+              <button
+                onClick={() => {
+                  setGenConfig({
+                    controlSize: 500,
+                    treatmentSize: 500,
+                    controlConvRate: 0.04,
+                    treatmentConvRate: 0.045,
+                    controlRevMean: 80,
+                    treatmentRevMean: 85,
+                    controlRevStd: 25,
+                    treatmentRevStd: 30,
+                    includeOutlier: true,
+                    outlierValue: 3000
+                  });
+                }}
+                className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200"
+              >
+                With Outlier
+              </button>
+              <button
+                onClick={() => {
+                  setGenConfig({
+                    controlSize: 1000,
+                    treatmentSize: 1000,
+                    controlConvRate: 0.03,
+                    treatmentConvRate: 0.035,
+                    controlRevMean: 200,
+                    treatmentRevMean: 220,
+                    controlRevStd: 150,
+                    treatmentRevStd: 180,
+                    includeOutlier: false,
+                    outlierValue: 2500
+                  });
+                }}
+                className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-sm hover:bg-purple-200"
+              >
+                High Variance
+              </button>
+            </div>
+            
+            {/* Configuration Grid */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-3">
+                <h3 className="font-semibold text-gray-700">Control</h3>
+                <div>
+                  <label className="block text-sm text-gray-600">Sample Size</label>
+                  <input
+                    type="number"
+                    value={genConfig.controlSize}
+                    onChange={(e) => setGenConfig({...genConfig, controlSize: parseInt(e.target.value) || 0})}
+                    className="w-full px-3 py-1 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600">Conversion Rate</label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={genConfig.controlConvRate}
+                    onChange={(e) => setGenConfig({...genConfig, controlConvRate: parseFloat(e.target.value) || 0})}
+                    className="w-full px-3 py-1 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600">Revenue Mean ($)</label>
+                  <input
+                    type="number"
+                    value={genConfig.controlRevMean}
+                    onChange={(e) => setGenConfig({...genConfig, controlRevMean: parseFloat(e.target.value) || 0})}
+                    className="w-full px-3 py-1 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600">Revenue Std Dev ($)</label>
+                  <input
+                    type="number"
+                    value={genConfig.controlRevStd}
+                    onChange={(e) => setGenConfig({...genConfig, controlRevStd: parseFloat(e.target.value) || 0})}
+                    className="w-full px-3 py-1 border rounded"
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <h3 className="font-semibold text-gray-700">Treatment</h3>
+                <div>
+                  <label className="block text-sm text-gray-600">Sample Size</label>
+                  <input
+                    type="number"
+                    value={genConfig.treatmentSize}
+                    onChange={(e) => setGenConfig({...genConfig, treatmentSize: parseInt(e.target.value) || 0})}
+                    className="w-full px-3 py-1 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600">Conversion Rate</label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={genConfig.treatmentConvRate}
+                    onChange={(e) => setGenConfig({...genConfig, treatmentConvRate: parseFloat(e.target.value) || 0})}
+                    className="w-full px-3 py-1 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600">Revenue Mean ($)</label>
+                  <input
+                    type="number"
+                    value={genConfig.treatmentRevMean}
+                    onChange={(e) => setGenConfig({...genConfig, treatmentRevMean: parseFloat(e.target.value) || 0})}
+                    className="w-full px-3 py-1 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600">Revenue Std Dev ($)</label>
+                  <input
+                    type="number"
+                    value={genConfig.treatmentRevStd}
+                    onChange={(e) => setGenConfig({...genConfig, treatmentRevStd: parseFloat(e.target.value) || 0})}
+                    className="w-full px-3 py-1 border rounded"
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Outlier Controls */}
+            <div className="mt-4 p-3 bg-gray-50 rounded">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={genConfig.includeOutlier}
+                  onChange={(e) => setGenConfig({...genConfig, includeOutlier: e.target.checked})}
+                />
+                <span className="text-sm">Include outlier in treatment</span>
+              </label>
+              {genConfig.includeOutlier && (
+                <div className="mt-2">
+                  <label className="block text-sm text-gray-600">Outlier Value ($)</label>
+                  <input
+                    type="number"
+                    value={genConfig.outlierValue}
+                    onChange={(e) => setGenConfig({...genConfig, outlierValue: parseFloat(e.target.value) || 0})}
+                    className="w-24 px-3 py-1 border rounded"
+                  />
+                </div>
+              )}
+            </div>
+            
+            {/* Expected Effect Size */}
+            <div className="mt-4 p-3 bg-blue-50 rounded text-sm">
+              <div className="font-semibold mb-1">Expected Effect Sizes:</div>
+              <div>Conversion Rate: {((genConfig.treatmentConvRate / genConfig.controlConvRate - 1) * 100).toFixed(1)}%</div>
+              <div>Revenue per Converted: {((genConfig.treatmentRevMean / genConfig.controlRevMean - 1) * 100).toFixed(1)}%</div>
+              <div>Overall Revenue per User: {(((genConfig.treatmentConvRate * genConfig.treatmentRevMean) / (genConfig.controlConvRate * genConfig.controlRevMean) - 1) * 100).toFixed(1)}%</div>
+            </div>
+            
+            <button
+              onClick={generateData}
+              className="mt-4 w-full px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+            >
+              Generate Data
+            </button>
+          </div>
+          
           {/* Revenue Data Input */}
           <div className="bg-white p-4 rounded shadow">
-            <h2 className="text-xl font-semibold mb-4">Revenue Data (CSV)</h2>
-            <textarea
-              value={dataInput}
-              onChange={(e) => setDataInput(e.target.value)}
-              className="w-full h-64 p-3 border rounded font-mono text-sm"
-              placeholder="variant,converted,value
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Revenue Data</h2>
+              <button
+                onClick={() => setShowRawData(!showRawData)}
+                className="px-3 py-1 bg-gray-200 rounded text-sm hover:bg-gray-300"
+              >
+                {showRawData ? 'Hide' : 'Show'} Raw CSV
+              </button>
+            </div>
+            
+            {showRawData && (
+              <textarea
+                value={dataInput}
+                onChange={(e) => setDataInput(e.target.value)}
+                className="w-full h-64 p-3 border rounded font-mono text-sm mb-4"
+                placeholder="variant,converted,value
 Control,1,95.50
 Control,0,0
 Treatment,1,120.00
 ..."
-            />
-            <div className="mt-4 flex gap-4">
-              <button
-                onClick={generateRevenueData}
-                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-              >
-                Load Sample Data
-              </button>
+              />
+            )}
+            
+            <div className="flex gap-4 items-center">
               <button
                 onClick={analyzeRevenue}
                 className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                disabled={!dataInput.trim()}
               >
-                Analyze
+                Analyze Data
               </button>
+              {dataInput && (
+                <span className="text-sm text-gray-600">
+                  {dataInput.split('\n').length - 1} rows loaded
+                </span>
+              )}
             </div>
           </div>
           
@@ -488,26 +726,68 @@ Treatment,1,120.00
                 <div className="bg-purple-50 p-4 rounded">
                   <h3 className="font-semibold mb-4">Effect Drivers</h3>
                   {(Array.from(revenueResults.effectDrivers.entries()) as [string, any][]).map(([variant, drivers]) => {
+                    // The drivers are proportions that show what % of the effect comes from each component
+                    const conversionComponent = drivers.conversionComponent || 0;
+                    const valueComponent = drivers.valueComponent || 0;
+                    const interaction = drivers.interaction || 0;
+                    
                     return (
                       <div key={variant} className="mb-4">
                         <h4 className="font-medium mb-2">{variant} Effect Breakdown:</h4>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <span className="text-gray-600">Conversion Rate Effect:</span>
-                            <span className="ml-2 font-semibold">
-                              {formatPercent(drivers.conversionEffect?.reduce((a: number, b: number) => a + b, 0) / drivers.conversionEffect?.length || 0)}
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">From Conversion Rate Change:</span>
+                            <span className="font-semibold">
+                              {formatPercent(conversionComponent)}
                             </span>
                           </div>
-                          <div>
-                            <span className="text-gray-600">Value per User Effect:</span>
-                            <span className="ml-2 font-semibold">
-                              {formatPercent(drivers.valueEffect?.reduce((a: number, b: number) => a + b, 0) / drivers.valueEffect?.length || 0)}
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">From Value per User Change:</span>
+                            <span className="font-semibold">
+                              {formatPercent(valueComponent)}
                             </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">From Interaction:</span>
+                            <span className="font-semibold">
+                              {formatPercent(interaction)}
+                            </span>
+                          </div>
+                          
+                          {/* Visual bar chart */}
+                          <div className="mt-3 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <div className="w-20 text-xs text-gray-600">Conversion</div>
+                              <div className="flex-1 bg-gray-200 rounded-full h-4">
+                                <div 
+                                  className="bg-blue-500 h-4 rounded-full"
+                                  style={{width: `${conversionComponent * 100}%`}}
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="w-20 text-xs text-gray-600">Value</div>
+                              <div className="flex-1 bg-gray-200 rounded-full h-4">
+                                <div 
+                                  className="bg-green-500 h-4 rounded-full"
+                                  style={{width: `${valueComponent * 100}%`}}
+                                />
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
                     );
                   })}
+                  
+                  <div className="mt-4 p-3 bg-purple-100 rounded text-sm">
+                    <div className="font-semibold mb-1">How to interpret:</div>
+                    <ul className="space-y-1 text-gray-700">
+                      <li>• <strong>Conversion Rate</strong>: Effect from changes in conversion probability</li>
+                      <li>• <strong>Value per User</strong>: Effect from changes in purchase amounts</li>
+                      <li>• <strong>Interaction</strong>: Additional effect from both changing together</li>
+                    </ul>
+                  </div>
                 </div>
               )}
             </>
