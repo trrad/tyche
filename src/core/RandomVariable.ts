@@ -61,7 +61,7 @@ export class RandomVariable {
    * Sample from this random variable
    * Default implementation - should be overridden by distributions
    */
-  sample(_rng: () => number): number {
+  sample(_rng?: () => number): number {  // ← Add ? to make it optional
     return this.forward();
   }
 
