@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Combined Analysis Demo - Tyche</title>
+    <!-- Tailwind CSS via CDN for demo -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f9fafb;
+        }
+        
+        /* Custom styles for elements not covered by Tailwind */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            cursor: pointer;
+        }
+        
+        input[type="range"]::-webkit-slider-track {
+            background: #e5e7eb;
+            height: 4px;
+            border-radius: 2px;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            background: #3b82f6;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            margin-top: -6px;
+        }
+        
+        input[type="range"]::-moz-range-track {
+            background: #e5e7eb;
+            height: 4px;
+            border-radius: 2px;
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            background: #3b82f6;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            border: none;
+        }
+        
+        /* Histogram styles */
+        .histogram-bar {
+            fill: #3b82f6;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+        
+        .histogram-bar:hover {
+            opacity: 1;
+        }
+        
+        /* Result cards hover effect */
+        .result-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .result-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+    </style>
+    <!-- Import the additional CSS -->
+    <link rel="stylesheet" href="./combined-demo.css">
+    <link rel="stylesheet" href="./index.css">
+</head>
+<body>
+    <div id="root"></div>
+    <!-- Entry point for the React combined demo -->
+    <script type="module">
+        import React from 'react';
+        import ReactDOM from 'react-dom/client';
+        import BayesianAnalysisDemo from './combined-demo';
+
+        ReactDOM.createRoot(document.getElementById('root')).render(
+            React.createElement(React.StrictMode, null,
+                React.createElement(BayesianAnalysisDemo)
+            )
+        );
+    </script>
+</body>
+</html>
