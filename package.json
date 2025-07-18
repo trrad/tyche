@@ -18,8 +18,9 @@
   },
   "scripts": {
     "dev": "vite",
-    "dev:ab": "DEMO=ab-test vite",
-    "dev:combined": "DEMO=combined vite",
+    "dev:ab": "cross-env DEMO=ab-test vite",
+    "dev:combined": "cross-env DEMO=combined vite",
+    "dev:example": "vite serve --config vite.config.ts",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
@@ -48,6 +49,7 @@
     "@typescript-eslint/parser": "^6.19.0",
     "@vitest/coverage-v8": "^1.2.0",
     "@vitest/ui": "^1.2.0",
+    "cross-env": "^7.0.3",
     "eslint": "^8.56.0",
     "prettier": "^3.2.0",
     "typedoc": "^0.25.7",
@@ -59,6 +61,7 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@observablehq/plot": "^0.6.11",
     "@types/d3": "^7.4.3",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
