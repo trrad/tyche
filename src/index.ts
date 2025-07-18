@@ -85,6 +85,17 @@ export {
   type MetropolisOptions
 } from './samplers/Metropolis';
 
+// Model exports
+export { 
+  ConversionValueModel,
+  type UserData,
+  type VariantData,
+  type VariantSummary,
+  type ConversionValuePosterior,
+  type OutlierDiagnostic,
+  type EffectDriver
+} from './models/ConversionValueModel';
+
 // Version
 export const VERSION = '0.1.0';
 

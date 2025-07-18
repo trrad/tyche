@@ -37,6 +37,7 @@
     // JavaScript Support
     "allowJs": false,
     "checkJs": false,
+    "jsx": "react-jsx",
     
     // Editor Support
     "resolveJsonModule": true,
