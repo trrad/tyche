@@ -2,86 +2,107 @@
 
 *Greek goddess of fortune, chance, and probability*
 
-A TypeScript library for Bayesian inference and experimental design, running entirely in the browser with automatic differentiation and GPU acceleration (coming soon).
+A TypeScript library for Bayesian inference and experimental design, running entirely in the browser with automatic differentiation and (future) GPU acceleration.
 
 ## Core Features
 
-- 🎯 **Experimental Design Focus**: Built specifically for A/B testing, power analysis, and business experiments
+- 🎯 **Experimental Design Focus**: Built for A/B testing, power analysis, and business experiments
 - 🧮 **Automatic Differentiation**: Reverse-mode AD for gradient-based inference
 - 🚀 **Browser-Native**: Zero installation, instant startup
 - 📊 **Progressive Disclosure**: Simple API for beginners, full control for experts
 - 🔬 **Rigorous**: Diagnostics and best practices built in from the start
+- 🧩 **Composable Models**: Graph-based relationships between distributions
+- 🧠 **Tool for Thinking**: Designed for interactive, visual model building (future)
 
-## Project Structure
+## Project Structure (Current)
 
 ```
 src/
 ├── core/
 │   ├── RandomVariable.ts      # Core abstraction with AD
 │   ├── ComputationGraph.ts    # Automatic differentiation engine
+│   ├── math/
+│   │   ├── random.ts         # RNG and sampling utilities
+│   │   └── special.ts        # Special math functions
 │   └── distributions/
 │       ├── index.ts          # Distribution exports
 │       ├── Beta.ts           # Beta distribution
 │       ├── Binomial.ts       # Binomial/Bernoulli distributions
-│       └── Normal.ts         # Normal/Half-Normal distributions
+│       ├── Normal.ts         # Normal/Half-Normal distributions
+│       ├── Gamma.ts          # Gamma distribution
+│       ├── Exponential.ts    # Exponential distribution
+│       └── LogNormal.ts      # LogNormal distribution
 ├── samplers/
 │   └── Metropolis.ts         # Metropolis-Hastings sampler
-├── api/
-│   └── (coming) ABTest.ts    # High-level API for A/B tests
+├── models/
+│   └── ConversionValueModel.ts # Conversion + value modeling
+├── types/
+│   └── *.d.ts                # Type declarations
+├── tests/
+│   ├── distributions.test.ts # Distribution tests
+│   └── random-variable.test.ts # AD system tests
+├── examples/
+│   ├── basic-example.ts      # Usage examples
+│   └── combined-demo.tsx     # Interactive demo (React)
 └── index.ts                  # Main exports
-
-tests/
-├── RandomVariable.test.ts     # AD system tests
-└── distributions.test.ts      # Distribution tests
-
-examples/
-└── basic-examples.ts         # Usage examples
 ```
 
 ## Quick Start
 
 ```typescript
-import { beta, binomial, normal } from 'tyche';
+import { beta, RNG, MetropolisSampler } from 'tyche';
 
-// A/B test with Beta-Binomial model
-const prior = beta(1, 1);  // Uniform prior
-const posterior = beta(1 + 45, 1 + 455);  // After 45/500 conversions
+// Create a reproducible RNG
+const rng = new RNG(12345);
 
-// Parameter estimation with Normal distribution
-const mu = RandomVariable.parameter(0, 'mu');
-const sigma = RandomVariable.parameter(1, 'sigma');
-const likelihood = normal(mu, sigma);
+// Define a prior
+const prior = beta(1, 1, rng);
 
-// Gradient-based optimization
-const nll = data.map(x => likelihood.logProb(x)).reduce((a, b) => a.add(b));
-graph.gradientStep(nll.getNode(), learningRate);
+// Run inference
+const sampler = new MetropolisSampler();
+const results = sampler.sample(prior, 1000);
+```
+
+## Example: Conversion Value Modeling
+
+```typescript
+import { ConversionValueModel, beta } from 'tyche';
+
+const model = new ConversionValueModel(beta(1, 1), 'auto', 'revenue');
+model.addVariant({ name: 'Control', users: [
+  { converted: true, value: 100 },
+  { converted: false, value: 0 },
+  // ...
+] });
+const results = await model.analyze({ iterations: 3000 });
 ```
 
 ## Development Status
 
-### ✅ Phase 1 Core (Complete)
+### ✅ Core (Complete)
 - [x] RandomVariable abstraction with operator overloading
 - [x] Automatic differentiation (forward & reverse mode)
-- [x] Beta distribution implementation
-- [x] Binomial distribution (includes Bernoulli)
-- [x] Normal distribution (includes Half-Normal)
-- [x] Basic Metropolis-Hastings sampler
+- [x] Beta, Binomial, Normal, Gamma, Exponential, LogNormal distributions
+- [x] Metropolis-Hastings sampler
+- [x] ConversionValueModel for conversion + value analysis
 - [x] Test infrastructure with Vitest
 - [x] TypeScript configuration with strict mode
-- [x] Comprehensive examples
+- [x] Interactive React demo
 
-### 🚧 Phase 1 Remaining
+### 🚧 In Progress
 - [ ] High-level ABTest API
-- [ ] Basic visualizations
+- [ ] Basic visualizations (D3/React)
 - [ ] WebWorker parallelization setup
-- [ ] Gamma/Poisson distributions (for revenue models)
+- [ ] More diagnostics and user guidance
 
 ### 🔮 Future Phases
 - [ ] WebGL compute shaders for GPU acceleration
 - [ ] NUTS sampler implementation
 - [ ] Power analysis tools
-- [ ] Interactive visualization framework
-- [ ] More distributions (Gamma, Poisson, etc.)
+- [ ] Interactive node-based model builder
+- [ ] More distributions (Poisson, Mixture, etc.)
+- [ ] Automatic experiment design optimization
+- [ ] Heterogeneous treatment effect discovery (CATE)
 
 ## Design Principles
 
@@ -89,43 +110,8 @@ graph.gradientStep(nll.getNode(), learningRate);
 2. **Developer Experience**: Full TypeScript support with intuitive APIs
 3. **Performance When Needed**: Start simple, optimize with GPU when necessary
 4. **Diagnostics Built-In**: Every result includes convergence diagnostics
-
-## Getting Started
-
-```bash
-# Install dependencies
-npm install
-
-# Run tests
-npm test
-
-# Run tests with UI
-npm run test:ui
-
-# Build
-npm run build
-
-# Type checking
-npm run type-check
-```
-
-## Example: Gradient Descent
-
-```typescript
-import { RandomVariable, ComputationGraph } from 'tyche';
-
-// Create a simple quadratic loss: (x - 3)²
-const x = RandomVariable.parameter(0, 'x');
-const loss = x.subtract(3).pow(2);
-
-// Optimize using gradient descent
-const graph = ComputationGraph.current();
-for (let i = 0; i < 20; i++) {
-  console.log(`x = ${x.forward()}, loss = ${loss.forward()}`);
-  graph.gradientStep(loss.getNode(), 0.1);  // learning rate = 0.1
-}
-// x converges to 3
-```
+5. **Compositional Models**: Graph-based, node-driven model specification
+6. **Tool for Thinking**: Visual, interactive, and exploratory modeling (future)
 
 ## Example: Maximum Likelihood Estimation
 
@@ -156,7 +142,7 @@ for (let i = 0; i < 50; i++) {
 ## Architecture Notes
 
 ### RandomVariable<T>
-The core abstraction that tracks computational dependencies for automatic differentiation. Supports operator overloading for natural mathematical syntax:
+Tracks computational dependencies for automatic differentiation. Supports operator overloading for natural mathematical syntax:
 
 ```typescript
 const z = x.multiply(2).add(y.pow(2)).log();
@@ -167,7 +153,7 @@ Manages the DAG of operations and computes gradients efficiently via reverse-mod
 
 ### Distributions
 Each distribution implements:
-- **Sampling**: Efficient algorithms (Box-Muller for Normal, ratio of Gammas for Beta)
+- **Sampling**: Efficient algorithms (Box-Muller for Normal, ratio of Gammas for Beta, etc.)
 - **Log probability**: Numerically stable computation with AD support
 - **Moments**: Mean, variance, and other properties
 - **Gradients**: Full integration with the AD system
@@ -176,25 +162,16 @@ Currently implemented:
 - **Beta**: Conjugate prior for binomial data
 - **Binomial/Bernoulli**: Discrete outcomes modeling
 - **Normal/Half-Normal**: Continuous data and scale parameters
+- **Gamma, Exponential, LogNormal**: For value modeling and flexible likelihoods
 
 ## Next Steps
 
-1. Implement remaining distributions (Binomial, Normal)
-2. Build high-level ABTest API wrapper
+1. Implement remaining high-level APIs (ABTest, power analysis)
+2. Build node-based visual model builder
 3. Set up WebWorker infrastructure for parallel chains
-4. Create basic D3-based visualizations
-5. Add more comprehensive tests
+4. Create D3/React-based visualizations
+5. Add more comprehensive tests and diagnostics
 
-## Contributing
+## Future Vision
 
-The project is in early development. Key areas where help is needed:
-
-- Distribution implementations
-- Numerical stability improvements
-- WebGL compute shader expertise
-- API design feedback
-- Testing and benchmarking
-
-## License
-
-MIT
+Tyche aims to be a "tool for thinking"—enabling users to visually construct, explore, and optimize Bayesian models as interactive computation graphs. The goal is to make advanced inference, diagnostics, and experiment design accessible and intuitive for everyone, from business users to statisticians.
