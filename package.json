@@ -18,7 +18,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "dev:example": "vite serve --config vite.config.ts",
+    "dev:ab": "DEMO=ab-test vite",
+    "dev:combined": "DEMO=combined vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
