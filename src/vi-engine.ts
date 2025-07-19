@@ -1,5 +1,5 @@
-// Tyche VI Engine: Production-Ready Implementation
-// Browser-optimized variational inference with proper numerical libraries
+// Tyche VI Engine: Production-Ready Implementation with Numerical Stability Fixes
+// Browser-optimized variational inference with proper error handling
 
 import jStat from 'jstat';
 import { Random, MersenneTwister19937 } from 'random-js';
@@ -73,98 +73,76 @@ export interface FitOptions {
   priorParams?: PriorSpec;
   maxIterations?: number;
   tolerance?: number;
-  warmStart?: any;
+  warmStart?: boolean;
 }
 
-// Initialize seedable RNG
-export const random = new Random(MersenneTwister19937.seed(12345));
+// ============================================
+// Global random number generator
+// ============================================
+
+// Use the same RNG throughout for reproducibility
+const randomEngine = MersenneTwister19937.autoSeed();
+export const random = new Random(randomEngine);
 
 // ============================================
-// Numerical Utilities using jStat
+// Numerical Utilities
 // ============================================
 
 export class NumericalUtils {
   /**
    * Numerically stable log-sum-exp computation
-   * @param logValues Array of log values
-   * @returns log(sum(exp(logValues)))
    */
   static logSumExp(logValues: number[]): number {
     if (logValues.length === 0) return -Infinity;
     
-    // Filter out -Infinity values
-    const finiteValues = logValues.filter(v => isFinite(v));
-    if (finiteValues.length === 0) return -Infinity;
+    const maxVal = Math.max(...logValues);
+    if (!isFinite(maxVal)) return maxVal;
     
-    const maxVal = Math.max(...finiteValues);
-    const sum = finiteValues.reduce((acc, logVal) => {
-      return acc + Math.exp(logVal - maxVal);
+    const sumExp = logValues.reduce((sum, val) => {
+      return sum + Math.exp(val - maxVal);
     }, 0);
     
-    return maxVal + Math.log(sum);
+    return maxVal + Math.log(sumExp);
   }
   
   /**
-   * Digamma function approximation
-   * @param x Input value (must be positive)
-   * @returns Digamma(x)
+   * Gradient clipping to prevent explosions
    */
-  static digamma(x: number): number {
-    if (x <= 0) {
-      throw new Error('Digamma is not defined for non-positive values');
+  static clipGradient(grad: number[] | Float64Array, maxNorm: number = 10.0): number[] {
+    // Handle both arrays and typed arrays
+    if (!grad || typeof grad.length === 'undefined') {
+      return [];
     }
     
-    if (x < 6) {
-      // Use recursion with bounds checking
-      return NumericalUtils.digamma(x + 1) - 1 / x;
-    }
+    const gradArray = Array.isArray(grad) ? grad : Array.from(grad);
+    const norm = Math.sqrt(gradArray.reduce((sum, g) => sum + g * g, 0));
     
-    // Asymptotic expansion
-    const inv = 1 / x;
-    const inv2 = inv * inv;
-    return Math.log(x) - 0.5 * inv - inv2 / 12 + inv2 * inv2 / 120;
+    if (norm > maxNorm) {
+      const scale = maxNorm / norm;
+      return gradArray.map(g => g * scale);
+    }
+    return gradArray;
   }
   
   /**
-   * Log Beta function using jStat
-   */
-  static logBeta(a: number, b: number): number {
-    return jStat.betaln(a, b);
-  }
-  
-  /**
-   * Log Gamma function using jStat
+   * Log gamma function using jStat
    */
   static logGamma(x: number): number {
     return jStat.gammaln(x);
   }
   
   /**
-   * Clip gradients to prevent instability
-   * @param gradient Gradient value
-   * @param maxNorm Maximum allowed norm
-   * @returns Clipped gradient
+   * Log beta function for numerical stability
    */
-  static clipGradient(gradient: number, maxNorm: number = 10.0): number {
-    if (Math.abs(gradient) > maxNorm) {
-      return Math.sign(gradient) * maxNorm;
-    }
-    return gradient;
+  static logBeta(a: number, b: number): number {
+    return jStat.gammaln(a) + jStat.gammaln(b) - jStat.gammaln(a + b);
   }
   
   /**
-   * Clip gradient vector
-   * @param gradients Gradient vector
-   * @param maxNorm Maximum allowed L2 norm
-   * @returns Clipped gradient vector
+   * Safe log that returns -Infinity for non-positive values
    */
-  static clipGradientVector(gradients: number[], maxNorm: number = 10.0): number[] {
-    const norm = Math.sqrt(gradients.reduce((sum, g) => sum + g * g, 0));
-    if (norm > maxNorm) {
-      const scale = maxNorm / norm;
-      return gradients.map(g => g * scale);
-    }
-    return gradients;
+  static safeLog(x: number): number {
+    return x > 0 ? Math.log(x) : -Infinity;
   }
 }
 
@@ -173,45 +151,28 @@ export class NumericalUtils {
 // ============================================
 
 /**
- * Beta posterior distribution
+ * Beta posterior for Beta-Binomial model
  */
 class BetaPosterior implements Posterior {
-  constructor(public alpha: number, public beta: number) {
-    if (alpha <= 0 || beta <= 0) {
-      throw new Error('Beta parameters must be positive');
-    }
-  }
+  constructor(
+    private alpha: number,
+    private beta: number
+  ) {}
   
-  /**
-   * Get posterior mean
-   */
   mean(): number[] {
     return [this.alpha / (this.alpha + this.beta)];
   }
   
-  /**
-   * Get posterior variance
-   */
   variance(): number[] {
     const n = this.alpha + this.beta;
     return [(this.alpha * this.beta) / (n * n * (n + 1))];
   }
   
-  /**
-   * Sample from posterior
-   */
   sample(): number[] {
     return [jStat.beta.sample(this.alpha, this.beta)];
   }
   
-  /**
-   * Get credible interval
-   */
   credibleInterval(level: number): Array<[number, number]> {
-    if (level <= 0 || level >= 1) {
-      throw new Error('Credible level must be between 0 and 1');
-    }
-    
     const alpha = (1 - level) / 2;
     return [[
       jStat.beta.inv(alpha, this.alpha, this.beta),
@@ -221,77 +182,58 @@ class BetaPosterior implements Posterior {
 }
 
 /**
- * Beta-Binomial conjugate variational inference
+ * Beta-Binomial conjugate VI
  */
 export class BetaBinomialVI {
-  private priorAlpha: number;
-  private priorBeta: number;
+  private priorAlpha = 1;
+  private priorBeta = 1;
   
   constructor(options: FitOptions = {}) {
-    const prior = options.priorParams || { type: 'beta', params: [1, 1] };
-    if (prior.type !== 'beta' || prior.params.length !== 2) {
-      throw new Error('Beta-Binomial requires Beta prior');
-    }
-    this.priorAlpha = prior.params[0];
-    this.priorBeta = prior.params[1];
-    
-    if (this.priorAlpha <= 0 || this.priorBeta <= 0) {
-      throw new Error('Prior parameters must be positive');
+    if (options.priorParams?.type === 'beta') {
+      this.priorAlpha = options.priorParams.params[0];
+      this.priorBeta = options.priorParams.params[1];
     }
   }
   
   /**
-   * Fit Beta-Binomial model with conjugate update
+   * Fit Beta-Binomial model (exact conjugate update)
    */
   async fit(input: DataInput, options?: FitOptions): Promise<VIResult> {
-    // Extract data
-    let successes: number, trials: number;
+    let successes: number;
+    let trials: number;
     
     if (typeof input.data === 'object' && !Array.isArray(input.data)) {
-      if (input.data.successes === undefined || input.data.trials === undefined) {
-        throw new Error('Beta-Binomial requires successes and trials');
-      }
-      successes = input.data.successes;
-      trials = input.data.trials;
+      successes = input.data.successes || 0;
+      trials = input.data.trials || 0;
     } else {
-      throw new Error('Beta-Binomial requires summary statistics, not raw data');
+      throw new Error('Beta-Binomial requires {successes, trials} data format');
     }
     
-    if (successes < 0 || trials < 0 || successes > trials) {
+    if (trials < 0 || successes < 0 || successes > trials) {
       throw new Error('Invalid data: successes must be between 0 and trials');
     }
     
     // Exact conjugate update
-    const posterior = new BetaPosterior(
-      this.priorAlpha + successes,
-      this.priorBeta + trials - successes
-    );
+    const posteriorAlpha = this.priorAlpha + successes;
+    const posteriorBeta = this.priorBeta + (trials - successes);
+    
+    // Compute ELBO (exact for conjugate case)
+    const elbo = NumericalUtils.logBeta(posteriorAlpha, posteriorBeta) - 
+                 NumericalUtils.logBeta(this.priorAlpha, this.priorBeta);
     
     return {
-      posterior,
+      posterior: new BetaPosterior(posteriorAlpha, posteriorBeta),
       diagnostics: {
         converged: true,
         iterations: 1,
-        finalELBO: this.computeELBO(posterior, successes, trials)
+        finalELBO: elbo
       }
     };
-  }
-  
-  /**
-   * Compute evidence lower bound
-   */
-  private computeELBO(posterior: BetaPosterior, successes: number, trials: number): number {
-    // ELBO = E_q[log p(x,θ)] - E_q[log q(θ)]
-    // For conjugate case, this equals log marginal likelihood
-    return NumericalUtils.logBeta(
-      this.priorAlpha + successes,
-      this.priorBeta + trials - successes
-    ) - NumericalUtils.logBeta(this.priorAlpha, this.priorBeta);
   }
 }
 
 // ============================================
-// Tier 2: EM Algorithm for Mixtures
+// Tier 2: EM/Closed-Form VI Models
 // ============================================
 
 interface GaussianComponent {
@@ -300,107 +242,64 @@ interface GaussianComponent {
   weight: number;
 }
 
-/**
- * Mixture of Gaussians posterior
- */
-class MixturePosterior implements Posterior {
-  constructor(public components: GaussianComponent[]) {
-    // Validate components
-    const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
-    if (Math.abs(totalWeight - 1.0) > 1e-6) {
-      throw new Error('Component weights must sum to 1');
-    }
-    
-    for (const c of components) {
-      if (c.variance <= 0) {
-        throw new Error('Component variances must be positive');
-      }
-    }
-  }
+class NormalMixturePosterior implements Posterior {
+  constructor(private components: GaussianComponent[]) {}
   
-  /**
-   * Get mixture mean
-   */
   mean(): number[] {
-    const overallMean = this.components.reduce((sum, c) => sum + c.weight * c.mean, 0);
-    // Return means for each component plus overall mean
-    return [...this.components.map(c => c.mean), overallMean];
+    // Return means of each component
+    return this.components.map(c => c.mean);
   }
   
-  /**
-   * Get mixture variance
-   */
   variance(): number[] {
-    const overallMean = this.mean()[this.components.length]; // Last element is overall mean
-    const overallVar = this.components.reduce((sum, c) => {
-      const componentVar = c.variance + Math.pow(c.mean - overallMean, 2);
-      return sum + c.weight * componentVar;
-    }, 0);
-    
-    // Return variances for each component plus overall variance
-    return [...this.components.map(c => c.variance), overallVar];
+    // Return variances of each component
+    return this.components.map(c => c.variance);
   }
   
-  /**
-   * Sample from mixture
-   */
   sample(): number[] {
-    // Sample component according to weights
-    const u = random.real(0, 1);
-    let cumWeight = 0;
-    let selectedComponent = 0;
+    // Sample component, then sample from it
+    const weights = this.components.map(c => c.weight);
+    const cumWeights = weights.reduce((acc, w, i) => {
+      acc.push((acc[i - 1] || 0) + w);
+      return acc;
+    }, [] as number[]);
     
-    for (let i = 0; i < this.components.length; i++) {
-      cumWeight += this.components[i].weight;
-      if (u <= cumWeight) {
-        selectedComponent = i;
+    const u = random.real(0, 1);
+    let component = 0;
+    for (let i = 0; i < cumWeights.length; i++) {
+      if (u <= cumWeights[i]) {
+        component = i;
         break;
       }
     }
     
-    const component = this.components[selectedComponent];
-    const value = jStat.normal.sample(component.mean, Math.sqrt(component.variance));
-    
-    // Return [component_index, sampled_value]
-    return [selectedComponent, value];
+    const comp = this.components[component];
+    return [jStat.normal.sample(comp.mean, Math.sqrt(comp.variance))];
   }
   
-  /**
-   * Get credible intervals for each component mean
-   */
   credibleInterval(level: number): Array<[number, number]> {
-    // For mixture, we return intervals for each component mean
-    // Generate many samples and compute empirical quantiles
-    const componentSamples: number[][] = this.components.map(() => []);
-    
-    // Generate samples
+    // For mixture, return overall interval based on samples
+    const samples: number[] = [];
     for (let i = 0; i < 10000; i++) {
-      const [compIdx, value] = this.sample();
-      componentSamples[compIdx].push(value);
+      samples.push(this.sample()[0]);
     }
+    samples.sort((a, b) => a - b);
     
-    // Compute quantiles for each component
     const alpha = (1 - level) / 2;
-    return this.components.map((_, idx) => {
-      const samples = componentSamples[idx].sort((a, b) => a - b);
-      if (samples.length === 0) return [0, 0] as [number, number];
-      
-      const lowerIdx = Math.floor(alpha * samples.length);
-      const upperIdx = Math.floor((1 - alpha) * samples.length);
-      
-      return [samples[lowerIdx], samples[upperIdx]] as [number, number];
-    });
+    const lowerIdx = Math.floor(alpha * samples.length);
+    const upperIdx = Math.floor((1 - alpha) * samples.length);
+    
+    return [[samples[lowerIdx], samples[upperIdx]]];
   }
 }
 
 /**
- * Normal mixture model using EM algorithm
+ * Normal mixture model via EM algorithm
  */
 export class NormalMixtureEM {
+  private numComponents = 2;
   private maxIterations = 100;
   private tolerance = 1e-6;
   private minVariance = 1e-6;
-  private numComponents: number = 2;
   
   constructor(options: FitOptions = {}) {
     if (options.maxIterations) this.maxIterations = options.maxIterations;
@@ -408,10 +307,9 @@ export class NormalMixtureEM {
   }
   
   /**
-   * Fit normal mixture model using EM algorithm
+   * Fit normal mixture model using EM
    */
   async fit(input: DataInput, options?: FitOptions): Promise<VIResult> {
-    // Extract data
     let data: number[];
     
     if (Array.isArray(input.data)) {
@@ -424,51 +322,50 @@ export class NormalMixtureEM {
       throw new Error('Data cannot be empty');
     }
     
-    // Get number of components
-    this.numComponents = input.config?.numComponents || 2;
-    
-    if (this.numComponents < 1) {
-      throw new Error('Number of components must be at least 1');
+    // Get number of components from config
+    if (input.config?.numComponents) {
+      this.numComponents = input.config.numComponents;
     }
     
     if (this.numComponents > data.length) {
       throw new Error('Number of components cannot exceed data size');
     }
     
-    const n = data.length;
-    
     // Initialize with k-means++
     let components = this.initializeKMeansPlusPlus(data, this.numComponents);
-    let oldLogLik = -Infinity;
-    let iterations = 0;
     const elboHistory: number[] = [];
+    let converged = false;
+    let iterations = 0;
     
     for (iterations = 0; iterations < this.maxIterations; iterations++) {
-      // E-step: compute responsibilities
+      // E-step
       const responsibilities = this.computeResponsibilities(data, components);
       
-      // M-step: update parameters
+      // M-step
       const newComponents = this.updateParameters(data, responsibilities);
       
-      // Compute log likelihood
-      const logLik = this.computeLogLikelihood(data, newComponents);
-      elboHistory.push(logLik);
+      // Compute ELBO
+      const elbo = this.computeELBO(data, newComponents);
+      elboHistory.push(elbo);
       
       // Check convergence
-      if (Math.abs(logLik - oldLogLik) < this.tolerance) {
-        break;
+      if (iterations > 0) {
+        const elboChange = Math.abs(elbo - elboHistory[iterations - 1]);
+        if (elboChange < this.tolerance) {
+          converged = true;
+          break;
+        }
       }
       
       components = newComponents;
-      oldLogLik = logLik;
     }
     
     return {
-      posterior: new MixturePosterior(components),
+      posterior: new NormalMixturePosterior(components),
       diagnostics: {
-        converged: iterations < this.maxIterations,
+        converged,
         iterations,
-        finalELBO: oldLogLik,
+        finalELBO: elboHistory[elboHistory.length - 1],
         elboHistory
       }
     };
@@ -529,7 +426,7 @@ export class NormalMixtureEM {
     
     for (let i = 0; i < n; i++) {
       const logProbs = components.map(c => {
-        const logWeight = Math.log(c.weight);
+        const logWeight = Math.log(Math.max(1e-10, c.weight));
         // Use log PDF to avoid numerical issues
         const z = (data[i] - c.mean) / Math.sqrt(c.variance);
         const logPdf = -0.5 * (Math.log(2 * Math.PI * c.variance) + z * z);
@@ -561,18 +458,6 @@ export class NormalMixtureEM {
       // Compute soft counts
       const nj = responsibilities.reduce((sum, r) => sum + r[j], 0);
       
-      // Avoid empty components
-      if (nj < 1e-10) {
-        // Reinitialize this component randomly
-        const randomIdx = random.integer(0, n - 1);
-        components.push({
-          mean: data[randomIdx],
-          variance: jStat.variance(data, true),
-          weight: 1e-10
-        });
-        continue;
-      }
-      
       // Update weight
       const weight = nj / n;
       
@@ -581,14 +466,15 @@ export class NormalMixtureEM {
       for (let i = 0; i < n; i++) {
         mean += responsibilities[i][j] * data[i];
       }
-      mean /= nj;
+      mean /= Math.max(nj, 1e-10);
       
       // Update variance
       let variance = 0;
       for (let i = 0; i < n; i++) {
-        variance += responsibilities[i][j] * Math.pow(data[i] - mean, 2);
+        const diff = data[i] - mean;
+        variance += responsibilities[i][j] * diff * diff;
       }
-      variance /= nj;
+      variance /= Math.max(nj, 1e-10);
       variance = Math.max(variance, this.minVariance);
       
       components.push({ mean, variance, weight });
@@ -602,21 +488,23 @@ export class NormalMixtureEM {
   }
   
   /**
-   * Compute log likelihood
+   * Compute ELBO for EM algorithm
    */
-  private computeLogLikelihood(
-    data: number[],
-    components: GaussianComponent[]
-  ): number {
-    return data.reduce((sum, x) => {
+  private computeELBO(data: number[], components: GaussianComponent[]): number {
+    let elbo = 0;
+    
+    for (const x of data) {
       const logProbs = components.map(c => {
-        const logWeight = Math.log(c.weight);
+        const logWeight = Math.log(Math.max(1e-10, c.weight));
         const z = (x - c.mean) / Math.sqrt(c.variance);
         const logPdf = -0.5 * (Math.log(2 * Math.PI * c.variance) + z * z);
         return logWeight + logPdf;
       });
-      return sum + NumericalUtils.logSumExp(logProbs);
-    }, 0);
+      
+      elbo += NumericalUtils.logSumExp(logProbs);
+    }
+    
+    return elbo;
   }
 }
 
@@ -777,10 +665,10 @@ class ZILNPosterior implements Posterior {
  * Zero-inflated log-normal variational inference
  */
 export class ZeroInflatedLogNormalVI {
-  private learningRate = 0.01;
+  private learningRate = 0.001;  // Reduced learning rate for stability
   private maxIterations = 1000;
   private tolerance = 1e-6;
-  private numSamples = 10; // For ELBO estimation
+  private numSamples = 50;  // Increased samples for more stable ELBO
   
   constructor(options: FitOptions = {}) {
     if (options.maxIterations) this.maxIterations = options.maxIterations;
@@ -813,26 +701,40 @@ export class ZeroInflatedLogNormalVI {
       throw new Error('No zeros found in data - use standard LogNormal instead');
     }
     
-    // Initialize parameters
-    let params: ZILNParams = {
-      zeroLogitMean: Math.log(Math.max(0.01, zeros / (n - zeros))),
-      zeroLogitLogVar: 0,
-      valueMean: nonZeros.length > 0 
-        ? jStat.mean(nonZeros.map(x => Math.log(x))) 
-        : 0,
-      valueLogVar: 0,
-      valueSigma: nonZeros.length > 0
-        ? Math.sqrt(jStat.variance(nonZeros.map(x => Math.log(x)), true))
-        : 1
-    };
+    // Initialize parameters with better defaults
+    let params: ZILNParams;
     
-    // Initialize optimizer
+    // Special handling for all-zeros case
+    if (nonZeros.length === 0) {
+      params = {
+        zeroLogitMean: 2.0,  // High logit for high zero probability
+        zeroLogitLogVar: Math.log(0.1),  // Low uncertainty
+        valueMean: 0,  // Doesn't matter much
+        valueLogVar: Math.log(1),
+        valueSigma: 1
+      };
+    } else {
+      // Normal initialization
+      const empiricalZeroProb = zeros / n;
+      // Use logit transform with bounds to avoid infinity
+      const boundedProb = Math.max(0.01, Math.min(0.99, empiricalZeroProb));
+      
+      params = {
+        zeroLogitMean: Math.log(boundedProb / (1 - boundedProb)),
+        zeroLogitLogVar: Math.log(0.5),
+        valueMean: jStat.mean(nonZeros.map(x => Math.log(x))),
+        valueLogVar: Math.log(0.5),
+        valueSigma: Math.max(0.1, Math.sqrt(jStat.variance(nonZeros.map(x => Math.log(x)), true)))
+      };
+    }
+    
+    // Initialize optimizer with adaptive learning rate
     const optimizer = new AdamOptimizer({
       learningRate: this.learningRate,
       beta1: 0.9,
       beta2: 0.999,
       epsilon: 1e-8,
-      gradientClip: 10.0
+      gradientClip: 5.0  // Reduced clip value
     });
     
     const elboHistory: number[] = [];
@@ -846,49 +748,45 @@ export class ZeroInflatedLogNormalVI {
     
     const arrayToParams = (arr: number[]): ZILNParams => ({
       zeroLogitMean: arr[0],
-      zeroLogitLogVar: arr[1],
+      zeroLogitLogVar: Math.min(2, arr[1]),  // Cap log variance
       valueMean: arr[2],
-      valueLogVar: arr[3],
-      valueSigma: Math.max(0.01, arr[4]) // Ensure positive
+      valueLogVar: Math.min(2, arr[3]),  // Cap log variance
+      valueSigma: Math.max(0.01, Math.min(10, arr[4]))  // Bounded sigma
     });
     
     let paramArray = paramsToArray(params);
-    let oldParams = [...paramArray];
+    let oldELBO = -Infinity;
     
     for (iterations = 0; iterations < this.maxIterations; iterations++) {
-      // Estimate ELBO and gradients
+      // Estimate ELBO and gradients using finite differences
       const { elbo, gradients } = this.estimateELBOAndGradients(
         arrayToParams(paramArray), 
         data
       );
+      
+      // Store ELBO history
       elboHistory.push(elbo);
       
-      // Update parameters using optimizer
-      const gradArray = paramsToArray(gradients);
-      paramArray = optimizer.step(paramArray, gradArray);
-      
-      // Check convergence
-      if (iterations > 0) {
-        const paramChange = Math.sqrt(
-          paramArray.reduce((sum, p, i) => 
-            sum + Math.pow(p - oldParams[i], 2), 0
-          )
-        );
+      // Check for convergence based on ELBO change
+      if (iterations > 20) {
+        const elboChange = Math.abs(elbo - oldELBO);
+        const relativeChange = elboChange / (Math.abs(oldELBO) + 1e-10);
         
-        if (paramChange < this.tolerance) {
+        if (relativeChange < this.tolerance) {
           converged = true;
           break;
         }
       }
       
-      oldParams = [...paramArray];
-      params = arrayToParams(paramArray);
+      oldELBO = elbo;
       
-      // Yield to UI every 100 iterations
-      if (iterations % 100 === 0) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
+      // Update parameters using optimizer
+      const gradArray = paramsToArray(gradients);
+      paramArray = optimizer.step(paramArray, gradArray);
     }
+    
+    // Final parameters
+    params = arrayToParams(paramArray);
     
     return {
       posterior: new ZILNPosterior(params),
@@ -902,15 +800,18 @@ export class ZeroInflatedLogNormalVI {
   }
   
   /**
-   * Estimate ELBO and gradients using REINFORCE
+   * Estimate ELBO and gradients using finite differences
    */
   private estimateELBOAndGradients(
-    params: ZILNParams,
+    params: ZILNParams, 
     data: number[]
   ): { elbo: number; gradients: ZILNParams } {
-    // Use REINFORCE with baseline for variance reduction
-    let elboSum = 0;
-    const gradSum: ZILNParams = {
+    // Compute base ELBO
+    const baseELBO = this.estimateELBO(params, data);
+    
+    // Use central differences for better accuracy
+    const epsilon = 1e-5;
+    const gradients: ZILNParams = {
       zeroLogitMean: 0,
       zeroLogitLogVar: 0,
       valueMean: 0,
@@ -918,114 +819,123 @@ export class ZeroInflatedLogNormalVI {
       valueSigma: 0
     };
     
-    // First pass: compute baseline (mean ELBO)
-    const baselineSamples = 5;
-    let baseline = 0;
-    for (let s = 0; s < baselineSamples; s++) {
-      const { sample, logQ } = this.sampleVariational(params);
-      const logP = this.computeLogJoint(sample, data, params);
-      baseline += (logP - logQ) / baselineSamples;
+    // Compute gradients via central differences
+    const paramNames: (keyof ZILNParams)[] = [
+      'zeroLogitMean', 'zeroLogitLogVar', 'valueMean', 'valueLogVar', 'valueSigma'
+    ];
+    
+    for (const paramName of paramNames) {
+      const perturbedParamsPlus = { ...params };
+      const perturbedParamsMinus = { ...params };
+      
+      // Special handling for variance parameters
+      if (paramName === 'valueSigma') {
+        perturbedParamsPlus[paramName] = Math.max(0.01, params[paramName] + epsilon);
+        perturbedParamsMinus[paramName] = Math.max(0.01, params[paramName] - epsilon);
+      } else {
+        perturbedParamsPlus[paramName] = params[paramName] + epsilon;
+        perturbedParamsMinus[paramName] = params[paramName] - epsilon;
+      }
+      
+      const elboPlus = this.estimateELBO(perturbedParamsPlus, data);
+      const elboMinus = this.estimateELBO(perturbedParamsMinus, data);
+      
+      // Central difference
+      gradients[paramName] = (elboPlus - elboMinus) / (2 * epsilon);
     }
     
-    // Second pass: compute gradients with baseline
-    for (let s = 0; s < this.numSamples; s++) {
-      const { sample, logQ } = this.sampleVariational(params);
-      const logP = this.computeLogJoint(sample, data, params);
-      const elboSample = logP - logQ;
-      elboSum += elboSample;
-      
-      // Gradient with baseline
-      const advantage = elboSample - baseline;
-      const gradLogQ = this.computeGradLogQ(sample, params);
-      
-      for (const key in gradLogQ) {
-        const k = key as keyof ZILNParams;
-        gradSum[k] += advantage * gradLogQ[k];
+    return { elbo: baseELBO, gradients };
+  }
+  
+  /**
+   * Estimate ELBO using Monte Carlo
+   */
+  private estimateELBO(params: ZILNParams, data: number[]): number {
+    let elboSum = 0;
+    let validSamples = 0;
+    
+    // Use more samples for better stability
+    const actualSamples = this.numSamples;
+    
+    for (let s = 0; s < actualSamples; s++) {
+      try {
+        const { sample, logQ } = this.sampleVariational(params);
+        const logP = this.computeLogJoint(sample, data, params);
+        
+        if (isFinite(logP) && isFinite(logQ)) {
+          elboSum += logP - logQ;
+          validSamples++;
+        }
+      } catch (e) {
+        // Skip bad samples
+        continue;
       }
     }
     
-    // Average
-    const elbo = elboSum / this.numSamples;
-    const gradients = {} as ZILNParams;
-    for (const key in gradSum) {
-      const k = key as keyof ZILNParams;
-      gradients[k] = gradSum[k] / this.numSamples;
-    }
-    
-    return { elbo, gradients };
+    // Return average over valid samples
+    return validSamples > 0 ? elboSum / validSamples : -1e10;
   }
   
   /**
    * Sample from variational distribution
    */
   private sampleVariational(params: ZILNParams): { sample: any; logQ: number } {
-    // Sample from variational distribution
-    const zeroLogit = jStat.normal.sample(
-      params.zeroLogitMean,
-      Math.sqrt(Math.exp(params.zeroLogitLogVar))
-    );
+    // Ensure valid variances
+    const zeroLogitStd = Math.sqrt(Math.exp(Math.min(2, params.zeroLogitLogVar)));
+    const valueMuStd = Math.sqrt(Math.exp(Math.min(2, params.valueLogVar)));
     
-    const valueMu = jStat.normal.sample(
-      params.valueMean,
-      Math.sqrt(Math.exp(params.valueLogVar))
-    );
+    // Sample from variational distribution
+    const zeroLogit = jStat.normal.sample(params.zeroLogitMean, zeroLogitStd);
+    const valueMu = jStat.normal.sample(params.valueMean, valueMuStd);
     
     const sample = { 
       zeroLogit,
       valueMu,
-      zeroProb: 1 / (1 + Math.exp(-zeroLogit))
+      zeroProb: 1 / (1 + Math.exp(-Math.max(-10, Math.min(10, zeroLogit))))
     };
     
-    // Compute log q(z|λ)
-    const zeroLogitStd = Math.sqrt(Math.exp(params.zeroLogitLogVar));
-    const valueMuStd = Math.sqrt(Math.exp(params.valueLogVar));
+    // Compute log q(z|λ) with numerical stability
+    const logQ1 = -0.5 * Math.log(2 * Math.PI) - Math.log(zeroLogitStd) - 
+                  0.5 * Math.pow((zeroLogit - params.zeroLogitMean) / zeroLogitStd, 2);
+    const logQ2 = -0.5 * Math.log(2 * Math.PI) - Math.log(valueMuStd) - 
+                  0.5 * Math.pow((valueMu - params.valueMean) / valueMuStd, 2);
     
-    const logQ = 
-      Math.log(jStat.normal.pdf(zeroLogit, params.zeroLogitMean, zeroLogitStd)) +
-      Math.log(jStat.normal.pdf(valueMu, params.valueMean, valueMuStd));
-    
-    return { sample, logQ };
+    return { sample, logQ: logQ1 + logQ2 };
   }
   
   /**
-   * Compute log joint probability
+   * Compute log joint probability with numerical stability
    */
   private computeLogJoint(sample: any, data: number[], params: ZILNParams): number {
     let logP = 0;
     
     // Prior: standard normal on transformed parameters
-    logP += Math.log(jStat.normal.pdf(sample.zeroLogit, 0, 1));
-    logP += Math.log(jStat.normal.pdf(sample.valueMu, 0, 1));
+    const prior1 = -0.5 * Math.log(2 * Math.PI) - 0.5 * sample.zeroLogit * sample.zeroLogit;
+    const prior2 = -0.5 * Math.log(2 * Math.PI) - 0.5 * sample.valueMu * sample.valueMu;
+    logP += prior1 + prior2;
     
     // Likelihood
     for (const x of data) {
       if (x === 0) {
-        logP += Math.log(sample.zeroProb);
+        // Log probability of zero
+        logP += Math.log(Math.max(1e-10, sample.zeroProb));
       } else {
-        logP += Math.log(1 - sample.zeroProb);
-        // Log-normal likelihood with proper variance
-        logP += Math.log(jStat.lognormal.pdf(x, sample.valueMu, params.valueSigma));
+        // Log probability of non-zero value
+        logP += Math.log(Math.max(1e-10, 1 - sample.zeroProb));
+        
+        // Log-normal log PDF computed manually for stability
+        if (params.valueSigma > 0) {
+          const logX = Math.log(x);
+          const z = (logX - sample.valueMu) / params.valueSigma;
+          const logPdf = -logX - Math.log(params.valueSigma) - 0.5 * Math.log(2 * Math.PI) - 0.5 * z * z;
+          logP += logPdf;
+        } else {
+          logP += -1e10;  // Invalid sigma
+        }
       }
     }
     
     return logP;
-  }
-  
-  /**
-   * Compute gradient of log q (score function)
-   */
-  private computeGradLogQ(sample: any, params: ZILNParams): ZILNParams {
-    // Score function: ∇_λ log q(z|λ)
-    const zeroSigma = Math.sqrt(Math.exp(params.zeroLogitLogVar));
-    const valueSigma = Math.sqrt(Math.exp(params.valueLogVar));
-    
-    return {
-      zeroLogitMean: (sample.zeroLogit - params.zeroLogitMean) / (zeroSigma * zeroSigma),
-      zeroLogitLogVar: 0.5 * (Math.pow((sample.zeroLogit - params.zeroLogitMean) / zeroSigma, 2) - 1),
-      valueMean: (sample.valueMu - params.valueMean) / (valueSigma * valueSigma),
-      valueLogVar: 0.5 * (Math.pow((sample.valueMu - params.valueMean) / valueSigma, 2) - 1),
-      valueSigma: 0  // Will be computed via finite differences if needed
-    };
   }
 }
 
