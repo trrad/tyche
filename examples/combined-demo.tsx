@@ -1,11 +1,22 @@
 import React, { useState, useMemo } from 'react';
 import ReactDOM from 'react-dom/client';
 import { beta } from '../src/core/distributions/Beta';
-import { ConversionValueModel, VariantData, UserData, ConversionValuePosterior } from '../src/models/ConversionValueModel';
-import { MetropolisSampler } from '../src/samplers/Metropolis';
-import { ComputationGraph } from '../src/core/ComputationGraph';
-import { DistributionPlot } from '../src/visualizations/DistributionPlot';
-import { UpliftGraph } from '../src/visualizations/UpliftGraph';
+import { 
+  ConversionValueModelVI, 
+  VIAnalysisOptions,
+  VariantData, 
+  UserData, 
+  ConversionValuePosterior 
+} from '../src/models/ConversionValueModelVI';
+
+// Visualization components
+import { ComparisonPlot } from '../src/visualizations/ComparisonPlot';
+import { SafeDistributionPlot } from '../src/visualizations/SafeDistributionPlot';
+import { SafeUpliftGraph } from '../src/visualizations/SafeUpliftGraph';
+// Alternative if safe wrappers don't exist:
+// import { DistributionPlot as SafeDistributionPlot } from '../src/visualizations/DistributionPlot';
+// import { UpliftGraph as SafeUpliftGraph } from '../src/visualizations/UpliftGraph';
+
 import './index.css';
 
 // Type for properly typed revenue results
@@ -16,7 +27,7 @@ type RevenueResults = ConversionValuePosterior;
  * 1. Proper Bayesian credible intervals from posterior samples
  * 2. Conversion + Value analysis with outlier detection  
  * 3. Using new visualization components
- * 4. Integration with compositional PPL model
+ * 4. Fast Variational Inference for real-time analysis
  */
 function BayesianAnalysisDemo() {
   const [activeTab, setActiveTab] = useState<'simple' | 'revenue'>('simple');
@@ -28,21 +39,21 @@ function BayesianAnalysisDemo() {
     { name: 'Control', visitors: 1000, conversions: 45 },
     { name: 'Treatment', visitors: 1000, conversions: 58 }
   ]);
-  const [credibleLevel, setCredibleLevel] = useState(0.95);
+  const [credibleLevel, setCredibleLevel] = useState(0.80);
   
   // Revenue Analysis State
-  const [revenueModel, setRevenueModel] = useState<ConversionValueModel | null>(null);
+  const [revenueModel, setRevenueModel] = useState<ConversionValueModelVI | null>(null);
   const [revenueResults, setRevenueResults] = useState<RevenueResults | null>(null);
   const [dataInput, setDataInput] = useState('');
   const [parsedData, setParsedData] = useState<Map<string, UserData[]> | null>(null);
   const [showRawData, setShowRawData] = useState(false);
+  const [showRawDistributions, setShowRawDistributions] = useState(false);
   
-  // MCMC configuration
-  const [mcmcConfig, setMcmcConfig] = useState({
-    iterations: 2000,
-    warmup: 1000,
-    stepSize: 0.02,
-    adaptStepSize: true
+  // VI configuration
+  const [viModelType, setVIModelType] = useState<'auto' | 'beta-binomial' | 'zero-inflated-lognormal' | 'normal-mixture'>('auto');
+  const [viConfig, setViConfig] = useState({
+    maxIterations: 1000,
+    tolerance: 1e-6
   });
   
   // Data generation controls
@@ -86,10 +97,6 @@ function BayesianAnalysisDemo() {
     setAnalysisProgress(0);
     
     try {
-      // Create new computation graph for this analysis
-      const graph = new ComputationGraph();
-      ComputationGraph.setCurrent(graph);
-      
       // Parse CSV
       const lines = dataInput.trim().split('\n');
       const headers = lines[0].split(',');
@@ -108,128 +115,104 @@ function BayesianAnalysisDemo() {
       for (let i = 1; i < lines.length; i++) {
         const parts = lines[i].split(',');
         const variant = parts[variantIdx];
-        const converted = parseInt(parts[convertedIdx]) === 1;
+        const converted = parts[convertedIdx] === '1' || parts[convertedIdx].toLowerCase() === 'true';
         const value = parseFloat(parts[valueIdx]) || 0;
         
         if (!dataByVariant.has(variant)) {
           dataByVariant.set(variant, []);
         }
-        
         dataByVariant.get(variant)!.push({ converted, value });
       }
       
-      // Create variant data
-      const variantData: VariantData[] = Array.from(dataByVariant.entries()).map(([name, users]) => ({
-        name,
-        users
-      }));
-      
-      // Create and configure model
-      const model = new ConversionValueModel(graph);
-      variantData.forEach(variant => model.addVariant(variant));
-      
-      setAnalysisProgress(10);
-      
-      // Create MCMC sampler with configuration
-      const sampler = new MetropolisSampler({
-        stepSize: mcmcConfig.stepSize,
-        adaptStepSize: mcmcConfig.adaptStepSize,
-        targetAcceptanceRate: 0.44
-      });
-      
-      // Run analysis with progress updates
-      const results = await model.analyze({ 
-        sampler,
-        iterations: mcmcConfig.iterations,
-        warmup: mcmcConfig.warmup,
-        referenceVariant: variantData[0].name
-      });
-      
-      setAnalysisProgress(100);
-      
-      // Store results
-      setRevenueModel(model);
-      setRevenueResults(results);
       setParsedData(dataByVariant);
       
-      console.log('Analysis complete:', results);
+      // Create model
+      const model = new ConversionValueModelVI();
+      
+      // Add data to model
+      for (const [variantName, users] of dataByVariant) {
+        model.addVariant({
+          name: variantName,
+          users
+        });
+      }
+      
+      setRevenueModel(model);
+      
+      // Progress updates
+      const progressInterval = setInterval(() => {
+        setAnalysisProgress(prev => Math.min(prev + 10, 90));
+      }, 100);
+      
+      // Run VI analysis
+      const analysisOptions: VIAnalysisOptions = {
+        maxIterations: viConfig.maxIterations,
+        tolerance: viConfig.tolerance,
+        modelType: viModelType
+      };
+      
+      const results = await model.analyze(analysisOptions);
+      
+      clearInterval(progressInterval);
+      setAnalysisProgress(100);
+      setRevenueResults(results);
+      
+      // Log timing
+      console.log('VI Analysis completed');
       
     } catch (error) {
-      console.error('Analysis error:', error);
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Analysis failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      alert(`Analysis failed: ${errorMessage}`);
     } finally {
       setIsAnalyzing(false);
-      setAnalysisProgress(0);
+      setTimeout(() => setAnalysisProgress(0), 500);
     }
   };
   
-  // Generate synthetic data based on config
   const generateData = () => {
-    // Box-Muller transform for normal distribution
-    const randn = () => {
-      const u = 1 - Math.random();
-      const v = Math.random();
-      return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-    };
+    const data: string[] = ['variant,converted,value'];
     
-    // Generate revenue value (log-normal distribution)
-    const generateRevenue = (mean: number, std: number): number => {
-      // Convert to log-normal parameters
-      const variance = std * std;
-      const meanLog = Math.log(mean * mean / Math.sqrt(variance + mean * mean));
-      const stdLog = Math.sqrt(Math.log(1 + variance / (mean * mean)));
-      return Math.exp(meanLog + randn() * stdLog);
-    };
-    
-    let csv = 'variant,converted,value\n';
-    let outlierAdded = false;
-    
-    // Generate Control data
+    // Generate control data
     for (let i = 0; i < genConfig.controlSize; i++) {
       const converted = Math.random() < genConfig.controlConvRate;
-      const value = converted ? generateRevenue(genConfig.controlRevMean, genConfig.controlRevStd) : 0;
-      csv += `Control,${converted ? 1 : 0},${value.toFixed(2)}\n`;
+      const value = converted 
+        ? Math.max(0, genConfig.controlRevMean + (Math.random() - 0.5) * 2 * genConfig.controlRevStd)
+        : 0;
+      data.push(`control,${converted ? 1 : 0},${value.toFixed(2)}`);
     }
     
-    // Generate Treatment data
+    // Generate treatment data
     for (let i = 0; i < genConfig.treatmentSize; i++) {
       const converted = Math.random() < genConfig.treatmentConvRate;
       let value = 0;
       
       if (converted) {
-        // Add one outlier to treatment if enabled
-        if (genConfig.includeOutlier && !outlierAdded && Math.random() < 0.1) {
+        if (genConfig.includeOutlier && i === 0) {
           value = genConfig.outlierValue;
-          outlierAdded = true;
         } else {
-          value = generateRevenue(genConfig.treatmentRevMean, genConfig.treatmentRevStd);
+          value = Math.max(0, genConfig.treatmentRevMean + (Math.random() - 0.5) * 2 * genConfig.treatmentRevStd);
         }
       }
       
-      csv += `Treatment,${converted ? 1 : 0},${value.toFixed(2)}\n`;
+      data.push(`treatment,${converted ? 1 : 0},${value.toFixed(2)}`);
     }
     
-    setDataInput(csv.trim());
+    setDataInput(data.join('\n'));
   };
   
-  const formatPercent = (value: number, decimals: number = 1) => 
-    `${(value * 100).toFixed(decimals)}%`;
-  
-  const formatCurrency = (value: number) => 
-    `$${value.toFixed(2)}`;
-  
   return (
-    <div className="p-6 max-w-7xl mx-auto bg-gray-50 min-h-screen">
-      <h1 className="text-3xl font-bold mb-6">Bayesian Analysis Suite</h1>
+    <div className="p-6 max-w-7xl mx-auto">
+      <h1 className="text-3xl font-bold mb-6">Bayesian Analysis Demo</h1>
       
-      {/* Tab Buttons */}
-      <div className="mb-6 flex gap-2">
+      {/* Tab Selection */}
+      <div className="flex gap-2 mb-6">
         <button
           onClick={() => setActiveTab('simple')}
           className={`px-4 py-2 rounded ${
             activeTab === 'simple' 
               ? 'bg-blue-500 text-white' 
-              : 'bg-gray-200'
+              : 'bg-gray-200 hover:bg-gray-300'
           }`}
         >
           Simple A/B Test
@@ -239,311 +222,255 @@ function BayesianAnalysisDemo() {
           className={`px-4 py-2 rounded ${
             activeTab === 'revenue' 
               ? 'bg-blue-500 text-white' 
-              : 'bg-gray-200'
+              : 'bg-gray-200 hover:bg-gray-300'
           }`}
         >
-          Conversion + Revenue
+          Conversion + Revenue Analysis
         </button>
       </div>
       
-      {activeTab === 'simple' ? (
+      {/* Simple A/B Test Tab */}
+      {activeTab === 'simple' && (
         <div className="space-y-6">
-          {/* Variant Inputs */}
+          {/* Variant Input */}
           <div className="bg-white p-4 rounded shadow">
             <h2 className="text-xl font-semibold mb-4">Variant Data</h2>
-            {variants.map((variant, idx) => (
-              <div key={idx} className="grid grid-cols-3 gap-4 mb-2">
-                <input
-                  value={variant.name}
-                  onChange={(e) => {
-                    const newVariants = [...variants];
-                    newVariants[idx].name = e.target.value;
-                    setVariants(newVariants);
-                  }}
-                  className="px-3 py-2 border rounded"
-                />
-                <input
-                  type="number"
-                  value={variant.visitors}
-                  onChange={(e) => {
-                    const newVariants = [...variants];
-                    newVariants[idx].visitors = parseInt(e.target.value) || 0;
-                    setVariants(newVariants);
-                  }}
-                  className="px-3 py-2 border rounded"
-                  placeholder="Visitors"
-                />
-                <input
-                  type="number"
-                  value={variant.conversions}
-                  onChange={(e) => {
-                    const newVariants = [...variants];
-                    newVariants[idx].conversions = parseInt(e.target.value) || 0;
-                    setVariants(newVariants);
-                  }}
-                  className="px-3 py-2 border rounded"
-                  placeholder="Conversions"
-                />
-              </div>
-            ))}
+            <div className="space-y-4">
+              {variants.map((variant, idx) => (
+                <div key={idx} className="flex gap-4 items-center">
+                  <input
+                    type="text"
+                    value={variant.name}
+                    onChange={(e) => {
+                      const updated = [...variants];
+                      updated[idx].name = e.target.value;
+                      setVariants(updated);
+                    }}
+                    className="px-3 py-2 border rounded"
+                    placeholder="Variant name"
+                  />
+                  <input
+                    type="number"
+                    value={variant.visitors}
+                    onChange={(e) => {
+                      const updated = [...variants];
+                      updated[idx].visitors = parseInt(e.target.value) || 0;
+                      setVariants(updated);
+                    }}
+                    className="px-3 py-2 border rounded w-32"
+                    placeholder="Visitors"
+                  />
+                  <input
+                    type="number"
+                    value={variant.conversions}
+                    onChange={(e) => {
+                      const updated = [...variants];
+                      updated[idx].conversions = parseInt(e.target.value) || 0;
+                      setVariants(updated);
+                    }}
+                    className="px-3 py-2 border rounded w-32"
+                    placeholder="Conversions"
+                  />
+                  <span className="text-gray-600">
+                    {variant.visitors > 0 
+                      ? `${(variant.conversions / variant.visitors * 100).toFixed(1)}%`
+                      : '0%'
+                    }
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
           
-          {/* Credible Interval Control */}
+          {/* Results */}
           <div className="bg-white p-4 rounded shadow">
-            <h3 className="font-semibold mb-2">
-              Credible Level: {formatPercent(credibleLevel, 0)}
-            </h3>
-            <input
-              type="range"
-              min="0.5"
-              max="0.99"
-              step="0.01"
-              value={credibleLevel}
-              onChange={(e) => setCredibleLevel(parseFloat(e.target.value))}
-              className="w-full"
-            />
-          </div>
-          
-          {/* Distribution Plots */}
-          <div className="bg-white p-4 rounded shadow">
-            <h2 className="text-xl font-semibold mb-4">Posterior Distributions</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {variants.map((variant, idx) => {
-                const samples = posteriorResults.get(variant.name)!;
-                const observed = variant.conversions / variant.visitors;
+            <h2 className="text-xl font-semibold mb-4">Posterior Analysis</h2>
+            
+            {/* Credible Level Selector */}
+            <div className="mb-4">
+              <label className="text-sm text-gray-600">Credible Level: </label>
+              <select 
+                value={credibleLevel}
+                onChange={(e) => setCredibleLevel(parseFloat(e.target.value))}
+                className="ml-2 px-2 py-1 border rounded"
+              >
+                <option value={0.5}>50%</option>
+                <option value={0.8}>80% (Recommended)</option>
+                <option value={0.9}>90%</option>
+                <option value={0.95}>95%</option>
+                <option value={0.99}>99%</option>
+              </select>
+            </div>
+            
+            {/* Posterior Distributions */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              {Array.from(posteriorResults.entries()).map(([name, samples]) => {
+                const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+                const sorted = [...samples].sort((a, b) => a - b);
+                const lowerIdx = Math.floor((1 - credibleLevel) / 2 * samples.length);
+                const upperIdx = Math.floor((1 + credibleLevel) / 2 * samples.length);
+                const lower = sorted[lowerIdx];
+                const upper = sorted[upperIdx];
                 
                 return (
-                  <div key={variant.name}>
-                    <DistributionPlot
-                      samples={samples}
-                      color={idx === 0 ? '#6B7280' : '#3B82F6'}
-                      label={`${variant.name} (Observed: ${formatPercent(observed)})`}
-                      credibleLevel={credibleLevel}
-                      showMean={true}
-                      showCredibleInterval={true}
-                      width={400}
-                      height={250}
-                    />
+                  <div key={name} className="bg-gray-50 p-4 rounded">
+                    <h3 className="font-semibold">{name}</h3>
+                    <p className="text-sm text-gray-600">
+                      Mean: {(mean * 100).toFixed(2)}%
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {(credibleLevel * 100)}% CI: [{(lower * 100).toFixed(2)}%, {(upper * 100).toFixed(2)}%]
+                    </p>
                   </div>
                 );
               })}
             </div>
-          </div>
-          
-          {/* Uplift Analysis */}
-          {variants.length === 2 && (
-            <div className="bg-white p-4 rounded shadow">
-              <h2 className="text-xl font-semibold mb-4">Relative Effect Analysis</h2>
-              <UpliftGraph
-                controlSamples={posteriorResults.get(variants[0].name)!}
-                treatmentSamples={posteriorResults.get(variants[1].name)!}
-                credibleLevel={credibleLevel}
-                title={`${variants[1].name} vs ${variants[0].name}`}
-                width={600}
-                height={300}
-              />
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {/* MCMC Configuration */}
-          <div className="bg-white p-4 rounded shadow">
-            <h2 className="text-xl font-semibold mb-4">MCMC Configuration</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            
+            {/* Uplift Distribution */}
+            {posteriorResults.size >= 2 && (
               <div>
-                <label className="block text-sm text-gray-600">Iterations</label>
-                <input
-                  type="number"
-                  value={mcmcConfig.iterations}
-                  onChange={(e) => setMcmcConfig({...mcmcConfig, iterations: parseInt(e.target.value) || 1000})}
-                  className="w-full px-3 py-1 border rounded"
-                  min="1000"
-                  step="1000"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600">Warmup</label>
-                <input
-                  type="number"
-                  value={mcmcConfig.warmup}
-                  onChange={(e) => setMcmcConfig({...mcmcConfig, warmup: parseInt(e.target.value) || 500})}
-                  className="w-full px-3 py-1 border rounded"
-                  min="100"
-                  step="100"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-600">Step Size</label>
-                <input
-                  type="number"
-                  value={mcmcConfig.stepSize}
-                  onChange={(e) => setMcmcConfig({...mcmcConfig, stepSize: parseFloat(e.target.value) || 0.01})}
-                  className="w-full px-3 py-1 border rounded"
-                  min="0.001"
-                  max="1"
-                  step="0.001"
-                />
-              </div>
-              <div className="flex items-end">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={mcmcConfig.adaptStepSize}
-                    onChange={(e) => setMcmcConfig({...mcmcConfig, adaptStepSize: e.target.checked})}
+                <h3 className="font-semibold mb-2">Relative Uplift Distribution</h3>
+                <div className="h-64">
+                  <SafeUpliftGraph
+                    controlSamples={posteriorResults.get('Control')!}
+                    treatmentSamples={posteriorResults.get('Treatment')!}
+                    credibleLevel={credibleLevel}
                   />
-                  <span className="text-sm">Adaptive</span>
-                </label>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {/* Revenue Analysis Tab */}
+      {activeTab === 'revenue' && (
+        <div className="space-y-6">
+          {/* VI Configuration */}
+          <div className="bg-white p-4 rounded shadow">
+            <h2 className="text-xl font-semibold mb-4">VI Configuration</h2>
+            
+            <div className="bg-gray-50 p-3 rounded space-y-3">
+              <div>
+                <label className="block text-sm text-gray-600">Model Type</label>
+                <select
+                  value={viModelType}
+                  onChange={(e) => setVIModelType(e.target.value as any)}
+                  className="w-full px-3 py-1 border rounded"
+                >
+                  <option value="auto">Auto-detect</option>
+                  <option value="beta-binomial">Beta-Binomial (Simple)</option>
+                  <option value="normal-mixture">Normal Mixture (Multimodal)</option>
+                  <option value="zero-inflated-lognormal">Zero-Inflated LogNormal</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-600">Max Iterations</label>
+                  <input
+                    type="number"
+                    value={viConfig.maxIterations}
+                    onChange={(e) => setViConfig({...viConfig, maxIterations: parseInt(e.target.value) || 1000})}
+                    className="w-full px-3 py-1 border rounded"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600">Tolerance</label>
+                  <input
+                    type="number"
+                    value={viConfig.tolerance}
+                    onChange={(e) => setViConfig({...viConfig, tolerance: parseFloat(e.target.value) || 1e-6})}
+                    className="w-full px-3 py-1 border rounded"
+                    step="0.000001"
+                  />
+                </div>
               </div>
             </div>
           </div>
           
-          {/* Revenue Data Generator */}
+          {/* Data Generation */}
           <div className="bg-white p-4 rounded shadow">
             <h2 className="text-xl font-semibold mb-4">Generate Test Data</h2>
             
-            {/* Quick Presets */}
-            <div className="flex gap-2 mb-4">
-              <button
-                onClick={() => {
-                  setGenConfig({
-                    controlSize: 1000,
-                    treatmentSize: 1000,
-                    controlConvRate: 0.05,
-                    treatmentConvRate: 0.052,
-                    controlRevMean: 100,
-                    treatmentRevMean: 102,
-                    controlRevStd: 30,
-                    treatmentRevStd: 30,
-                    includeOutlier: false,
-                    outlierValue: 2500
-                  });
-                }}
-                className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm hover:bg-blue-200"
-              >
-                Small Effect
-              </button>
-              <button
-                onClick={() => {
-                  setGenConfig({
-                    controlSize: 300,
-                    treatmentSize: 300,
-                    controlConvRate: 0.04,
-                    treatmentConvRate: 0.045,
-                    controlRevMean: 80,
-                    treatmentRevMean: 85,
-                    controlRevStd: 25,
-                    treatmentRevStd: 30,
-                    includeOutlier: true,
-                    outlierValue: 3000
-                  });
-                }}
-                className="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200"
-              >
-                With Outlier
-              </button>
-              <button
-                onClick={() => {
-                  setGenConfig({
-                    controlSize: 500,
-                    treatmentSize: 500,
-                    controlConvRate: 0.03,
-                    treatmentConvRate: 0.035,
-                    controlRevMean: 200,
-                    treatmentRevMean: 220,
-                    controlRevStd: 150,
-                    treatmentRevStd: 180,
-                    includeOutlier: false,
-                    outlierValue: 2500
-                  });
-                }}
-                className="px-3 py-1 bg-purple-100 text-purple-700 rounded text-sm hover:bg-purple-200"
-              >
-                High Variance
-              </button>
+            {/* Sample Size Controls */}
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm text-gray-600">Control Size</label>
+                <input
+                  type="number"
+                  value={genConfig.controlSize}
+                  onChange={(e) => setGenConfig({...genConfig, controlSize: parseInt(e.target.value) || 0})}
+                  className="w-full px-3 py-1 border rounded"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600">Treatment Size</label>
+                <input
+                  type="number"
+                  value={genConfig.treatmentSize}
+                  onChange={(e) => setGenConfig({...genConfig, treatmentSize: parseInt(e.target.value) || 0})}
+                  className="w-full px-3 py-1 border rounded"
+                />
+              </div>
             </div>
             
-            {/* Configuration Grid */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-3">
-                <h3 className="font-semibold text-gray-700">Control</h3>
-                <div>
-                  <label className="block text-sm text-gray-600">Sample Size</label>
-                  <input
-                    type="number"
-                    value={genConfig.controlSize}
-                    onChange={(e) => setGenConfig({...genConfig, controlSize: parseInt(e.target.value) || 0})}
-                    className="w-full px-3 py-1 border rounded"
-                  />
+            {/* Parameter Controls */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-3 rounded">
+                  <h4 className="font-medium mb-2">Control Parameters</h4>
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-600">Conversion Rate</label>
+                    <input
+                      type="number"
+                      value={genConfig.controlConvRate}
+                      onChange={(e) => setGenConfig({...genConfig, controlConvRate: parseFloat(e.target.value) || 0})}
+                      className="w-full px-3 py-1 border rounded"
+                      step="0.01"
+                    />
+                    <label className="block text-sm text-gray-600">Revenue Mean ($)</label>
+                    <input
+                      type="number"
+                      value={genConfig.controlRevMean}
+                      onChange={(e) => setGenConfig({...genConfig, controlRevMean: parseFloat(e.target.value) || 0})}
+                      className="w-full px-3 py-1 border rounded"
+                    />
+                    <label className="block text-sm text-gray-600">Revenue Std Dev ($)</label>
+                    <input
+                      type="number"
+                      value={genConfig.controlRevStd}
+                      onChange={(e) => setGenConfig({...genConfig, controlRevStd: parseFloat(e.target.value) || 0})}
+                      className="w-full px-3 py-1 border rounded"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-sm text-gray-600">Conversion Rate</label>
-                  <input
-                    type="number"
-                    step="0.001"
-                    value={genConfig.controlConvRate}
-                    onChange={(e) => setGenConfig({...genConfig, controlConvRate: parseFloat(e.target.value) || 0})}
-                    className="w-full px-3 py-1 border rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600">Revenue Mean ($)</label>
-                  <input
-                    type="number"
-                    value={genConfig.controlRevMean}
-                    onChange={(e) => setGenConfig({...genConfig, controlRevMean: parseFloat(e.target.value) || 0})}
-                    className="w-full px-3 py-1 border rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600">Revenue Std Dev ($)</label>
-                  <input
-                    type="number"
-                    value={genConfig.controlRevStd}
-                    onChange={(e) => setGenConfig({...genConfig, controlRevStd: parseFloat(e.target.value) || 0})}
-                    className="w-full px-3 py-1 border rounded"
-                  />
-                </div>
-              </div>
-              
-              <div className="space-y-3">
-                <h3 className="font-semibold text-gray-700">Treatment</h3>
-                <div>
-                  <label className="block text-sm text-gray-600">Sample Size</label>
-                  <input
-                    type="number"
-                    value={genConfig.treatmentSize}
-                    onChange={(e) => setGenConfig({...genConfig, treatmentSize: parseInt(e.target.value) || 0})}
-                    className="w-full px-3 py-1 border rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600">Conversion Rate</label>
-                  <input
-                    type="number"
-                    step="0.001"
-                    value={genConfig.treatmentConvRate}
-                    onChange={(e) => setGenConfig({...genConfig, treatmentConvRate: parseFloat(e.target.value) || 0})}
-                    className="w-full px-3 py-1 border rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600">Revenue Mean ($)</label>
-                  <input
-                    type="number"
-                    value={genConfig.treatmentRevMean}
-                    onChange={(e) => setGenConfig({...genConfig, treatmentRevMean: parseFloat(e.target.value) || 0})}
-                    className="w-full px-3 py-1 border rounded"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-600">Revenue Std Dev ($)</label>
-                  <input
-                    type="number"
-                    value={genConfig.treatmentRevStd}
-                    onChange={(e) => setGenConfig({...genConfig, treatmentRevStd: parseFloat(e.target.value) || 0})}
-                    className="w-full px-3 py-1 border rounded"
-                  />
+                
+                <div className="bg-gray-50 p-3 rounded">
+                  <h4 className="font-medium mb-2">Treatment Parameters</h4>
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-600">Conversion Rate</label>
+                    <input
+                      type="number"
+                      value={genConfig.treatmentConvRate}
+                      onChange={(e) => setGenConfig({...genConfig, treatmentConvRate: parseFloat(e.target.value) || 0})}
+                      className="w-full px-3 py-1 border rounded"
+                      step="0.01"
+                    />
+                    <label className="block text-sm text-gray-600">Revenue Mean ($)</label>
+                    <input
+                      type="number"
+                      value={genConfig.treatmentRevMean}
+                      onChange={(e) => setGenConfig({...genConfig, treatmentRevMean: parseFloat(e.target.value) || 0})}
+                      className="w-full px-3 py-1 border rounded"
+                    />
+                    <label className="block text-sm text-gray-600">Revenue Std Dev ($)</label>
+                    <input
+                      type="number"
+                      value={genConfig.treatmentRevStd}
+                      onChange={(e) => setGenConfig({...genConfig, treatmentRevStd: parseFloat(e.target.value) || 0})}
+                      className="w-full px-3 py-1 border rounded"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -580,9 +507,9 @@ function BayesianAnalysisDemo() {
             </div>
             
             {/* Sample Size Warning */}
-            {(genConfig.controlSize > 2000 || genConfig.treatmentSize > 2000) && (
+            {(genConfig.controlSize > 10000 || genConfig.treatmentSize > 10000) && (
               <div className="mt-2 p-2 bg-yellow-100 rounded text-sm">
-                ⚠️ Large sample sizes (&gt;2000) may cause performance issues. Consider using smaller samples or batched analysis.
+                ⚠️ Very large sample sizes (&gt;10000) may cause performance issues. Consider using smaller samples for testing.
               </div>
             )}
             
@@ -602,7 +529,7 @@ function BayesianAnalysisDemo() {
                 onClick={() => setShowRawData(!showRawData)}
                 className="px-3 py-1 bg-gray-200 rounded text-sm hover:bg-gray-300"
               >
-                {showRawData ? 'Hide' : 'Show'} Raw CSV
+                {showRawData ? 'Hide' : 'Show'} Raw Data
               </button>
             </div>
             
@@ -610,20 +537,20 @@ function BayesianAnalysisDemo() {
               <textarea
                 value={dataInput}
                 onChange={(e) => setDataInput(e.target.value)}
-                className="w-full h-64 p-3 border rounded font-mono text-sm mb-4"
-                placeholder="variant,converted,value
-Control,1,95.50
-Control,0,0
-Treatment,1,120.00
-..."
+                placeholder="variant,converted,value&#10;control,1,95.50&#10;control,0,0&#10;treatment,1,105.25&#10;..."
+                className="w-full h-48 p-3 border rounded font-mono text-sm"
               />
             )}
             
-            <div className="flex gap-4 items-center">
+            <div className="flex gap-2 items-center">
               <button
                 onClick={analyzeRevenue}
-                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:bg-gray-400"
-                disabled={!dataInput.trim() || isAnalyzing}
+                disabled={isAnalyzing}
+                className={`px-4 py-2 rounded ${
+                  isAnalyzing 
+                    ? 'bg-gray-400 cursor-not-allowed' 
+                    : 'bg-blue-500 hover:bg-blue-600'
+                } text-white`}
               >
                 {isAnalyzing ? 'Analyzing...' : 'Analyze Data'}
               </button>
@@ -649,253 +576,286 @@ Treatment,1,120.00
           {revenueResults && (
             <>
               {/* Model Summary */}
-              <div className="bg-gray-50 p-4 rounded">
-                <h3 className="font-semibold mb-2">Model Summary</h3>
-                <pre className="text-sm whitespace-pre-wrap">{revenueModel?.getSummary()}</pre>
+              <div className="bg-gray-50 p-6 rounded">
+                <h3 className="font-semibold mb-3 text-lg">Model Summary</h3>
+                <pre className="text-sm whitespace-pre-wrap font-mono bg-white p-4 rounded border">{revenueModel?.getSummary()}</pre>
               </div>
               
-              {/* MCMC Diagnostics */}
+              {/* VI Diagnostics */}
               {revenueResults.diagnostics && (
                 <div className="bg-white p-4 rounded shadow">
-                  <h3 className="font-semibold mb-2">MCMC Diagnostics</h3>
+                  <h3 className="font-semibold mb-2">VI Diagnostics</h3>
                   <div className="grid grid-cols-3 gap-4 text-sm">
                     <div>
-                      <span className="text-gray-600">Acceptance Rate:</span>
-                      <span className="ml-2 font-mono">{(revenueResults.diagnostics.acceptanceRate * 100).toFixed(1)}%</span>
+                      <span className="text-gray-600">Converged:</span>
+                      <span className="ml-2 font-mono">
+                        {revenueResults.diagnostics.converged ? 'Yes' : 'No'}
+                      </span>
                     </div>
-                    {revenueResults.diagnostics.effectiveSampleSize && (
+                    <div>
+                      <span className="text-gray-600">Iterations:</span>
+                      <span className="ml-2 font-mono">{revenueResults.diagnostics.iterations}</span>
+                    </div>
+                    {revenueResults.diagnostics.finalELBO && (
                       <div>
-                        <span className="text-gray-600">Effective Sample Size:</span>
-                        <span className="ml-2 font-mono">{Math.floor(revenueResults.diagnostics.effectiveSampleSize)}</span>
-                      </div>
-                    )}
-                    {revenueResults.diagnostics.rHat && (
-                      <div>
-                        <span className="text-gray-600">R̂:</span>
-                        <span className="ml-2 font-mono">{revenueResults.diagnostics.rHat.toFixed(3)}</span>
+                        <span className="text-gray-600">Final ELBO:</span>
+                        <span className="ml-2 font-mono">{revenueResults.diagnostics.finalELBO.toFixed(2)}</span>
                       </div>
                     )}
                   </div>
-                  {revenueResults.diagnostics.acceptanceRate < 0.2 && (
+                  {!revenueResults.diagnostics.converged && (
                     <div className="mt-2 p-2 bg-yellow-100 rounded text-sm">
-                      ⚠️ Low acceptance rate. Consider increasing step size.
-                    </div>
-                  )}
-                  {revenueResults.diagnostics.acceptanceRate > 0.8 && (
-                    <div className="mt-2 p-2 bg-yellow-100 rounded text-sm">
-                      ⚠️ High acceptance rate. Consider decreasing step size.
+                      ⚠️ VI did not converge. Consider increasing max iterations.
                     </div>
                   )}
                 </div>
               )}
               
-              {/* Outlier Warning */}
-              {revenueResults.outlierInfluence && 
-                Array.from(revenueResults.outlierInfluence.entries()).map(([variant, outliers]: [string, any]) => 
-                  outliers?.topValueContribution > 0.2 && (
-                    <div key={variant} className="bg-red-50 p-4 rounded border-2 border-red-200">
-                      <h3 className="font-semibold text-red-700 mb-2">
-                        ⚠️ Outlier Warning for {variant}
-                      </h3>
-                      <p>
-                        Top user: {formatPercent(outliers.topValueContribution)} of revenue<br/>
-                        Top 5 users: {formatPercent(outliers.top5ValueContribution)} of revenue
-                      </p>
-                    </div>
-                  )
-                )}
-              
-              {/* Conversion Rate Distributions */}
-              {revenueResults && revenueResults.conversionRates && (
-                <div className="bg-white p-4 rounded shadow">
-                  <h2 className="text-xl font-semibold mb-4">Conversion Rate Posteriors</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {Array.from(revenueResults.conversionRates.entries()).map(([variant, samples]: [string, number[]]) => {
-                      const observed = (() => {
-                        if (!parsedData) return 0;
-                        const users = parsedData.get(variant);
-                        if (!users) return 0;
-                        const conversions = users.filter(u => u.converted).length;
-                        return conversions / users.length;
-                      })();
-                      return (
-                        <div key={variant}>
-                          <DistributionPlot
-                            samples={samples}
-                            color={variant === 'Control' ? '#6B7280' : '#3B82F6'}
-                            label={`${variant} (Observed: ${formatPercent(observed)})`}
-                            credibleLevel={0.95}
-                            showMean={true}
-                            showCredibleInterval={true}
-                            width={400}
-                            height={250}
-                          />
+              {/* Posterior Summaries */}
+              <div className="bg-white p-4 rounded shadow">
+                <h3 className="font-semibold mb-4">Posterior Estimates</h3>
+                <div className="space-y-4">
+                  {Array.from(revenueResults.conversionRates.keys()).map(variant => {
+                    const convSamples = revenueResults.conversionRates.get(variant)!;
+                    const valueSamples = revenueResults.meanValues.get(variant);
+                    const relEffect = revenueResults.relativeEffects.get(variant);
+                    
+                    const convMean = convSamples.reduce((a, b) => a + b, 0) / convSamples.length;
+                    const convSorted = [...convSamples].sort((a, b) => a - b);
+                    const convLower = convSorted[Math.floor(0.1 * convSamples.length)];  // 80% CI
+                    const convUpper = convSorted[Math.floor(0.9 * convSamples.length)];  // 80% CI
+                    
+                    return (
+                      <div key={variant} className="border-l-4 border-blue-500 pl-4">
+                        <h4 className="font-medium text-lg">{variant}</h4>
+                        
+                        {/* Conversion Rate */}
+                        <div className="mt-2">
+                          <span className="text-gray-600">Conversion Rate:</span>
+                          <span className="ml-2 font-mono">
+                            {(convMean * 100).toFixed(2)}% 
+                            [{(convLower * 100).toFixed(2)}%, {(convUpper * 100).toFixed(2)}%]
+                          </span>
                         </div>
-                      );
-                    })}
+                        
+                        {/* Value among converters */}
+                        {valueSamples && (
+                          <div className="mt-1">
+                            <span className="text-gray-600">Revenue per Converter:</span>
+                            <span className="ml-2 font-mono">
+                              ${(valueSamples.reduce((a, b) => a + b, 0) / valueSamples.length).toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* Relative effect */}
+                        {relEffect && (
+                          <div className="mt-1">
+                            <span className="text-gray-600">Relative Effect:</span>
+                            <span className="ml-2 font-mono">
+                              {(relEffect.overall.reduce((a, b) => a + b, 0) / relEffect.overall.length * 100).toFixed(1)}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              {/* Comparison Plots with Shared Axes */}
+              <div className="bg-white p-6 rounded shadow">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="font-semibold text-lg">Posterior Comparisons</h3>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={showRawDistributions}
+                      onChange={(e) => setShowRawDistributions(e.target.checked)}
+                      className="rounded"
+                    />
+                    <span>Show raw data overlay</span>
+                  </label>
+                </div>
+                
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Conversion Rate Comparison */}
+                  <div>
+                    <h4 className="text-base font-medium text-gray-700 mb-4">Conversion Rates</h4>
+                    {(() => {
+                      const variants = Array.from(revenueResults.conversionRates.keys());
+                      if (variants.length >= 2) {
+                        const controlSamples = revenueResults.conversionRates.get(variants[0])!;
+                        const treatmentSamples = revenueResults.conversionRates.get(variants[1])!;
+                        
+                        // Get raw data if available
+                        const rawData = parsedData ? {
+                          control: parsedData.get(variants[0])?.map(u => u.converted ? 1 : 0) || [],
+                          treatment: parsedData.get(variants[1])?.map(u => u.converted ? 1 : 0) || []
+                        } : undefined;
+                        
+                        return (
+                          <ComparisonPlot
+                            controlSamples={controlSamples}
+                            treatmentSamples={treatmentSamples}
+                            controlLabel={variants[0]}
+                            treatmentLabel={variants[1]}
+                            metric="conversion"
+                            showRawData={showRawDistributions}
+                            rawData={rawData}
+                          />
+                        );
+                      }
+                      return <p className="text-gray-500">Need at least 2 variants for comparison</p>;
+                    })()}
+                  </div>
+                  
+                  {/* Revenue per User Comparison */}
+                  <div>
+                    <h4 className="text-base font-medium text-gray-700 mb-4">Revenue per User</h4>
+                    {(() => {
+                      const variants = Array.from(revenueResults.conversionRates.keys());
+                      if (variants.length >= 2) {
+                        const controlConv = revenueResults.conversionRates.get(variants[0])!;
+                        const treatmentConv = revenueResults.conversionRates.get(variants[1])!;
+                        const controlValue = revenueResults.meanValues.get(variants[0]) || [];
+                        const treatmentValue = revenueResults.meanValues.get(variants[1]) || [];
+                        
+                        // Calculate RPU samples
+                        const controlRPU = [];
+                        const treatmentRPU = [];
+                        const minLength = Math.min(controlConv.length, treatmentConv.length);
+                        
+                        for (let i = 0; i < minLength; i++) {
+                          const cRPU = controlConv[i] * (controlValue[i % controlValue.length] || 0);
+                          const tRPU = treatmentConv[i] * (treatmentValue[i % treatmentValue.length] || 0);
+                          
+                          if (!isNaN(cRPU) && isFinite(cRPU)) controlRPU.push(cRPU);
+                          if (!isNaN(tRPU) && isFinite(tRPU)) treatmentRPU.push(tRPU);
+                        }
+                        
+                        if (controlRPU.length > 0 && treatmentRPU.length > 0) {
+                          // Get raw revenue data if available
+                          const rawData = parsedData ? {
+                            control: parsedData.get(variants[0])?.map(u => u.value) || [],
+                            treatment: parsedData.get(variants[1])?.map(u => u.value) || []
+                          } : undefined;
+                          
+                          return (
+                            <ComparisonPlot
+                              controlSamples={controlRPU}
+                              treatmentSamples={treatmentRPU}
+                              controlLabel={variants[0]}
+                              treatmentLabel={variants[1]}
+                              metric="revenue"
+                              showRawData={showRawDistributions}
+                              rawData={rawData}
+                            />
+                          );
+                        }
+                      }
+                      return <p className="text-gray-500">Need value data for comparison</p>;
+                    })()}
                   </div>
                 </div>
-              )}
+              </div>
               
-              {/* Mean Value Distributions */}
-              {revenueResults.meanValues && (
-                <div className="bg-white p-4 rounded shadow">
-                  <h2 className="text-xl font-semibold mb-4">Revenue per Converted User Posteriors</h2>
-                  <p className="text-sm text-gray-600 mb-4">
-                    These distributions show the posterior for average revenue among users who convert
-                  </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {Array.from(revenueResults.meanValues.entries()).map(([variant, samples]: [string, number[]]) => {
-                      const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
-                      const sorted = [...samples].sort((a: number, b: number) => a - b);
-                      const median = sorted[Math.floor(samples.length / 2)];
+              {/* Uplift Distribution */}
+              {revenueResults.relativeEffects.size > 0 && (
+                <div className="bg-white p-6 rounded shadow">
+                  <h3 className="font-semibold mb-6 text-lg">Relative Uplift Distribution</h3>
+                  {Array.from(revenueResults.relativeEffects.entries()).map(([variant, effects]) => {
+                    // Get control RPU samples
+                    const controlName = Array.from(revenueResults.conversionRates.keys())[0];
+                    const controlConv = revenueResults.conversionRates.get(controlName)!;
+                    const controlValue = revenueResults.meanValues.get(controlName) || Array(1000).fill(1);
+                    
+                    // Calculate RPU samples with validation
+                    const controlRPU = [];
+                    const treatmentConv = revenueResults.conversionRates.get(variant)!;
+                    const treatmentValue = revenueResults.meanValues.get(variant) || Array(1000).fill(1);
+                    const treatmentRPU = [];
+                    
+                    for (let i = 0; i < Math.min(controlConv.length, treatmentConv.length); i++) {
+                      const cRPU = controlConv[i] * controlValue[i % controlValue.length];
+                      const tRPU = treatmentConv[i] * treatmentValue[i % treatmentValue.length];
                       
-                      return (
-                        <div key={variant}>
-                          <DistributionPlot
-                            samples={samples}
-                            color={variant === 'Control' ? '#6B7280' : '#3B82F6'}
-                            label={`${variant} Revenue per Converted User`}
-                            credibleLevel={0.95}
-                            showMean={true}
-                            showCredibleInterval={true}
-                            width={400}
-                            height={250}
+                      if (!isNaN(cRPU) && isFinite(cRPU) && cRPU >= 0 &&
+                          !isNaN(tRPU) && isFinite(tRPU) && tRPU >= 0) {
+                        controlRPU.push(cRPU);
+                        treatmentRPU.push(tRPU);
+                      }
+                    }
+                    
+                    if (controlRPU.length === 0 || treatmentRPU.length === 0) return null;
+                    
+                    return (
+                      <div key={variant} className="mb-6">
+                        <h4 className="text-base font-medium text-gray-700 mb-4">
+                          {variant} vs {controlName}
+                        </h4>
+                        <div className="h-80 w-full">
+                          <SafeUpliftGraph
+                            controlSamples={controlRPU}
+                            treatmentSamples={treatmentRPU}
+                            credibleLevel={0.80}
+                            isRevenue={true}
                           />
-                          <div className="mt-2 text-sm">
-                            <p>Posterior Mean: {formatCurrency(mean)}</p>
-                            <p>Posterior Median: {formatCurrency(median)}</p>
-                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
+                        <div className="mt-4 text-sm text-gray-600">
+                          <p>
+                            Probability of positive uplift: {' '}
+                            <span className="font-semibold">
+                              {(effects.overall.filter(e => e > 0).length / effects.overall.length * 100).toFixed(1)}%
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               
-              {/* Relative Effect */}
-              {revenueResults && revenueResults.relativeEffects && Array.from(revenueResults.relativeEffects.entries()).length > 0 && (
+              {/* Outlier Influence */}
+              {revenueResults.outlierInfluence.size > 0 && (
                 <div className="bg-white p-4 rounded shadow">
-                  <h2 className="text-xl font-semibold mb-4">Treatment Effect Analysis</h2>
-                  {Array.from(revenueResults.relativeEffects.entries()).map(([variant, effects]: [string, { overall: number[] }]) => {
-                    if (!effects?.overall || !Array.isArray(effects.overall)) {
-                      return null;
-                    }
-                    
-                    return (
-                      <div key={variant}>
-                        <UpliftGraph
-                          controlSamples={Array(effects.overall.length).fill(0)}
-                          treatmentSamples={effects.overall.map((x: number) => x * 100)} // Convert to percentage
-                          credibleLevel={0.95}
-                          title={`${variant} vs Control - Revenue per User`}
-                          width={600}
-                          height={300}
-                        />
+                  <h3 className="font-semibold mb-2">Outlier Influence</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    {Array.from(revenueResults.outlierInfluence.entries()).map(([variant, influence]) => (
+                      <div key={variant} className="bg-gray-50 p-3 rounded">
+                        <h4 className="font-medium">{variant}</h4>
+                        <p className="text-sm text-gray-600">
+                          Top user: {influence.topValueContribution.toFixed(1)}% of total value
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          Top 5 users: {influence.top5ValueContribution.toFixed(1)}% of total value
+                        </p>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-              
-              {/* Overall Results */}
-              {revenueResults && revenueResults.relativeEffects && (
-                <div className="bg-blue-50 p-4 rounded">
-                  <h3 className="font-semibold mb-4">Analysis Results</h3>
-                  {Array.from(revenueResults.relativeEffects.entries()).map(([variant, effects]: [string, { overall: number[] }]) => {
-                    if (!effects?.overall || !Array.isArray(effects.overall)) {
-                      return null;
-                    }
-                    const meanEffect = effects.overall.reduce((sum: number, x: number) => sum + x, 0) / effects.overall.length;
-                    const sorted = [...effects.overall].sort((a: number, b: number) => a - b);
-                    const ci95Lower = sorted[Math.floor(0.025 * sorted.length)];
-                    const ci95Upper = sorted[Math.floor(0.975 * sorted.length)];
-                    const probPositive = effects.overall.filter((x: number) => x > 0).length / effects.overall.length;
-                    
-                    return (
-                      <div key={variant} className="mb-4">
-                        <h4 className="font-medium text-lg">{variant} vs Control</h4>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-                          <div>
-                            <span className="text-gray-600 text-sm">Mean Effect</span>
-                            <p className="font-semibold">{formatPercent(meanEffect)}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600 text-sm">95% Credible Interval</span>
-                            <p className="font-semibold">[{formatPercent(ci95Lower)}, {formatPercent(ci95Upper)}]</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600 text-sm">P(Improvement)</span>
-                            <p className="font-semibold text-green-600">{formatPercent(probPositive)}</p>
-                          </div>
-                          <div>
-                            <span className="text-gray-600 text-sm">Decision</span>
-                            <p className="font-semibold">
-                              {probPositive > 0.95 ? '✅ Significant' : 
-                               probPositive < 0.05 ? '❌ Worse' : 
-                               '❓ Inconclusive'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
               )}
               
               {/* Effect Drivers */}
-              {revenueResults.effectDrivers && Array.from(revenueResults.effectDrivers.entries()).length > 0 && (
-                <div className="bg-purple-50 p-4 rounded">
-                  <h3 className="font-semibold mb-4">Effect Decomposition</h3>
-                  {Array.from(revenueResults.effectDrivers.entries()).map(([variant, drivers]: [string, any]) => {
-                    const conversionComponent = drivers.conversionComponent || 0;
-                    const valueComponent = drivers.valueComponent || 0;
-                    
-                    return (
-                      <div key={variant} className="mb-4">
-                        <h4 className="font-medium mb-2">{variant} Effect Breakdown:</h4>
-                        <div className="space-y-2">
-                          {/* Visual bar chart */}
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <div className="w-32 text-sm text-gray-600">Conversion Rate</div>
-                              <div className="flex-1 bg-gray-200 rounded-full h-6 relative">
-                                <div 
-                                  className="bg-blue-500 h-6 rounded-full flex items-center justify-end pr-2"
-                                  style={{width: `${conversionComponent * 100}%`}}
-                                >
-                                  <span className="text-xs text-white font-semibold">
-                                    {formatPercent(conversionComponent, 0)}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="w-32 text-sm text-gray-600">Revenue/Convert</div>
-                              <div className="flex-1 bg-gray-200 rounded-full h-6 relative">
-                                <div 
-                                  className="bg-green-500 h-6 rounded-full flex items-center justify-end pr-2"
-                                  style={{width: `${valueComponent * 100}%`}}
-                                >
-                                  <span className="text-xs text-white font-semibold">
-                                    {formatPercent(valueComponent, 0)}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
+              {revenueResults.effectDrivers.size > 0 && (
+                <div className="bg-white p-4 rounded shadow">
+                  <h3 className="font-semibold mb-2">What Drives the Effect?</h3>
+                  {Array.from(revenueResults.effectDrivers.entries()).map(([variant, drivers]) => (
+                    <div key={variant} className="mb-3">
+                      <h4 className="font-medium">{variant}</h4>
+                      <div className="flex gap-2 mt-1">
+                        <div className="flex-1 bg-blue-100 rounded px-2 py-1 text-sm">
+                          Conversion: {drivers.conversionComponent.toFixed(0)}%
+                        </div>
+                        <div className="flex-1 bg-green-100 rounded px-2 py-1 text-sm">
+                          Value: {drivers.valueComponent.toFixed(0)}%
+                        </div>
+                        <div className="flex-1 bg-purple-100 rounded px-2 py-1 text-sm">
+                          Interaction: {drivers.interaction.toFixed(0)}%
                         </div>
                       </div>
-                    );
-                  })}
-                  
-                  <div className="mt-4 p-3 bg-purple-100 rounded text-sm">
-                    <div className="font-semibold mb-1">How to interpret:</div>
-                    <ul className="space-y-1 text-gray-700">
-                      <li>• <strong>Conversion Rate</strong>: Effect from changes in conversion probability</li>
-                      <li>• <strong>Revenue/Convert</strong>: Effect from changes in average purchase amounts</li>
-                    </ul>
-                  </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </>
@@ -906,12 +866,11 @@ Treatment,1,120.00
   );
 }
 
-// Render the app
-const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
-root.render(
-  <React.StrictMode>
-    <BayesianAnalysisDemo />
-  </React.StrictMode>
-);
-
+// Export the component
 export default BayesianAnalysisDemo;
+
+// Auto-mount if this is the entry point
+if (typeof document !== 'undefined' && document.getElementById('root')) {
+  const root = ReactDOM.createRoot(document.getElementById('root')!);
+  root.render(<BayesianAnalysisDemo />);
+}
