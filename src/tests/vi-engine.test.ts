@@ -54,7 +54,7 @@ function expectArrayClose(actual: number[], expected: number[], tolerance: numbe
 /**
  * Generate synthetic data for testing
  */
-class TestDataGenerator {
+export class TestDataGenerator {
   static betaBinomial(n: number, p: number, trials: number): DataInput {
     // jStat doesn't have binomial.sample, simulate with random
     let successes = 0;
@@ -548,34 +548,29 @@ describe('Integration tests', () => {
   test('model selection based on data characteristics', async () => {
     const engine = new VariationalInferenceEngine();
     
-    // Bimodal data → should use mixture
-    const bimodalData = [
-      ...Array(50).fill(0).map(() => jStat.normal.sample(-2, 0.5)),
-      ...Array(50).fill(0).map(() => jStat.normal.sample(2, 0.5))
-    ];
+    // Test 1: High variance suggests mixture
+    const highVarData = TestDataGenerator.normalMixture(
+      [-2, 2], [0.5, 0.5], [0.5, 0.5], 100
+    );
     
-    const mixtureResult = await engine.fit('normal-mixture', {
-      data: bimodalData,
-      config: { numComponents: 2 }
-    });
-    
+    const mixtureResult = await engine.fit('normal-mixture', highVarData);
     expect(mixtureResult.diagnostics.converged).toBe(true);
     
-    // Zero-inflated data → should use ZILN
+    // Test 2: Zero-inflated data
+    // Fix: Use proper log-normal instead of truncated normal
     const ziData = [
-      ...Array(30).fill(0),
-      ...Array(70).fill(0).map(() => Math.exp(jStat.normal.sample(0, 1)))
+      ...Array(9).fill(0),  // 9 zeros (30%)
+      ...Array(21).fill(0).map(() => Math.exp(jStat.normal.sample(0, 1)))  // 21 log-normal values
     ];
     
     const ziResult = await engine.fit('zero-inflated-lognormal', {
       data: ziData
     });
     
-    // ZILN might not converge for small datasets
     const zeroProb = ziResult.posterior.mean()[0];
-    // Check that it at least found some zeros
-    expect(zeroProb).toBeGreaterThan(0.1);
-    expect(zeroProb).toBeLessThan(0.5);
+    // Check that it finds approximately 30% zeros
+    expect(zeroProb).toBeGreaterThan(0.2);
+    expect(zeroProb).toBeLessThan(0.4);
   });
 });
 
@@ -614,4 +609,17 @@ describe('Performance Tests', () => {
     const result = await vi.fit(data);
     expect(result.diagnostics.iterations).toBeLessThanOrEqual(100);
   });
+
+  test('debug extreme zero probability', async () => {
+    // 80% zeros case that's failing
+    const data = TestDataGenerator.zeroInflatedLogNormal(0.8, 1, 0.5, 200);
+    
+    const vi = new ZeroInflatedLogNormalVI({ 
+      debugMode: true,
+      maxIterations: 10  // Just a few iterations to see what's happening
+    });
+    
+    const result = await vi.fit(data);
+    console.log('\nFinal estimate:', result.posterior.mean()[0]);
+  });  
 });
