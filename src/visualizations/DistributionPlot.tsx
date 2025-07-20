@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import { scaleLinear } from 'd3-scale';
 
-interface DistributionPlotProps {
+export interface DistributionPlotProps {
   samples: number[];
   width?: number;
   height?: number;
@@ -13,6 +13,7 @@ interface DistributionPlotProps {
   showMean?: boolean;
   showMedian?: boolean;
   showCredibleInterval?: boolean;
+  isCurrency?: boolean; // Add this prop to format as currency
 }
 
 interface HistogramBin {

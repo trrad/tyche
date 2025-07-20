@@ -2,7 +2,7 @@
 import React, { useMemo } from 'react';
 import { scaleLinear } from 'd3-scale';
 
-interface UpliftGraphProps {
+export interface UpliftGraphProps {
   controlSamples: number[];
   treatmentSamples: number[];
   width?: number;
@@ -11,6 +11,7 @@ interface UpliftGraphProps {
   title?: string;
   showDensity?: boolean;
   bins?: number;
+  isRevenue?: boolean; // Add this prop for revenue-specific formatting
 }
 
 interface UpliftResult {
