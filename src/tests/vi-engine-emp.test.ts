@@ -326,7 +326,7 @@ describe('VariationalInferenceEngine Integration', () => {
 describe('NumericalUtils', () => {
   test('logSumExp handles extreme values', () => {
     const result = NumericalUtils.logSumExp([1000, 1001, 999]);
-    expect(result).toBeCloseTo(1001.55, 2);
+    expect(result).toBeCloseTo(1001.408, 2);
     
     // Empty array
     expect(NumericalUtils.logSumExp([])).toBe(-Infinity);
@@ -379,7 +379,7 @@ describe('Performance', () => {
     expect(duration).toBeLessThan(1000); // Should be < 1 second
   });
   
-  test('zero-inflated handles large data', async () => {
+  test('zero-inflated handles large data with analytical gradients', async () => {
     const data = TestDataGenerator.zeroInflatedLogNormal(0.2, 0, 1, 5000);
     const vi = new ZeroInflatedLogNormalVI({ maxIterations: 100 });
     
@@ -387,7 +387,8 @@ describe('Performance', () => {
     const result = await vi.fit(data);
     const duration = performance.now() - start;
     
-    expect(duration).toBeLessThan(5000); // Should be < 5 seconds
+    // Should be MUCH faster with analytical gradients
+    expect(duration).toBeLessThan(2000); // Should be < 2 seconds (was < 5 before)
     expect(result.diagnostics.iterations).toBeLessThanOrEqual(100);
   });
 });
