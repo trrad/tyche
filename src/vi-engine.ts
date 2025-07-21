@@ -473,17 +473,22 @@ export class NormalMixtureEM {
 // Types for Zero-Inflated Log-Normal
 interface ZILNParams {
   zeroLogitMean: number;      // Logit of zero probability
-  zeroLogitLogVar: number;    // Log variance of zero probability
-  valueMean: number;          // Mean of log-normal
-  valueLogVar: number;        // Log variance of log-normal
-  valueSigma: number;         // Standard deviation of log-normal (not log)
+  zeroLogitLogVar: number;    // Log variance of zero probability (for VI)
+  valueMean: number;          // Mean of log-normal (mu parameter)
+  valueLogVar: number;        // Log variance of log-normal (log(sigma^2))
+  // REMOVED: valueSigma - compute from valueLogVar when needed
 }
 
 /**
  * Zero-inflated log-normal posterior
  */
 class ZILNPosterior implements Posterior {
-  constructor(private params: ZILNParams) {}
+  private valueSigma: number;
+  
+  constructor(private params: ZILNParams) {
+    // Compute valueSigma from valueLogVar
+    this.valueSigma = Math.sqrt(Math.exp(params.valueLogVar));
+  }
   
   /**
    * Get zero probability estimate
@@ -549,7 +554,7 @@ class ZILNPosterior implements Posterior {
         Math.sqrt(Math.exp(this.params.valueLogVar))
       );
       // Log-normal: exp(normal)
-      value = Math.exp(valueMu + this.params.valueSigma * jStat.normal.sample(0, 1));
+      value = Math.exp(valueMu + this.valueSigma * jStat.normal.sample(0, 1));
     }
     
     return [isZero, value];
@@ -586,7 +591,7 @@ credibleInterval(level: number): Array<[number, number]> {
     
     // 2. Non-zero value CI (log-normal parameters)
     // For log-normal, work on the log scale then transform
-    const logValueStd = Math.sqrt(this.params.valueSigma * this.params.valueSigma + 
+    const logValueStd = Math.sqrt(this.valueSigma * this.valueSigma + 
                                    Math.exp(this.params.valueLogVar));
     const logValueLower = this.params.valueMean - z * logValueStd;
     const logValueUpper = this.params.valueMean + z * logValueStd;
@@ -620,10 +625,9 @@ credibleInterval(level: number): Array<[number, number]> {
  * Zero-inflated log-normal variational inference
  */
 export class ZeroInflatedLogNormalVI {
-  private learningRate = 0.01;  // Increased learning rate for analytical gradients
+  private learningRate = 0.01;
   private maxIterations = 1000;
-  private tolerance = 1e-5;  // Slightly relaxed tolerance
-  private numSamples = 50;  // Kept at original value
+  private tolerance = 1e-5;
   private debugMode: boolean = false;
   
   constructor(options: FitOptions & { debugMode?: boolean } = {}) {
@@ -632,152 +636,99 @@ export class ZeroInflatedLogNormalVI {
     if (typeof options.debugMode === 'boolean') this.debugMode = options.debugMode;
   }
   
-    /**
-     * Compute analytical gradients of ELBO w.r.t. variational parameters
-     * This is much more efficient than finite differences!
-     * 
-     * Note: This uses a mean-field approximation and evaluates at the 
-     * variational means (Laplace approximation).
-     */
-    private computeAnalyticalGradients(
+  /**
+   * Compute analytical gradients of ELBO
+   */
+  private computeAnalyticalGradients(
     params: ZILNParams,
     data: number[]
-    ): { elbo: number; gradients: ZILNParams } {
-    // Separate zeros and non-zeros
+  ): { elbo: number; gradients: ZILNParams } {
     const zeros = data.filter(x => x === 0).length;
     const nonZeros = data.filter(x => x > 0);
     const n = data.length;
     
-    // Current variational parameters
-    const zeroLogitStd = Math.sqrt(Math.exp(params.zeroLogitLogVar));
-    const valueStd = Math.sqrt(Math.exp(params.valueLogVar));
+    // Compute derived parameters
+    const valueSigma = Math.sqrt(Math.exp(params.valueLogVar));
+    const zeroProb = 1 / (1 + Math.exp(-params.zeroLogitMean));
     
     // Initialize gradients
     const gradients: ZILNParams = {
-        zeroLogitMean: 0,
-        zeroLogitLogVar: 0,
-        valueMean: 0,
-        valueLogVar: 0,
-        valueSigma: 0
+      zeroLogitMean: 0,
+      zeroLogitLogVar: 0,
+      valueMean: 0,
+      valueLogVar: 0
     };
     
-    // ELBO components
     let elbo = 0;
     
-    // 1. Expected log likelihood for zero probability
-    // Using logistic function: p(zero) = 1/(1 + exp(-logit))
-    const zeroProb = 1 / (1 + Math.exp(-params.zeroLogitMean));
+    // 1. Bernoulli likelihood for zero/non-zero indicators
+    const logLikBernoulli = zeros * Math.log(zeroProb + 1e-10) + 
+                           (n - zeros) * Math.log(1 - zeroProb + 1e-10);
+    elbo += logLikBernoulli;
     
-    if (this.debugMode) {
-        console.log('\n=== Gradient Computation ===');
-        console.log('Data: zeros =', zeros, 'nonZeros =', nonZeros.length, 'total =', n);
-        console.log('True zero proportion:', (zeros / n).toFixed(4));
-        console.log('Current zero prob:', zeroProb.toFixed(4));
-        console.log('Current logit:', params.zeroLogitMean.toFixed(4));
-    }
-    
-    // Likelihood contribution (using log1p for numerical stability)
-    const logLikZero = zeros * (-Math.log1p(Math.exp(-params.zeroLogitMean))) + 
-                        (n - zeros) * (-Math.log1p(Math.exp(params.zeroLogitMean)));
-    elbo += logLikZero;
-    
-    // Gradient for zero probability (standard logistic regression gradient)
+    // Gradient: standard logistic regression gradient
     gradients.zeroLogitMean = zeros - n * zeroProb;
     
-    // 2. Expected log likelihood for non-zero values (if any)
-    let logLikValue = 0;
-    let crossTermGrad = 0;
-    
+    // 2. Log-normal likelihood for non-zero values
     if (nonZeros.length > 0) {
-        let gradMean = 0;
-        let gradSigma = 0;
-        
-        // Compute log-likelihood and gradients for non-zero values
-        for (const x of nonZeros) {
+      let logLikLN = 0;
+      let gradMean = 0;
+      let gradLogVar = 0;
+      
+      for (const x of nonZeros) {
         const logX = Math.log(x);
-        const z = (logX - params.valueMean) / params.valueSigma;
+        const z = (logX - params.valueMean) / valueSigma;
         
-        // Log-normal log likelihood for this data point
-        logLikValue += -logX - Math.log(params.valueSigma) - 0.5 * Math.log(2 * Math.PI) - 0.5 * z * z;
+        // Log-normal log-likelihood
+        logLikLN += -logX - 0.5 * Math.log(2 * Math.PI) - 
+                    Math.log(valueSigma) - 0.5 * z * z;
         
-        // Gradients w.r.t. value parameters (accumulate over data points)
-        gradMean += z / params.valueSigma;
-        gradSigma += -1 / params.valueSigma + z * z / params.valueSigma;
-        }
-        
-        // Weight by expected probability of non-zero
-        const nonZeroProb = 1 - zeroProb;
-        
-        // Add weighted likelihood to ELBO
-        elbo += nonZeroProb * logLikValue;
-        
-        // Weight the gradients
-        gradients.valueMean = nonZeroProb * gradMean;
-        gradients.valueSigma = nonZeroProb * gradSigma;
-        
-        // Cross-term gradient contribution
-        // d/d(logit) [(1-p) * logLik] = -p(1-p) * logLik
-        crossTermGrad = -zeroProb * nonZeroProb * logLikValue;
-        gradients.zeroLogitMean += crossTermGrad;
+        // Gradients w.r.t. mu and log(sigma^2)
+        gradMean += z / valueSigma;
+        gradLogVar += 0.5 * (-1/valueSigma + z * z) / valueSigma;
+      }
+      
+      // Add to ELBO (no weighting - these are conditioned on being non-zero)
+      elbo += logLikLN;
+      
+      // Add to gradients
+      gradients.valueMean += gradMean;
+      gradients.valueLogVar += gradLogVar;
     }
     
-    // 3. KL divergence for zero probability (logit-normal to standard normal prior)
-    const klZero = 0.5 * (params.zeroLogitMean * params.zeroLogitMean / (zeroLogitStd * zeroLogitStd) + 
-                            Math.log(zeroLogitStd * zeroLogitStd) - 1);
-    elbo -= klZero;
+    // 3. KL divergences (using standard normal priors)
+    // KL for logit-normal approximation
+    const zeroLogitVar = Math.exp(params.zeroLogitLogVar);
+    const klZero = 0.5 * (params.zeroLogitMean * params.zeroLogitMean + 
+                         zeroLogitVar - Math.log(zeroLogitVar) - 1);
+    
+    // KL for normal approximation to log-normal parameters
+    const klValue = 0.5 * (params.valueMean * params.valueMean + 
+                          Math.exp(params.valueLogVar) - params.valueLogVar - 1);
+    
+    elbo -= (klZero + klValue);
     
     // KL gradients
-    const klGradZero = -params.zeroLogitMean / (zeroLogitStd * zeroLogitStd);
-    gradients.zeroLogitMean += klGradZero;
-    gradients.zeroLogitLogVar -= 0.5 * (1 / (zeroLogitStd * zeroLogitStd) - 1);
-    
-    // 4. KL divergence for value parameters (normal to standard normal prior)
-    const klValue = 0.5 * (params.valueMean * params.valueMean / (valueStd * valueStd) + 
-                            Math.log(valueStd * valueStd) - 1);
-    elbo -= klValue;
-    
-    // KL gradients
-    gradients.valueMean -= params.valueMean / (valueStd * valueStd);
-    gradients.valueLogVar -= 0.5 * (1 / (valueStd * valueStd) - 1);
-    
-    // 5. Entropy bonus for variational distributions
-    const entropyZero = 0.5 * Math.log(2 * Math.PI * Math.E * zeroLogitStd * zeroLogitStd);
-    const entropyValue = 0.5 * Math.log(2 * Math.PI * Math.E * valueStd * valueStd);
-    elbo += entropyZero + entropyValue;
-    
-    // Entropy gradients
-    gradients.zeroLogitLogVar += 0.5;
-    gradients.valueLogVar += 0.5;
+    gradients.zeroLogitMean -= params.zeroLogitMean;
+    gradients.zeroLogitLogVar -= 0.5 * (1 - 1/zeroLogitVar);
+    gradients.valueMean -= params.valueMean;
+    gradients.valueLogVar -= 0.5 * (Math.exp(params.valueLogVar) - 1);
     
     if (this.debugMode) {
-        // Log gradient components
-        const likelihoodGradZero = zeros - n * zeroProb;
-        
-        console.log('\nGradient components for zeroLogitMean:');
-        console.log('  Likelihood (zeros):', likelihoodGradZero.toFixed(4));
-        console.log('  Cross-term (non-zeros):', crossTermGrad.toFixed(4));
-        console.log('  KL regularization:', klGradZero.toFixed(4));
-        console.log('  Total gradient:', gradients.zeroLogitMean.toFixed(4));
-        
-        const shouldIncrease = (zeros / n) > zeroProb;
-        console.log('  Expected direction:', shouldIncrease ? 'INCREASE' : 'DECREASE');
-        console.log('  Actual direction:', gradients.zeroLogitMean > 0 ? 'INCREASE' : 'DECREASE');
-        console.log('  Match?', (gradients.zeroLogitMean > 0) === shouldIncrease ? '✓' : '✗ MISMATCH!');
-        
-        console.log('\nOther gradients:');
-        console.log('  valueMean:', gradients.valueMean.toFixed(4));
-        console.log('  valueSigma:', gradients.valueSigma.toFixed(4));
-        console.log('  ELBO:', elbo.toFixed(4));
+      console.log('\n=== Gradient Debug ===');
+      console.log('Zero prob:', zeroProb.toFixed(4), 'vs empirical:', (zeros/n).toFixed(4));
+      console.log('Gradients:', {
+        zeroLogit: gradients.zeroLogitMean.toFixed(4),
+        valueMean: gradients.valueMean.toFixed(4),
+        valueLogVar: gradients.valueLogVar.toFixed(4)
+      });
+      console.log('ELBO:', elbo.toFixed(4));
     }
     
     return { elbo, gradients };
-    }
+  }
   
-  /**
-   * Fit zero-inflated log-normal model
-   */
   async fit(input: DataInput, options?: FitOptions): Promise<VIResult> {
-    // Extract data
     let data: number[];
     
     if (Array.isArray(input.data)) {
@@ -790,7 +741,6 @@ export class ZeroInflatedLogNormalVI {
       throw new Error('Data cannot be empty');
     }
     
-    // Separate zeros and non-zeros
     const zeros = data.filter(x => x === 0).length;
     const nonZeros = data.filter(x => x > 0);
     const n = data.length;
@@ -799,111 +749,79 @@ export class ZeroInflatedLogNormalVI {
       throw new Error('No zeros found in data - use standard LogNormal instead');
     }
     
-    // Initialize parameters with better defaults
+    // Validate data
+    if (nonZeros.length > 0) {
+      const minNonZero = Math.min(...nonZeros);
+      if (minNonZero > 0.5 && this.debugMode) {
+        console.warn('Warning: Minimum non-zero value is', minNonZero.toFixed(4), 
+                    '- data may not be truly log-normal');
+      }
+    }
+    
+    // Initialize parameters
     let params: ZILNParams;
     
-    // Special handling for all-zeros case
     if (nonZeros.length === 0) {
+      // All zeros case
       params = {
-        zeroLogitMean: 2.0,  // High logit for high zero probability
-        zeroLogitLogVar: Math.log(0.1),  // Low uncertainty
-        valueMean: 0,  // Doesn't matter much
-        valueLogVar: Math.log(1),
-        valueSigma: 1
+        zeroLogitMean: 3.0,  // High zero probability
+        zeroLogitLogVar: Math.log(0.1),
+        valueMean: 0,
+        valueLogVar: 0  // log(1) = 0
       };
     } else {
-      // Normal initialization
+      // Normal case
       const empiricalZeroProb = zeros / n;
-      // Use logit transform with bounds to avoid infinity
       const boundedProb = Math.max(0.01, Math.min(0.99, empiricalZeroProb));
+      const logNonZeros = nonZeros.map(x => Math.log(x));
       
       params = {
         zeroLogitMean: Math.log(boundedProb / (1 - boundedProb)),
-        zeroLogitLogVar: Math.log(0.5),
-        valueMean: jStat.mean(nonZeros.map(x => Math.log(x))),
-        valueLogVar: Math.log(0.5),
-        valueSigma: Math.max(0.1, Math.sqrt(jStat.variance(nonZeros.map(x => Math.log(x)), true)))
+        zeroLogitLogVar: Math.log(1.0),  // Start with unit variance
+        valueMean: jStat.mean(logNonZeros),
+        valueLogVar: Math.log(Math.max(0.01, jStat.variance(logNonZeros, true)))
       };
     }
     
-    // Initialize optimizer with adaptive learning rate
+    // Initialize optimizer
     const optimizer = new AdamOptimizer({
       learningRate: this.learningRate,
       beta1: 0.9,
       beta2: 0.999,
-      epsilon: 1e-8,
-      gradientClip: 5.0  // Reduced clip value
+      epsilon: 1e-8
     });
     
     const elboHistory: number[] = [];
     let converged = false;
     let iterations = 0;
     
-    // Convert params to array for optimizer
-    const paramsToArray = (p: ZILNParams) => [
-      p.zeroLogitMean, p.zeroLogitLogVar, p.valueMean, p.valueLogVar, p.valueSigma
+    // Convert to/from array for optimizer
+    const toArray = (p: ZILNParams) => [
+      p.zeroLogitMean, p.zeroLogitLogVar, p.valueMean, p.valueLogVar
     ];
     
-    const arrayToParams = (arr: number[]): ZILNParams => ({
-        zeroLogitMean: arr[0],
-        zeroLogitLogVar: arr[1],
-        valueMean: arr[2],
-        valueLogVar: arr[3],
-        valueSigma: Math.abs(arr[4])  // Just ensure positive, no bounds
+    const fromArray = (arr: number[]): ZILNParams => ({
+      zeroLogitMean: arr[0],
+      zeroLogitLogVar: arr[1],
+      valueMean: arr[2],
+      valueLogVar: arr[3]
     });
     
-    let paramArray = paramsToArray(params);
-    let oldELBO = -Infinity;
-    let oldParams = [...paramArray];  // Track for parameter-based convergence
-
-    if (this.debugMode) {
-        console.log('\n=== Initialization ===');
-        console.log('Empirical zero prob:', (zeros / n).toFixed(4));
-        console.log('Non-zero count:', nonZeros.length);
-        
-        if (nonZeros.length > 0) {
-          const logNonZeros = nonZeros.map(x => Math.log(x));
-          console.log('Data log-mean:', jStat.mean(logNonZeros).toFixed(4));
-          console.log('Data log-std:', Math.sqrt(jStat.variance(logNonZeros, true)).toFixed(4));
-          
-          // Check for extreme values
-          const sorted = [...nonZeros].sort((a, b) => a - b);
-          console.log('Non-zero quantiles:');
-          console.log('  Min:', sorted[0].toFixed(6));
-          console.log('  25%:', sorted[Math.floor(sorted.length * 0.25)].toFixed(6));
-          console.log('  50%:', sorted[Math.floor(sorted.length * 0.5)].toFixed(6));
-          console.log('  75%:', sorted[Math.floor(sorted.length * 0.75)].toFixed(6));
-          console.log('  Max:', sorted[sorted.length - 1].toFixed(6));
-        }
-        
-        console.log('\nInitial parameters:');
-        console.log('  zeroLogitMean:', params.zeroLogitMean.toFixed(4));
-        console.log('  zero prob:', (1 / (1 + Math.exp(-params.zeroLogitMean))).toFixed(4));
-        console.log('  valueMean:', params.valueMean.toFixed(4));
-        console.log('  valueSigma:', params.valueSigma.toFixed(4));
-        
-        // Compute initial log-likelihood to see if we start in a terrible place
-        const { elbo } = this.computeAnalyticalGradients(params, data);
-        console.log('  Initial ELBO:', elbo.toFixed(4));
-      }   
+    let paramArray = toArray(params);
+    let oldParams = [...paramArray];
     
+    // Optimization loop
     for (iterations = 0; iterations < this.maxIterations; iterations++) {
-      // Use analytical gradients instead of finite differences!
-      const { elbo, gradients } = this.computeAnalyticalGradients(
-        arrayToParams(paramArray), 
-        data
-      );
+      const currentParams = fromArray(paramArray);
+      const { elbo, gradients } = this.computeAnalyticalGradients(currentParams, data);
       
-      // Store ELBO history
       elboHistory.push(elbo);
       
-      // Check for convergence based on parameter change
+      // Check convergence
       if (iterations > 0) {
         const paramChange = Math.sqrt(
           paramArray.reduce((sum, p, i) => sum + Math.pow(p - oldParams[i], 2), 0)
         );
-        
-        // Relative parameter change
         const paramNorm = Math.sqrt(paramArray.reduce((sum, p) => sum + p * p, 0));
         const relativeChange = paramChange / (paramNorm + 1e-10);
         
@@ -913,19 +831,15 @@ export class ZeroInflatedLogNormalVI {
         }
       }
       
-      oldELBO = elbo;
       oldParams = [...paramArray];
       
-      // Update parameters using optimizer
-      const gradArray = paramsToArray(gradients);
+      // Update parameters
+      const gradArray = toArray(gradients);
       paramArray = optimizer.step(paramArray, gradArray);
     }
     
-    // Final parameters
-    params = arrayToParams(paramArray);
-    
     return {
-      posterior: new ZILNPosterior(params),
+      posterior: new ZILNPosterior(fromArray(paramArray)),
       diagnostics: {
         converged,
         iterations,
