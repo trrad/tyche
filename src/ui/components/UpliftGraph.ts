@@ -1,6 +1,6 @@
 // src/components/UpliftGraph.ts
-import { RandomVariable } from '../core/RandomVariable';
-import { beta } from '../core/distributions/Beta';
+import { RandomVariable } from '../../core/RandomVariable';
+import { beta } from '../../core/distributions/Beta';
 
 interface UpliftData {
   samples: number[];

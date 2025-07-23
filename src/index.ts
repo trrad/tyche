@@ -41,7 +41,7 @@ export {
   erf,
   erfc,
   erfInv
-} from './core/math/special';
+} from './core/utils/math/special';
 
 // Random number generation
 export {
@@ -52,7 +52,7 @@ export {
   gamma as gammaSample,
   beta as betaSample,
   binomial as binomialSample
-} from './core/math/random';
+} from './core/utils/math/random';
 
 // Distribution exports
 export { BetaRV, beta } from './core/distributions/Beta';

@@ -1,6 +1,6 @@
 // src/components/UpliftGraphD3.ts
 import * as d3 from 'd3';
-import { beta } from '../core/distributions/Beta';
+import { beta } from '../../core/distributions/Beta';
 
 interface UpliftData {
   value: number;

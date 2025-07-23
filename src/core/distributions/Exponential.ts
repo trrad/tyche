@@ -16,7 +16,7 @@
 
 import { RandomVariable, log, multiply } from '../RandomVariable';
 import { ComputationGraph } from '../ComputationGraph';
-import { RNG } from '../math/random';
+import { RNG } from '../utils/math/random';
 
 export class ExponentialRV extends RandomVariable {
   private rng: RNG;

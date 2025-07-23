@@ -4,8 +4,8 @@
 
 import { RandomVariable, log, subtract, multiply, add } from '../RandomVariable';
 import { ComputationGraph } from '../ComputationGraph';
-import { logBeta, logGamma } from '../math/special';
-import { RNG } from '../math/random';
+import { logBeta, logGamma } from '../utils/math/special';
+import { RNG } from '../utils/math/random';
 
 /**
  * Beta distribution random variable

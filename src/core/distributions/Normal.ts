@@ -4,8 +4,8 @@
 
 import { RandomVariable, log, subtract, add } from '../RandomVariable';
 import { ComputationGraph } from '../ComputationGraph';
-import { erf, erfInv } from '../math/special';
-import { RNG } from '../math/random';
+import { erf, erfInv } from '../utils/math/special';
+import { RNG } from '../utils/math/random';
 
 const LOG_TWO_PI = Math.log(2 * Math.PI);
 const SQRT_TWO = Math.sqrt(2);

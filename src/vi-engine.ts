@@ -421,6 +421,14 @@ export class NormalMixtureEM {
     
     const dataArray = data.data;
     const k = data.config?.numComponents || this.numComponents;
+
+    if (!dataArray || dataArray.length === 0) {
+      throw new Error('Data cannot be empty');
+    }
+
+    if (k > dataArray.length) {
+      throw new Error('Number of components cannot exceed data size');
+    }
     
     // Initialize
     const centers = this.initializeKMeansPlusPlus(dataArray, k);
