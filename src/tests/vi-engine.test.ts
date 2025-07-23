@@ -402,8 +402,8 @@ describe('ZeroInflatedLogNormalVI', () => {
     
     // Check that variance parameters are being updated (not fixed at 1)
     const params = (result.posterior as any).params;
-    expect(params.valueSigma).not.toBe(1);
-    expect(params.valueSigma).toBeGreaterThan(0.01);  // Ensure positive
+    expect(params.valueLogVar).not.toBe(0);  // log(1) = 0
+    expect(Math.sqrt(Math.exp(params.valueLogVar))).toBeGreaterThan(0.01);  // Ensure sigma > 0.01
   });
   
   test('credible intervals coverage', async () => {

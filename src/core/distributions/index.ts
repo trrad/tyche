@@ -6,7 +6,7 @@
  */
 
 // Re-export the RNG for convenience
-export { RNG, defaultRNG } from '../math/random';
+export { RNG, defaultRNG } from '../utils/math/random';
 
 // Beta distribution
 export { BetaRV, beta } from './Beta';
@@ -39,7 +39,7 @@ export type { RandomVariable, Shape, Tensor } from '../RandomVariable';
  */
 
 import { beta } from './Beta';
-import { RNG } from '../math/random';
+import { RNG } from '../utils/math/random';
 
 /**
  * Weakly informative prior for probability parameters

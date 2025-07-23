@@ -1,12 +1,12 @@
 // src/power/PowerSimulator.ts
-import { RandomVariable } from '../core/RandomVariable';
-import { ConversionValueModel, VariantData, UserData } from '../models/ConversionValueModel';
-import { beta } from '../core/distributions/Beta';
-import { normal } from '../core/distributions/Normal';
-import { gamma } from '../core/distributions/Gamma';
-import { logNormal } from '../core/distributions/LogNormal';
-import { binomial } from '../core/distributions/Binomial';
-import { RNG } from '../core/math/random';
+import { RandomVariable } from '../../core/RandomVariable';
+import { ConversionValueModel, VariantData, UserData } from '../../models/ConversionValueModel';
+import { beta } from '../../core/distributions/Beta';
+import { normal } from '../../core/distributions/Normal';
+import { gamma } from '../../core/distributions/Gamma';
+import { logNormal } from '../../core/distributions/LogNormal';
+import { binomial } from '../../core/distributions/Binomial';
+import { RNG } from '../../core/utils/math/random';
 
 /**
  * Distribution that can generate samples

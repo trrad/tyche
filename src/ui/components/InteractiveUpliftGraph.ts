@@ -1,7 +1,7 @@
 // src/components/InteractiveUpliftGraph.ts
 import * as d3 from 'd3';
-import { beta } from '../core/distributions/Beta';
-import { RNG } from '../core/math/random';
+import { beta } from '../../core/distributions/Beta';
+import { RNG } from '../../core/utils/math/random';
 
 interface UpliftStats {
   samples: number[];

@@ -1,83 +1,187 @@
-# Tyche Models
+# Business-Level Models
 
-This directory contains the statistical models for Tyche's Bayesian analysis capabilities.
+High-level statistical models that compose distributions and inference methods for specific business use cases.
 
-## Current Architecture
+## Current State
 
-### ConversionValueModelVI (Recommended)
-- **File**: `ConversionValueModelVI.ts`
-- **Purpose**: Fast variational inference for conversion + value analysis
-- **Features**:
-  - Runs in seconds instead of minutes
-  - Auto-detects best model type based on data
-  - Supports zero-inflated and mixture models
-  - Browser-optimized performance
-  - is GPU parallizable, via webworkers.
+**What exists:**
+- `ConversionValueModel.ts` - Old computation graph approach (TO BE DELETED)
+- `ConversionValueModelVI.ts` - Working VI-based implementation
+- Mixed abstraction levels (low-level inference with business logic)
 
-### Usage
+**Problems:**
+- Old model uses deprecated computation graph
+- VI model works but could be cleaner with new architecture
+- No clear pattern for new business models
 
-```typescript
-import { ConversionValueModelVI } from './models/ConversionValueModelVI';
+## Desired State
 
-const model = new ConversionValueModelVI();
-
-// Add variant data
-model.addVariant({
-  name: 'Control',
-  users: [
-    { converted: true, value: 95.50 },
-    { converted: false, value: 0 },
-    // ...
-  ]
-});
-
-// Run analysis
-const results = await model.analyze({
-  modelType: 'auto',      // Auto-detect best model
-  maxIterations: 1000,    // VI iterations
-  tolerance: 1e-6         // Convergence tolerance
-});
-
-// Access results
-console.log('Conversion rates:', results.conversionRates);
-console.log('Mean values:', results.meanValues);
-console.log('Outlier influence:', results.outlierInfluence);
+**Clean business model implementations:**
+```
+models/
+├── base/
+│   └── BusinessModel.ts         # Common interface
+├── CompoundModel.ts            # Frequency × Severity composition
+├── ConversionValueModelVI.ts   # Current working model (refactored)
+├── RevenueModel.ts             # Future: pure revenue analysis
+└── SegmentedModel.ts           # Future: with user segments
 ```
 
-### Model Types
+## Design Philosophy
 
-The VI engine supports several model types:
+### Compound Model Architecture
 
-1. **Beta-Binomial** (default)
-   - Simple conversion rate analysis
-   - Fast exact inference
+We use "compound models" (frequency × severity) instead of zero-inflated models for business clarity. The term comes from actuarial science where it's standard for modeling claim frequency × claim severity.
 
-2. **Zero-Inflated LogNormal**
-   - For revenue data with many zeros
-   - Handles sparse conversion scenarios
+```typescript
+export class CompoundModel<
+  FrequencyDist extends Distribution,
+  SeverityDist extends Distribution
+> {
+  private frequency: FrequencyDist;  // "Did they convert?"
+  private severity: SeverityDist;    // "How much did they spend?"
+  
+  async analyze(data: VariantData[]): Promise<BusinessResults> {
+    // Part 1: Conversion analysis
+    const conversionResults = await this.analyzeConversion(data);
+    
+    // Part 2: Value analysis (converters only)
+    const valueResults = await this.analyzeValue(data);
+    
+    // Combine for business insights
+    return this.combineResults(conversionResults, valueResults);
+  }
+}
 
-3. **Normal Mixture**
-   - For multimodal value distributions
-   - Detects customer segments
+// Supports mixtures for complex value distributions (1-4 components)
+type ValueDistribution = Gamma | LogNormal | NormalMixture | LogNormalMixture;
+const model = new CompoundModel<Beta, LogNormalMixture>();
+```
 
-4. **Auto-detect**
-   - Automatically selects based on data characteristics
-   - Recommended for most use cases
+### Why Compound Models
 
-### Migration from ConversionValueModel
+**Business clarity**:
+- "Conversion increased 2%" - clear metric
+- "Revenue per converter increased $5" - actionable
+- "Overall effect: +$3.20 per user" - bottom line
 
-The old MCMC-based `ConversionValueModel` is deprecated. To migrate:
+**Statistical benefits**:
+- Use best distribution for each part
+- Support mixtures for multimodal severity
+- Cleaner parameter interpretation  
+- Easier prior specification
 
-1. Replace `ConversionValueModel` with `ConversionValueModelVI`
-2. Remove `ComputationGraph` references (no longer needed)
-3. Update analysis options to use VI parameters
-4. Results format remains the same for compatibility
+**Computational benefits**:
+- Parallelize frequency and severity analysis
+- Use conjugate updates where possible
+- EM for mixtures, VI only when needed
 
-### Performance
+## Model Patterns
 
-Typical analysis times:
-- 1,000 users: < 1 second
-- 10,000 users: 2-5 seconds  
-- 100,000 users: 10-20 seconds
+### Current: ConversionValueModelVI
 
-Compare to MCMC which took minutes for similar datasets.
+Needs refactoring to:
+1. Use new distribution classes
+2. Delegate to inference engines
+3. Focus on business logic only
+4. Adopt compound model architecture internally
+
+### Future: Segmented Models
+
+```typescript
+export class SegmentedModel extends BusinessModel {
+  async analyze(data: SegmentedData): Promise<SegmentResults> {
+    // Detect segments using mixture models
+    const segments = await this.detectSegments(data);
+    
+    // Analyze each segment separately
+    const segmentResults = await Promise.all(
+      segments.map(s => this.analyzeSegment(s))
+    );
+    
+    // Aggregate for overall insights
+    return this.aggregateResults(segmentResults);
+  }
+}
+```
+
+## Business Metrics
+
+Models should output interpretable business metrics:
+
+```typescript
+interface BusinessResults {
+  // Point estimates
+  conversionRate: Map<string, number>;
+  revenuePerConverter: Map<string, number>;
+  revenuePerUser: Map<string, number>;
+  
+  // Uncertainty  
+  credibleIntervals: Map<string, [number, number]>;
+  probabilityOfImprovement: Map<string, number>;
+  
+  // Insights
+  effectDecomposition: EffectDrivers;
+  outlierInfluence: OutlierDiagnostic;
+  sampleSizeRecommendation?: number;
+}
+```
+
+## Future Models
+
+### Causal Trees for HTE Discovery (Phase 3.3)
+
+Hypothesis-driven heterogeneous treatment effect discovery:
+
+```typescript
+export class CausalTreeModel extends BusinessModel {
+  // Constrained for interpretability and stability
+  constraints = {
+    maxFeatures: 8,           // Increased from 3 - more realistic
+    maxDepth: 4,              // Still interpretable
+    minSegmentSize: 0.10,     // ≥10% of users
+    requiredStability: 0.80,  // Must appear in 80% of bootstraps
+  };
+  
+  async discoverSegments(
+    data: ExperimentData,
+    hypotheses: BusinessHypothesis[]
+  ): Promise<StableSegments> {
+    // Honest inference with train/estimate split
+    // Bootstrap for stability validation
+    // Return only actionable, stable segments
+  }
+}
+```
+
+### Decision Framework Integration (Phase 3.1)
+
+Incorporating loss functions and business costs:
+
+```typescript
+export class DecisionAwareModel extends BusinessModel {
+  async analyzeWithCosts(
+    data: VariantData[],
+    costs: BusinessCosts
+  ): Promise<DecisionRecommendation> {
+    // Standard analysis
+    const results = await this.analyze(data);
+    
+    // Integrate loss function over posteriors
+    const decision = this.computeOptimalDecision(results, costs);
+    
+    return {
+      recommendation: decision,
+      expectedValue: this.computeExpectedValue(decision, results),
+      riskAssessment: this.assessRisks(decision, results)
+    };
+  }
+}
+```
+
+## Testing Business Models
+
+1. **Synthetic data tests**: Known ground truth recovery
+2. **Business logic tests**: Metrics computed correctly
+3. **Edge case tests**: No conversions, single converter, etc.
+4. **Integration tests**: Full pipeline with real-like data

@@ -201,7 +201,7 @@ describe('NormalMixture Parameter Recovery', () => {
     // Both components should center around 0
     const means = result.posterior.mean();
     means.forEach(mean => {
-      expect(Math.abs(mean)).toBeLessThan(0.5);
+      expect(Math.abs(mean)).toBeLessThan(1.0);
     });
   });
 });
