@@ -1,6 +1,6 @@
-# Exact Inference Methods
+# Conjugate Inference Implementations
 
-Closed-form and conjugate inference algorithms that provide exact posterior distributions.
+Exact Bayesian inference using conjugate prior-likelihood pairs. These provide closed-form posterior updates without requiring iterative algorithms.
 
 ## Current State
 
@@ -21,8 +21,10 @@ exact/
 ├── conjugate/
 │   ├── ConjugateInference.ts    # Base class
 │   ├── BetaBinomial.ts          # Beta prior + Binomial likelihood
+│   ├── LogNormalNIG.ts          # LogNormal with Normal-Inverse-Gamma prior
 │   ├── GammaExponential.ts      # Gamma prior + Exponential likelihood
 │   ├── GammaGamma.ts            # Gamma prior + Gamma likelihood
+│   ├── PoissonGamma.ts          # Gamma prior + Poisson likelihood
 │   └── NormalNormal.ts          # Normal prior + Normal likelihood
 └── closed-form/
     └── NormalKnownVariance.ts   # When variance is known
@@ -30,29 +32,65 @@ exact/
 
 ## Conjugate Pairs We Support
 
+### LogNormal-NormalInverseGamma (Implemented)
+- **Prior**: Normal-Inverse-Gamma(μ₀, λ, α, β) on (μ, σ²)
+- **Data**: Positive values with potential heavy tails
+- **Posterior**: Normal-Inverse-Gamma with updated parameters
+- **Use Case**: Revenue, time-on-site, any positive skewed data
+
 ### Beta-Binomial
 - **Prior**: Beta(α, β)
 - **Likelihood**: Binomial(n, p)
 - **Posterior**: Beta(α + successes, β + failures)
-- **Use case**: Conversion rates
+- **Use Case**: Conversion rates, click-through rates
 
-### Gamma-Exponential  
+### Gamma-Exponential (Planned)
 - **Prior**: Gamma(α, β)
 - **Likelihood**: Exponential(λ)
 - **Posterior**: Gamma(α + n, β + Σx)
-- **Use case**: Time between events, waiting times
+- **Use Case**: Time between events, waiting times
 
-### Gamma-Gamma
-- **Prior**: Gamma(α, β)  
+### Gamma-Gamma (Planned)
+- **Prior**: Gamma(α, β) on rate parameter
 - **Likelihood**: Gamma(shape known, rate unknown)
 - **Posterior**: Gamma(α + n×shape, β + Σx)
-- **Use case**: Positive continuous values when shape is stable
+- **Use Case**: Positive continuous values when shape is stable
 
-### Normal-Normal (Known Variance)
+### Poisson-Gamma (Planned)
+- **Prior**: Gamma(α, β) on rate λ
+- **Likelihood**: Poisson(λ)
+- **Posterior**: Gamma(α + Σx, β + n)
+- **Use Case**: Count data (purchases per customer)
+- **Note**: Posterior predictive is Negative Binomial
+
+### Normal-Normal (Known Variance) (Planned)
 - **Prior**: Normal(μ₀, τ₀)
 - **Likelihood**: Normal(μ, σ²) with σ² known
 - **Posterior**: Normal(μ_post, τ_post)
-- **Use case**: Future hierarchical models
+- **Use Case**: Future hierarchical models
+
+## Mixture Model Integration
+
+Conjugate updates work within EM algorithm iterations:
+
+1. **E-step**: Compute responsibilities γᵢₖ for each point/component
+2. **M-step**: Update each component using weighted conjugate formulas
+   - Treat γᵢₖ as fractional observations
+   - Effective sample size: n_k = Σᵢ γᵢₖ
+   - All conjugate formulas remain valid with fractional n
+
+Example for LogNormal mixture:
+```javascript
+// In M-step for component k
+const n_k = weights.reduce((sum, w) => sum + w, 0);
+const weightedMean = weights.reduce((sum, w, i) => 
+  sum + w * logData[i], 0) / n_k;
+
+// Standard NIG update with fractional n
+const posteriorLambda = prior.lambda + n_k;
+const posteriorMu0 = (prior.lambda * prior.mu0 + n_k * weightedMean) / posteriorLambda;
+// ... etc
+```
 
 ## Implementation Pattern
 
@@ -63,7 +101,7 @@ abstract class ConjugateInference extends InferenceEngine {
     data: SufficientStats
   ): number[];
   
-  async fit(data: DataInput, options?: FitOptions): Promise<VIResult> {
+  async fit(data: DataInput, options?: FitOptions): Promise<InferenceResult> {
     const stats = this.computeSufficientStats(data);
     const priorParams = this.getDefaultPrior(options);
     const posteriorParams = this.updatePosterior(priorParams, stats);
@@ -73,38 +111,32 @@ abstract class ConjugateInference extends InferenceEngine {
       diagnostics: {
         converged: true,  // Always true for conjugate
         iterations: 1,    // Single update
-        finalELBO: this.computeELBO(posteriorParams, stats)
+        runtime: 0
       }
     };
   }
 }
 ```
 
-### Example: Beta-Binomial
+## Streaming Computation
 
-```typescript
-export class BetaBinomial extends ConjugateInference {
-  updatePosterior(
-    priorParams: [number, number],  // [α, β]
-    stats: { successes: number; failures: number }
-  ): [number, number] {
-    return [
-      priorParams[0] + stats.successes,
-      priorParams[1] + stats.failures
-    ];
-  }
-  
-  computeSufficientStats(data: DataInput): { successes: number; failures: number } {
-    if ('successes' in data.data && 'trials' in data.data) {
-      return {
-        successes: data.data.successes,
-        failures: data.data.trials - data.data.successes
-      };
-    }
-    // Handle raw data format...
-  }
+Conjugate models naturally support batch processing:
+
+```javascript
+// Process large datasets in chunks
+const batchSize = 100000;
+let runningStats = initializeSufficientStats();
+
+for (let i = 0; i < data.length; i += batchSize) {
+  const batch = data.slice(i, i + batchSize);
+  const batchStats = computeSufficientStats(batch);
+  runningStats = mergeSufficientStats(runningStats, batchStats);
 }
+
+const posterior = conjugateUpdate(prior, runningStats);
 ```
+
+This approach enables processing millions of observations with constant memory usage.
 
 ## Why Exact Inference Matters
 
@@ -120,9 +152,3 @@ For each conjugate pair:
 2. **Moment tests**: Posterior mean/variance are correct
 3. **Edge cases**: Zero observations, extreme parameters
 4. **Prior recovery**: Flat prior + data recovers MLE
-
-## Not Implementing
-
-- Conjugate pairs we don't need (Dirichlet-Multinomial, etc.)
-- Complex sufficient statistics (exponential families)
-- Natural parameter representations (not needed)
