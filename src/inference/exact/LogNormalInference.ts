@@ -37,6 +37,8 @@ export interface LogNormalSufficientStats {
  * LogNormal posterior distribution with uncertainty
  */
 export class LogNormalPosterior implements Posterior {
+  private _mcSamples?: number[];
+  private readonly MC_SAMPLES = 10000;
   constructor(
     private readonly params: NormalInverseGammaParams,
     private readonly sampleSize: number
@@ -45,37 +47,47 @@ export class LogNormalPosterior implements Posterior {
       throw new Error('Invalid posterior parameters');
     }
   }
-  
-  mean(): number[] {
-    // For LogNormal, we need to account for both parameter uncertainty
-    // E[X] ≈ exp(μ + σ²/2), but both μ and σ² are uncertain
-    
-    // Posterior mean of μ
-    const muMean = this.params.mu0;
-    
-    // Posterior mean of σ² (from Inverse-Gamma)
-    const sigma2Mean = this.params.beta / (this.params.alpha - 1);
-    
-    // Approximate expectation (this is itself uncertain)
-    return [Math.exp(muMean + sigma2Mean / 2)];
+
+  private getMCSamples(): number[] {
+    if (!this._mcSamples) {
+      this._mcSamples = [];
+      for (let i = 0; i < this.MC_SAMPLES; i++) {
+        this._mcSamples.push(this.sample()[0]);
+      }
+      this._mcSamples.sort((a, b) => a - b);
+    }
+    return this._mcSamples;
   }
-  
+
+  mean(): number[] {
+    const samples = this.getMCSamples();
+    const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+    return [mean];
+  }
+
   variance(): number[] {
-    // This is complex due to parameter uncertainty
-    // Using approximation based on delta method
-    const muMean = this.params.mu0;
-    const muVar = this.params.beta / (this.params.lambda * (this.params.alpha - 1));
-    
-    const sigma2Mean = this.params.beta / (this.params.alpha - 1);
-    const sigma2Var = this.params.beta * this.params.beta / 
-      ((this.params.alpha - 1) * (this.params.alpha - 1) * (this.params.alpha - 2));
-    
-    // Approximate variance of LogNormal accounting for parameter uncertainty
-    const expMuSigma = Math.exp(muMean + sigma2Mean);
-    const totalVar = expMuSigma * expMuSigma * 
-      (Math.exp(muVar + sigma2Var) - 1);
-    
-    return [totalVar];
+    const samples = this.getMCSamples();
+    const mean = this.mean()[0];
+    const variance = samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / (samples.length - 1);
+    return [variance];
+  }
+
+  median(): number {
+    const samples = this.getMCSamples();
+    return samples[Math.floor(samples.length / 2)];
+  }
+
+  quantile(q: number): number {
+    const samples = this.getMCSamples();
+    return samples[Math.floor(q * samples.length)];
+  }
+
+  credibleInterval(level: number = 0.8): Array<[number, number]> {
+    const samples = this.getMCSamples();
+    const alpha = (1 - level) / 2;
+    const lowerIdx = Math.floor(alpha * samples.length);
+    const upperIdx = Math.floor((1 - alpha) * samples.length);
+    return [[samples[lowerIdx], samples[upperIdx]]];
   }
   
   sample(): number[] {
@@ -102,21 +114,6 @@ export class LogNormalPosterior implements Posterior {
     return 1 / gammaSample;
   }
   
-  credibleInterval(level: number = 0.95): Array<[number, number]> {
-    // Use posterior predictive sampling
-    const samples: number[] = [];
-    for (let i = 0; i < 10000; i++) {
-      samples.push(this.sample()[0]);
-    }
-    
-    samples.sort((a, b) => a - b);
-    const alpha = (1 - level) / 2;
-    const lowerIdx = Math.floor(alpha * samples.length);
-    const upperIdx = Math.floor((1 - alpha) * samples.length);
-    
-    return [[samples[lowerIdx], samples[upperIdx]]];
-  }
-  
   /**
    * Get posterior parameters
    */
@@ -131,13 +128,27 @@ export class LogNormalPosterior implements Posterior {
     };
   }
   
-  /**
-   * Median (more robust for LogNormal)
-   */
-  median(): number {
-    // Median = exp(μ), and μ has posterior mean μ₀
-    return Math.exp(this.params.mu0);
-  }
+  // The following methods are now redundant as they rely on MC samples
+  // and are handled by getMCSamples()
+  // median(): number {
+  //   // Median = exp(μ), and μ has posterior mean μ₀
+  //   return Math.exp(this.params.mu0);
+  // }
+
+  // credibleInterval(level: number = 0.95): Array<[number, number]> {
+  //   // Use posterior predictive sampling
+  //   const samples: number[] = [];
+  //   for (let i = 0; i < 10000; i++) {
+  //     samples.push(this.sample()[0]);
+  //   }
+    
+  //   samples.sort((a, b) => a - b);
+  //   const alpha = (1 - level) / 2;
+  //   const lowerIdx = Math.floor(alpha * samples.length);
+  //   const upperIdx = Math.floor((1 - alpha) * samples.length);
+    
+  //   return [[samples[lowerIdx], samples[upperIdx]]];
+  // }
 }
 
 /**
