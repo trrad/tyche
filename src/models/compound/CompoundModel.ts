@@ -40,90 +40,123 @@ export interface CompoundPosterior extends Posterior {
  * Implementation of compound posterior
  */
 class CompoundPosteriorImpl implements CompoundPosterior {
+  private _cachedStats?: { mean: number[]; variance: number[] };
+  private readonly MC_SAMPLES = 10000; // Cheap in browser!
+  
   constructor(
     public readonly frequency: Posterior,
     public readonly severity: Posterior
   ) {}
   
   /**
-   * Mean returns [conversion_rate, mean_value_given_conversion, value_per_user]
+   * Compute statistics via Monte Carlo to handle any correlation structure
    */
-  mean(): number[] {
-    const convRate = this.frequency.mean()[0];
-    const meanValue = this.severity.mean()[0];
-    const valuePerUser = convRate * meanValue;
-    return [convRate, meanValue, valuePerUser];
+  private computeStats(): { mean: number[]; variance: number[] } {
+    if (this._cachedStats) return this._cachedStats;
+    
+    // Monte Carlo samples
+    const samples = {
+      convRate: [] as number[],
+      valueGivenConv: [] as number[],
+      revenuePerUser: [] as number[]
+    };
+    
+    for (let i = 0; i < this.MC_SAMPLES; i++) {
+      // Sample from posteriors
+      const p = this.frequency.sample()[0];
+      const v = this.severity.sample()[0];
+      
+      // Revenue per user = p * v
+      const revenue = p * v;
+      
+      samples.convRate.push(p);
+      samples.valueGivenConv.push(v);
+      samples.revenuePerUser.push(revenue);
+    }
+    
+    // Compute means
+    const mean = [
+      samples.convRate.reduce((a, b) => a + b) / this.MC_SAMPLES,
+      samples.valueGivenConv.reduce((a, b) => a + b) / this.MC_SAMPLES,
+      samples.revenuePerUser.reduce((a, b) => a + b) / this.MC_SAMPLES
+    ];
+    
+    // Compute variances
+    const variance = [
+      this.computeVariance(samples.convRate, mean[0]),
+      this.computeVariance(samples.valueGivenConv, mean[1]),
+      this.computeVariance(samples.revenuePerUser, mean[2])
+    ];
+    
+    this._cachedStats = { mean, variance };
+    return this._cachedStats;
   }
   
-  /**
-   * Variance is more complex for compound models
-   * Returns variances for [conversion_rate, mean_value, value_per_user]
-   */
+  private computeVariance(samples: number[], mean: number): number {
+    const sumSq = samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0);
+    return sumSq / (samples.length - 1);
+  }
+  
+  mean(): number[] {
+    return this.computeStats().mean;
+  }
+  
   variance(): number[] {
-    const convVar = this.frequency.variance()[0];
-    const valueVar = this.severity.variance()[0];
-    
-    const convMean = this.frequency.mean()[0];
-    const valueMean = this.severity.mean()[0];
-    
-    // Var(XY) ≈ E[X]²Var(Y) + E[Y]²Var(X) + Var(X)Var(Y)
-    // This is approximate - exact would require full joint distribution
-    const perUserVar = 
-      convMean * convMean * valueVar +
-      valueMean * valueMean * convVar +
-      convVar * valueVar;
-    
-    return [convVar, valueVar, perUserVar];
+    return this.computeStats().variance;
   }
   
   /**
    * Sample from the compound distribution
+   * This naturally handles any dependence structure
    */
   sample(): number[] {
-    const convSample = this.frequency.sample()[0];
-    const valueSample = this.severity.sample()[0];
+    const convRate = this.frequency.sample()[0];
+    const valueGivenConv = this.severity.sample()[0];
+    const revenuePerUser = convRate * valueGivenConv;
     
-    // For a single user: did they convert? If so, what value?
-    const converted = Math.random() < convSample;
-    const value = converted ? valueSample : 0;
-    
-    return [convSample, valueSample, value];
+    return [convRate, valueGivenConv, revenuePerUser];
   }
   
   /**
-   * Credible intervals for compound metrics
+   * Get credible intervals via Monte Carlo
    */
   credibleInterval(level: number = 0.95): Array<[number, number]> {
-    // Get intervals for components
-    const convCI = this.frequency.credibleInterval(level)[0];
-    const valueCI = this.severity.credibleInterval(level)[0];
+    const alpha = (1 - level) / 2;
     
-    // For value per user, we need to sample the joint distribution
-    // This is approximate - better would be to track samples
-    const samples: number[] = [];
-    for (let i = 0; i < 10000; i++) {
-      const c = this.frequency.sample()[0];
-      const v = this.severity.sample()[0];
-      samples.push(c * v);
+    // Generate samples for each quantity
+    const samples = {
+      convRate: [] as number[],
+      valueGivenConv: [] as number[],
+      revenuePerUser: [] as number[]
+    };
+    
+    for (let i = 0; i < this.MC_SAMPLES; i++) {
+      const [p, v, r] = this.sample();
+      samples.convRate.push(p);
+      samples.valueGivenConv.push(v);
+      samples.revenuePerUser.push(r);
     }
     
-    samples.sort((a, b) => a - b);
-    const alpha = (1 - level) / 2;
-    const lowerIdx = Math.floor(alpha * samples.length);
-    const upperIdx = Math.floor((1 - alpha) * samples.length);
+    // Sort and extract quantiles
+    const getCI = (data: number[]): [number, number] => {
+      data.sort((a, b) => a - b);
+      const lower = data[Math.floor(alpha * data.length)];
+      const upper = data[Math.floor((1 - alpha) * data.length)];
+      return [lower, upper];
+    };
     
     return [
-      convCI,
-      valueCI,
-      [samples[lowerIdx], samples[upperIdx]]
+      getCI(samples.convRate),
+      getCI(samples.valueGivenConv),
+      getCI(samples.revenuePerUser)
     ];
   }
   
   /**
-   * Expected value per user (conversion rate × mean value)
+   * Expected value per user (business metric)
    */
   expectedValuePerUser(): number {
-    return this.mean()[2]; // Third element is value per user
+    return this.mean()[2]; // Already computed via MC
   }
 }
 
