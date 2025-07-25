@@ -25,6 +25,14 @@ interface NormalInverseGammaParams {
   beta: number;     // Scale parameter for variance
 }
 
+export interface LogNormalSufficientStats {
+    n: number;           // Effective sample size
+    sumLog: number;      // Σ w_i * log(x_i)
+    sumLogSq: number;    // Σ w_i * log(x_i)²
+    meanLog: number;     // Weighted mean of log values
+  }
+
+
 /**
  * LogNormal posterior distribution with uncertainty
  */
@@ -203,9 +211,98 @@ export class LogNormalBayesian extends InferenceEngine {
     };
   }
   
+  // --- Weighted and Sufficient Statistics Inference Extensions ---
+
+  /**
+   * Fit model using weighted data
+   */
+  async fitWeighted(
+    data: DataInput,
+    weights: number[],
+    options?: FitOptions
+  ): Promise<InferenceResult> {
+    this.validateInput(data);
+    if (!Array.isArray(data.data)) {
+      throw new Error('LogNormal inference requires array data');
+    }
+    const values = data.data;
+    if (values.length !== weights.length) {
+      throw new Error('Data and weights must have same length');
+    }
+    if (values.some(x => x <= 0)) {
+      throw new Error('LogNormal requires all positive values');
+    }
+    // Compute weighted sufficient statistics
+    const stats = this.computeWeightedStats(values, weights);
+    // Fit from statistics
+    return this.fitFromStats(stats, options);
+  }
+
+  /**
+   * Fit model from sufficient statistics
+   */
+  async fitFromStats(
+    stats: LogNormalSufficientStats,
+    options?: FitOptions
+  ): Promise<InferenceResult> {
+    // Get prior parameters
+    const prior = this.getPriorParams(options, null); // null since we don't have raw data
+    // Conjugate update for Normal-Inverse-Gamma
+    const posteriorLambda = prior.lambda + stats.n;
+    const posteriorMu0 = (prior.lambda * prior.mu0 + stats.n * stats.meanLog) / posteriorLambda;
+    const posteriorAlpha = prior.alpha + stats.n / 2;
+    // Update for beta
+    const priorSS = prior.beta;
+    const dataSS = stats.sumLogSq - stats.n * stats.meanLog * stats.meanLog;
+    const shrinkageSS = (prior.lambda * stats.n / posteriorLambda) * Math.pow(stats.meanLog - prior.mu0, 2);
+    const posteriorBeta = priorSS + 0.5 * dataSS + 0.5 * shrinkageSS;
+    const posteriorParams: NormalInverseGammaParams = {
+      mu0: posteriorMu0,
+      lambda: posteriorLambda,
+      alpha: posteriorAlpha,
+      beta: posteriorBeta
+    };
+    return {
+      posterior: new LogNormalPosterior(posteriorParams, stats.n),
+      diagnostics: {
+        converged: true,
+        iterations: 1,
+        runtime: 0
+      }
+    };
+  }
+
+  /**
+   * Compute weighted sufficient statistics
+   */
+  computeWeightedStats(values: number[], weights: number[]): LogNormalSufficientStats {
+    const n = weights.reduce((sum, w) => sum + w, 0);
+    if (n <= 0) {
+      throw new Error('Sum of weights must be positive');
+    }
+    let sumLog = 0;
+    let sumLogSq = 0;
+    for (let i = 0; i < values.length; i++) {
+      const logX = Math.log(values[i]);
+      const w = weights[i];
+      sumLog += w * logX;
+      sumLogSq += w * logX * logX;
+    }
+    const meanLog = sumLog / n;
+    return {
+      n,
+      sumLog,
+      sumLogSq,
+      meanLog
+    };
+  }
+
+  /**
+   * Get prior parameters with adjustment for no raw data
+   */
   private getPriorParams(
     options: FitOptions | undefined,
-    data: number[]
+    data: number[] | null
   ): NormalInverseGammaParams {
     // If prior specified, use it
     if (options?.priorParams?.type === 'normal-inverse-gamma') {
@@ -220,19 +317,26 @@ export class LogNormalBayesian extends InferenceEngine {
         beta: params[3]
       };
     }
-    
-    // Otherwise, use weakly informative priors based on data scale
-    const logData = data.map(x => Math.log(x));
-    const empiricalMean = logData.reduce((a, b) => a + b, 0) / logData.length;
-    const empiricalVar = logData.reduce(
-      (sum, x) => sum + Math.pow(x - empiricalMean, 2), 0
-    ) / logData.length;
-    
+    // If we have data, use empirical estimates
+    if (data && data.length > 0) {
+      const logData = data.map(x => Math.log(x));
+      const empiricalMean = logData.reduce((a, b) => a + b, 0) / logData.length;
+      const empiricalVar = logData.reduce(
+        (sum, x) => sum + Math.pow(x - empiricalMean, 2), 0
+      ) / logData.length;
+      return {
+        mu0: empiricalMean,
+        lambda: 1,
+        alpha: 2,
+        beta: empiricalVar * 2
+      };
+    }
+    // Default weakly informative prior
     return {
-      mu0: empiricalMean,      // Center prior at data
-      lambda: 1,               // Weak confidence (1 pseudo-observation)
-      alpha: 2,                // Weak shape (minimum for finite variance)
-      beta: empiricalVar * 2   // Scale based on data
+      mu0: 0,      // log(1) = 0, so centered at 1 on original scale
+      lambda: 1,   // Weak confidence
+      alpha: 2,    // Minimum for finite variance
+      beta: 2      // Moderate scale
     };
   }
   

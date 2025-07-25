@@ -33,16 +33,18 @@ export interface Posterior {
  * Result of inference including diagnostics
  */
 export interface InferenceResult {
-  posterior: Posterior;
-  diagnostics: {
-    converged: boolean;
-    iterations: number;
-    finalELBO?: number;
-    elboHistory?: number[];
-    acceptanceRate?: number;
-    runtime?: number;
-  };
-}
+    posterior: Posterior;
+    diagnostics: {
+      converged: boolean;
+      iterations: number;
+      finalELBO?: number;           // For VI
+      finalLogLikelihood?: number;  // For EM
+      elboHistory?: number[];
+      likelihoodHistory?: number[]; // For EM
+      acceptanceRate?: number;      // For MCMC
+      runtime?: number;
+    };
+  }
 
 /**
  * Common data input format for all models

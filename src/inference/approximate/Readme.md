@@ -1,153 +1,165 @@
-# Approximate Inference Methods
+# Inference Engine Architecture
 
-Iterative algorithms for models without closed-form solutions.
+This directory contains the core Bayesian inference implementations for Tyche, optimized for browser-based execution with a focus on revenue modeling.
 
 ## Current State
 
 **What exists:**
-- `NormalMixtureEM` in vi-engine.ts - working EM for 2-component mixtures
-- VI framework with ELBO computation and numerical stability (keeping!)
-- `ZeroInflatedLogNormalVI` in vi-engine.ts (to be removed - using two-part models)
-- Adam optimizer in separate file
+- All inference logic in monolithic `vi-engine.ts`:
+  - `BetaBinomialVI` class (conjugate update)
+  - `NormalMixtureEM` class (EM algorithm)  
+  - `ZeroInflatedLogNormalVI` class (gradient-based VI)
+- Single `VariationalInferenceEngine` class routing between them
 
 **Problems:**
-- EM implementation mixed with other code
-- VI used for zero-inflation (not needed with two-part approach)
-- No clear base classes for algorithm families
+- 1000+ lines in single file
+- Mixed abstraction levels (conjugate updates with complex VI)
+- No clear interface between inference methods
+- Hard to add new algorithms
 
 ## Desired State
 
-**Two main algorithm families:**
+**Clean separation by inference type:**
 ```
-approximate/
-├── em/
-│   ├── EMAlgorithm.ts           # Base EM class
-│   ├── NormalMixtureEM.ts       # 2-4 component mixtures
-│   └── GammaMixtureEM.ts        # Future: for multimodal revenue
-└── vi/
-    ├── cpu/
-    │   ├── VariationalInference.ts  # Base VI class
-    │   ├── optimizers/
-    │   │   ├── Optimizer.ts         # Base interface
-    │   │   └── AdamOptimizer.ts    # Existing Adam
-    │   └── models/
-    │       └── [Future VI models]
-    └── gpu/
-        └── [Future WebGL/WebGPU]
+inference/
+├── base/
+│   ├── InferenceEngine.ts      # Abstract base class
+│   └── types.ts                # DataInput, VIResult, etc.
+├── exact/
+│   ├── conjugate/
+│   │   ├── ConjugateInference.ts
+│   │   ├── BetaBinomial.ts
+│   │   └── GammaExponential.ts
+│   └── closed-form/
+│       └── NormalKnownVariance.ts
+├── approximate/
+│   ├── em/
+│   │   ├── EMAlgorithm.ts
+│   │   ├── NormalMixtureEM.ts      # 1-4 component mixtures
+│   │   └── LogNormalMixtureEM.ts   # For heavy-tail revenue
+│   └── vi/
+│       ├── cpu/
+│       │   ├── VariationalInference.ts
+│       │   └── optimizers/
+│       └── gpu/                # Future WebGL/WebGPU
+├── compound/
+│   ├── CompoundModel.ts        # Base for state→value models
+│   └── implementations/
+│       └── BetaLogNormalMixture.ts  # Default revenue model
+└── InferenceEngine.ts         # Unified API with smart routing
 ```
 
-## Algorithm Details
+## Inference Hierarchy
 
-### EM (Expectation-Maximization)
+We follow a computational efficiency hierarchy:
 
-**When to use**: 
-- Mixture models with 1-4 components
-- Heavy-tail distributions (LogNormal mixtures)
-- Clear cluster structure
-- CPU-bound is fine
+1. **Conjugate Updates** (<10ms): Exact posterior computation for conjugate prior-likelihood pairs
+2. **EM + Conjugate** (<500ms): Mixture models using weighted conjugate updates in the M-step
+3. **Variational Inference** (future): For models without conjugate solutions
 
-**Current implementation (NormalMixtureEM)**:
-- Supports 1-4 component mixtures
-- K-means++ initialization
-- Stable log-space computations
-- Automatic convergence detection
-- Handles degenerate cases
+## Model Types
 
-**Planned additions**:
-- `LogNormalMixtureEM` for revenue distributions with multiple modes
-- Uses EM by default (more stable than VI for mixtures)
-- VI only when GPU parallelization needed
+### Direct Models
+Single distribution models for when you need to measure overall impact:
+- LogNormal (revenue, time metrics)
+- Gamma (positive continuous)
+- Normal (general continuous)
+- Beta (conversion rates)
 
-**Pattern**:
+### Compound Models
+Decompose metrics into interpretable components:
+- **State**: Beta (conversion/occurrence)
+- **Value**: LogNormal Mixture (default), LogNormal, Gamma, or Normal
+
+LogNormal Mixture with k=2-3 is the default for e-commerce revenue data, capturing typical customer segments (small basket vs bulk buyers).
+
+### Mixture Models
+For multimodal data within segments:
+- LogNormal mixtures (1-4 components)
+- Normal mixtures (1-4 components)
+
+## Design Principles
+
+### Base Interface
 ```typescript
-abstract class EMAlgorithm extends InferenceEngine {
-  abstract eStep(data: number[], params: any): any;
-  abstract mStep(data: number[], responsibilities: any): any;
+abstract class InferenceEngine {
+  abstract async fit(
+    data: DataInput,
+    options?: FitOptions
+  ): Promise<InferenceResult>;
   
-  async fit(data: DataInput, options?: FitOptions): Promise<VIResult> {
-    let params = this.initialize(data);
-    
-    for (let iter = 0; iter < maxIterations; iter++) {
-      const resp = this.eStep(data, params);
-      const newParams = this.mStep(data, resp);
-      
-      if (this.hasConverged(params, newParams)) break;
-      params = newParams;
-    }
-    
-    return this.createResult(params);
+  protected validateInput(data: DataInput): void {
+    // Common validation
   }
 }
 ```
 
-### VI (Variational Inference)
+All inference engines implement this interface, with posteriors providing full distribution access via `mean()`, `variance()`, `sample()`, and `credibleInterval()`.
 
-**When to use**:
-- Models without conjugate or EM solutions
-- Future GPU parallelization (power analysis with 100k+ sims)
-- When EM's sequential nature becomes a bottleneck
+## Algorithm Selection Guide
 
-**Current implementation to keep**:
-- ELBO computation framework
-- Numerical stability (log-sum-exp, gradient clipping)
-- Adam optimizer integration
-- Finite difference gradients
-
-**To remove**:
-- ZeroInflatedLogNormalVI specifically (using compound models instead)
-
-**Design philosophy**:
-- Keep as foundation for future GPU work
-- EM preferred for CPU-based mixture inference
-- VI shines when we can parallelize gradient computations
-
-## Performance Characteristics
-
-### EM Algorithm
-- **Iterations**: 20-100 typical
-- **Per iteration**: O(n × k) for k components
-- **Total time**: 50-200ms for 1000 points
-
-### VI (Future)
-- **Iterations**: 500-2000 typical  
-- **Per iteration**: O(p × s) for p parameters, s samples
-- **Total time**: 0.5-2s for moderate problems
-
-## Numerical Stability
-
-### Critical for EM:
 ```typescript
-// Log-sum-exp trick
-function logSumExp(logValues: number[]): number {
-  const maxVal = Math.max(...logValues);
-  const shifted = logValues.map(x => x - maxVal);
-  const sumExp = shifted.reduce((sum, x) => sum + Math.exp(x), 0);
-  return maxVal + Math.log(sumExp);
+// The InferenceEngine automatically selects the best algorithm:
+export class InferenceEngine {
+  async fit(model: ModelType, data: DataInput): Promise<InferenceResult> {
+    switch(model) {
+      case 'beta-binomial':
+        return new BetaBinomial();  // Exact conjugate
+      
+      case 'compound-revenue':  // Smart compound model
+        const state = new BetaBinomial();
+        const value = this.detectMultimodality(data) 
+          ? new LogNormalMixtureEM(k=2)
+          : new LogNormalBayesian();
+        return new CompoundModel(state, value);
+      
+      case 'normal-mixture':
+        return new NormalMixtureEM();  // EM for mixtures
+      
+      default:
+        throw new Error(`Unknown model: ${model}`);
+    }
+  }
 }
-
-// Regularization
-covMatrix[i][i] += 1e-6;  // Prevent singular covariance
 ```
 
-### Critical for VI:
-```typescript
-// Gradient clipping
-const clipped = grad.map(g => Math.max(-10, Math.min(10, g)));
+## Migration Plan
 
-// Adaptive learning rate
-if (elbo < prevElbo) learningRate *= 0.5;
-```
+### Phase 1: Extract from vi-engine.ts
+- [ ] Move types to `base/types.ts`
+- [ ] Extract BetaBinomialVI → `exact/conjugate/BetaBinomial.ts`
+- [ ] Extract NormalMixtureEM → `approximate/em/NormalMixtureEM.ts`
+- [ ] Extract VI framework → `approximate/vi/cpu/VariationalInference.ts` (keep for future use)
+- [ ] Delete ZeroInflatedLogNormalVI (using compound models instead)
 
-## Testing Requirements
+### Phase 2: Create clean interfaces
+- [ ] Implement base InferenceEngine class
+- [ ] Add ConjugateInference base for exact updates
+- [ ] Add EMAlgorithm base for EM variants
+- [ ] Add CompoundModel base for state→value models
 
-1. **Convergence tests**: Algorithm stops appropriately
-2. **Recovery tests**: Known parameters recoverable
-3. **Stability tests**: No NaN/Inf in edge cases
-4. **Performance tests**: Meet timing targets
+### Phase 3: New algorithms
+- [ ] LogNormal with Normal-Inverse-Gamma conjugate
+- [ ] LogNormalMixtureEM for revenue
+- [ ] GammaExponential conjugate
+- [ ] NormalKnownVariance conjugate
 
-## Not Implementing
+## Numerical Considerations
 
-- Stochastic VI (minibatches) - our datasets fit in memory
-- Natural gradients - too complex for benefit
-- Structured VI - mean-field sufficient
-- ADVI (automatic differentiation VI) - overkill
+- **Sufficient Statistics**: Currently stored at each node for conjugate efficiency. Future versions may use index-based storage to support VI.
+- **Log-space Computation**: Used throughout for numerical stability
+- **Streaming Updates**: Conjugate models support incremental computation for large datasets
+
+## Not Including
+
+- MCMC algorithms (too slow for browser)
+- Black-box variational inference (overkill for our use cases)
+- Hamiltonian Monte Carlo (requires autodiff)
+- Nested sampling (too complex)
+
+## Performance Targets
+
+- Conjugate updates: < 1ms
+- EM (100 iterations): < 100ms for 1000 points
+- VI (1000 iterations): < 1s for simple models
+- All algorithms: < 5s for 10,000 data points
