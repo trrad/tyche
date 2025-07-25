@@ -10,9 +10,9 @@ import {
 } from '../src/models/ConversionValueModelVI';
 
 // Visualization components
-import { ComparisonPlot } from '../src/visualizations/ComparisonPlot';
-import { SafeDistributionPlot } from '../src/visualizations/SafeDistributionPlot';
-import { SafeUpliftGraph } from '../src/visualizations/SafeUpliftGraph';
+import { ComparisonPlot } from '../src/ui/visualizations/ComparisonPlot';
+import { SafeDistributionPlot } from '../src/ui/visualizations/SafeDistributionPlot';
+import { SafeUpliftGraph } from '../src/ui/visualizations/SafeUpliftGraph';
 // Alternative if safe wrappers don't exist:
 // import { DistributionPlot as SafeDistributionPlot } from '../src/visualizations/DistributionPlot';
 // import { UpliftGraph as SafeUpliftGraph } from '../src/visualizations/UpliftGraph';

@@ -7,6 +7,7 @@ declare module 'jstat' {
         sample(alpha: number, beta: number): number;
         inv(p: number, alpha: number, beta: number): number;
         pdf(x: number, alpha: number, beta: number): number;
+        cdf(x: number, alpha: number, beta: number): number;
       };
       
       normal: {
@@ -22,10 +23,17 @@ declare module 'jstat' {
       variance(data: number[], sample?: boolean): number;
       mean(data: number[]): number;
       median(data: number[]): number;
+      stdev(data: number[], flag?: boolean): number;
       
       // Special functions
       betaln(a: number, b: number): number;
       gammaln(x: number): number;
+      gamma: {
+        sample(shape: number, scale: number): number;
+        inv(p: number, shape: number, scale: number): number;
+        pdf(x: number, shape: number, scale: number): number;
+        cdf(x: number, shape: number, scale: number): number;
+      };
     }
     
     const jStat: jStat;
