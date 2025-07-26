@@ -191,14 +191,14 @@ export abstract class CompoundModel<
     
     // Fit frequency model (conversion)
     const frequencyResult = await this.inferenceEngine.fit(
-      this.frequencyModel,
+      this.frequencyModel as any,
       frequencyData,
       options?.frequencyOptions
     );
     
     // Fit severity model (value | converted)
     const severityResult = await this.inferenceEngine.fit(
-      this.severityModel,
+      this.severityModel as any,
       severityData,
       options?.severityOptions
     );
