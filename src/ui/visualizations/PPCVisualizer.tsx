@@ -40,12 +40,31 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
           'frequency' in posterior && 'severity' in posterior) {
         // Compound model
         const compoundPosterior = posterior as CompoundPosterior;
+        
+        // Generate user-level samples for conversion rate estimation
+        const userSamples: any[] = [];
         for (let i = 0; i < numPPCSamples; i++) {
           const freq = compoundPosterior.frequency.sample()[0];
           const converted = Math.random() < freq;
           const value = converted ? compoundPosterior.severity.sample()[0] : 0;
-          samples.push({ converted, value });
+          userSamples.push({ converted, value });
         }
+        
+        // ADDITIONALLY, generate pure revenue samples for better density estimation
+        // These are samples conditional on conversion
+        const revenueSamples: number[] = [];
+        const revenueOnlySampleSize = Math.max(5000, numPPCSamples * 5); // At least 5000 samples
+        
+        for (let i = 0; i < revenueOnlySampleSize; i++) {
+          revenueSamples.push(compoundPosterior.severity.sample()[0]);
+        }
+        
+        // Store both types of samples
+        samples.push({
+          userLevel: userSamples,
+          revenueOnly: revenueSamples
+        });
+        
       } else if (modelType === 'beta-binomial') {
         // Binary outcomes
         const p = posterior.sample()[0];
@@ -91,27 +110,30 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
       };
     }
     
-            if (type === 'compound-beta-gamma' || type === 'compound-beta-lognormal' || type === 'compound-beta-lognormalmixture') {
-      // For compound models, compute diagnostics for both components
-      const obsConvRate = observed.filter((d: any) => d.converted).length / observed.length;
-      const predConvRate = predicted.filter((p: any) => p.converted).length / predicted.length;
-      
-      const obsRevenues = observed.filter((d: any) => d.converted && d.value > 0).map((d: any) => d.value);
-      const predRevenues = predicted.filter((p: any) => p.converted && p.value > 0).map((p: any) => p.value);
-      
-      return {
-        conversion: {
-          observed: obsConvRate,
-          predicted: predConvRate,
-          bias: predConvRate - obsConvRate
-        },
-        revenue: {
-          observedMean: obsRevenues.reduce((a: number, b: number) => a + b, 0) / obsRevenues.length,
-          predictedMean: predRevenues.reduce((a: number, b: number) => a + b, 0) / predRevenues.length,
-          ksStatistic: computeKS(obsRevenues, predRevenues)
-        }
-      };
-    }
+      if (type === 'compound-beta-gamma' || type === 'compound-beta-lognormal' || type === 'compound-beta-lognormalmixture') {
+    // Handle compound model structure
+    const userLevelSamples = predicted[0].userLevel;
+    const revenueOnlySamples = predicted[0].revenueOnly;
+    
+    // For compound models, compute diagnostics for both components
+    const obsConvRate = observed.filter((d: any) => d.converted).length / observed.length;
+    const predConvRate = userLevelSamples.filter((p: any) => p.converted).length / userLevelSamples.length;
+    
+    const obsRevenues = observed.filter((d: any) => d.converted && d.value > 0).map((d: any) => d.value);
+    
+    return {
+      conversion: {
+        observed: obsConvRate,
+        predicted: predConvRate,
+        bias: predConvRate - obsConvRate
+      },
+      revenue: {
+        observedMean: obsRevenues.reduce((a: number, b: number) => a + b, 0) / obsRevenues.length,
+        predictedMean: revenueOnlySamples.reduce((a: number, b: number) => a + b, 0) / revenueOnlySamples.length,
+        ksStatistic: computeKS(obsRevenues, revenueOnlySamples)
+      }
+    };
+  }
     
     // For continuous data
     const obsData = Array.isArray(observed) ? observed : observed.data || [];
@@ -162,69 +184,92 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
         observed: Math.abs(bin.x - observed) < 0.025 ? 0.2 : 0
       }));
     } else if (modelType === 'compound-beta-gamma' || modelType === 'compound-beta-lognormal' || modelType === 'compound-beta-lognormalmixture') {
-      // Compound model - show both metrics
+      // Extract the compound samples
+      const compoundSamples = ppcSamples[0]; // We only push one item for compound models
+      const userLevelSamples = compoundSamples.userLevel;
+      const revenueOnlySamples = compoundSamples.revenueOnly;
       
-      // Parse observed data correctly
+      // Parse observed data
       const observedData = Array.isArray(data) ? data : (data.data || []);
       
-      // Conversion data
+      // Conversion data (use user-level samples)
       const convData = {
         observed: observedData.filter((d: any) => d.converted).length / observedData.length,
-        predicted: ppcSamples.filter(s => s.converted).length / ppcSamples.length
+        predicted: userLevelSamples.filter((s: any) => s.converted).length / userLevelSamples.length
       };
       
-      // Revenue data - need to compare observed vs predicted
+      // Revenue data - compare observed with revenue-only samples
       const observedRevenues = observedData
         .filter((d: any) => d.converted && d.value > 0)
         .map((d: any) => d.value);
-        
-      const predictedRevenues = ppcSamples
-        .filter(s => s.converted && s.value > 0)
-        .map(s => s.value);
       
-      // Create overlay histogram for revenue
-      const revenueData = createOverlayHistogram(
-        observedRevenues, 
-        predictedRevenues, 
-        30,
-        modelType
-      );
+      // Use the dedicated revenue samples for smooth density
+      const predictedRevenues = revenueOnlySamples;
       
-      return { conversion: convData, revenue: revenueData };
-          } else {
-        // Continuous data (including mixtures)
-        const obsData = Array.isArray(data) ? data : data.data || [];
+      // Determine x-range
+      const allRevenues = [...observedRevenues, ...predictedRevenues];
+      const minRevenue = Math.min(...allRevenues);
+      const maxRevenue = Math.max(...allRevenues);
+      const range = maxRevenue - minRevenue;
+      
+      const xMin = Math.max(0, minRevenue - range * 0.1);
+      const xMax = maxRevenue + range * 0.1;
+      
+      // Create histogram for observed
+      const bins = 30;
+      const binWidth = (xMax - xMin) / bins;
+      const histogram = [];
+      
+      for (let i = 0; i < bins; i++) {
+        const binStart = xMin + i * binWidth;
+        const binEnd = binStart + binWidth;
+        const binCenter = (binStart + binEnd) / 2;
         
-        // Check if this is a positive distribution for kernel density
-        const isPositive = ['lognormal', 'lognormal-mixture', 'gamma', 'exponential'].some(t => modelType.includes(t));
+        const obsCount = observedRevenues.filter((x: number) => x >= binStart && x < binEnd).length;
+        const predCount = predictedRevenues.filter((x: number) => x >= binStart && x < binEnd).length;
         
-        if (isPositive) {
-          // Create x-range for smooth curve
-          const allData = [...obsData, ...ppcSamples];
-          const dataMin = Math.min(...allData);
-          const dataMax = Math.max(...allData);
-          const range = dataMax - dataMin;
-          
-          // For positive distributions, start at 0 or slightly below min
-          const xMin = Math.max(0, dataMin - range * 0.1);
-          const xMax = dataMax + range * 0.2;
-          
-          const xRange = [];
-          const steps = 100;
-          for (let i = 0; i <= steps; i++) {
-            xRange.push(xMin + (xMax - xMin) * i / steps);
-          }
-          
-          // Create smooth density curves
-          const observedDensity = createKernelDensity(obsData, xRange, undefined, true);
-          const predictedDensity = createKernelDensity(ppcSamples, xRange, undefined, true);
-          
-          return { observedDensity, predictedDensity, xRange };
-        } else {
-          // Use histogram for general continuous data
-          return createOverlayHistogram(obsData, ppcSamples, 30, modelType);
-        }
+        histogram.push({
+          x: binCenter,
+          observed: obsCount / observedRevenues.length / binWidth,
+          predicted: predCount / predictedRevenues.length / binWidth
+        });
       }
+      
+      return { conversion: convData, revenue: histogram };
+    } else {
+      // Continuous data (including mixtures)
+      const obsData = Array.isArray(data) ? data : data.data || [];
+      
+      // Check if this is a positive distribution for kernel density
+      const isPositive = ['lognormal', 'lognormal-mixture', 'gamma', 'exponential'].some(t => modelType.includes(t));
+      
+      if (isPositive) {
+        // Create x-range for smooth curve
+        const allData = [...obsData, ...ppcSamples];
+        const dataMin = Math.min(...allData);
+        const dataMax = Math.max(...allData);
+        const range = dataMax - dataMin;
+        
+        // For positive distributions, start at 0 or slightly below min
+        const xMin = Math.max(0, dataMin - range * 0.1);
+        const xMax = dataMax + range * 0.2;
+        
+        const xRange = [];
+        const steps = 100;
+        for (let i = 0; i <= steps; i++) {
+          xRange.push(xMin + (xMax - xMin) * i / steps);
+        }
+        
+        // Create smooth density curves
+        const observedDensity = createKernelDensity(obsData, xRange, undefined, true);
+        const predictedDensity = createKernelDensity(ppcSamples, xRange, undefined, true);
+        
+        return { observedDensity, predictedDensity, xRange };
+      } else {
+        // Use histogram for general continuous data
+        return createOverlayHistogram(obsData, ppcSamples, 30, modelType);
+      }
+    }
   }, [loading, ppcSamples, data, modelType]);
 
   function createHistogram(data: number[], bins: number) {
@@ -289,7 +334,7 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
     observed: number[], 
     predicted: number[], 
     bins: number,
-    modelType?: string  // Add model type parameter
+    modelType?: string
   ) {
     // Filter out any invalid predictions (shouldn't happen but defensive)
     const validPredicted = predicted.filter(x => !isNaN(x) && isFinite(x));
