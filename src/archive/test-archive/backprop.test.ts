@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
-import { RandomVariable } from '../core/RandomVariable';
-import { ComputationGraph } from '../core/ComputationGraph';
+import { RandomVariable } from '../../core/RandomVariable';
+import { ComputationGraph } from '../../core/ComputationGraph';
 
 describe('Trace backward pass inputs', () => {
   test('Check what inputs[0] contains during backward', () => {

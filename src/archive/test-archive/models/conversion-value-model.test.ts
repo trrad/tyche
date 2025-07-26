@@ -5,7 +5,7 @@ import {
   VariantData, 
   UserData 
 } from '../../../src/models/ConversionValueModel';
-import { ComputationGraph } from '../../../src/core/ComputationGraph';
+import { ComputationGraph } from '../../../core/ComputationGraph';
 
 // Mock sampler for testing
 class MockSampler {

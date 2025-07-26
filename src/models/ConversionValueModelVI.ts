@@ -10,7 +10,7 @@ import {
     DataInput,
     VIResult,
     FitOptions
-  } from '../vi-engine';
+  } from '../archive/vi-engine';
   
   // Re-export types we need from the old model for compatibility
   export interface UserData {

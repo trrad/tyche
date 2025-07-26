@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { ConversionValueModelVI, UserData } from '../../../src/models/ConversionValueModelVI';
+import { ConversionValueModelVI, UserData } from '../../../models/ConversionValueModelVI';
 
 describe('ConversionValueModelVI', () => {
   test('basic model creation and summary', () => {

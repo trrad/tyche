@@ -5,7 +5,7 @@
 
 import { BetaBinomialConjugate } from './exact/BetaBinomial';
 import { GammaExponentialConjugate } from './exact/GammaExponential';
-import { NormalMixtureEM } from './approximate/em/NormalMixture';
+import { NormalMixtureEM } from './approximate/em/NormalMixtureEM';
 import { LogNormalBayesian } from './exact/LogNormalInference';
 import { 
   DataInput, 
@@ -21,7 +21,8 @@ export type ModelType =
   | 'gamma'
   | 'lognormal'
   | 'revenue'  // Smart selection for revenue data
-  | 'conversion-value';  // Future: compound model
+  | 'conversion-value'  // Future: compound model
+  | 'compound-revenue';  // Compound model for revenue
 
 /**
  * Main entry point for all inference in Tyche
@@ -228,5 +229,5 @@ export class InferenceEngine {
 // Export convenience functions
 export { BetaPosterior } from './exact/BetaBinomial';
 export { GammaPosterior } from './exact/GammaExponential';
-export { NormalMixturePosterior } from './approximate/em/NormalMixture';
+export { NormalMixturePosterior } from './approximate/em/NormalMixtureEM';
 export { LogNormalPosterior, LogNormalBayesian } from './exact/LogNormalInference';

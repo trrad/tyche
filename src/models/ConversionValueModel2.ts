@@ -124,7 +124,7 @@ export class ConversionValueModel2 {
       throw new Error('No variants to analyze');
     }
     
-    const credibleLevel = options.credibleLevel || 0.95;
+    const credibleLevel = options.credibleLevel || 0.8;
     const results = new Map<string, VariantResults>();
     const posteriors = new Map<string, CompoundPosterior>();
     
