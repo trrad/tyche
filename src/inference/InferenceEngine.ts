@@ -7,8 +7,10 @@ import { BetaBinomialConjugate } from './exact/BetaBinomial';
 import { GammaExponentialConjugate } from './exact/GammaExponential';
 import { NormalMixtureEM } from './approximate/em/NormalMixtureEM';
 import { LogNormalBayesian } from './exact/LogNormalInference';
+import { CompoundPosterior } from '../models/compound/CompoundModel';
 import { 
   DataInput, 
+  CompoundDataInput,
   FitOptions, 
   InferenceResult,
   BinomialData 
@@ -44,33 +46,39 @@ export class InferenceEngine {
    * @param options Fitting options
    * @returns Inference result with posterior and diagnostics
    */
-  async fit(
-    modelType: ModelType,
-    data: DataInput,
+  async fit<T extends ModelType>(
+    modelType: T,
+    data: T extends 'compound-revenue' ? CompoundDataInput : DataInput,
     options?: FitOptions
-  ): Promise<InferenceResult> {
+  ): Promise<T extends 'compound-revenue' 
+    ? { posterior: CompoundPosterior; diagnostics: any }
+    : InferenceResult> {
     // Auto-detect model type if needed
     if (modelType === 'auto') {
-      modelType = this.detectModelType(data);
+      modelType = this.detectModelType(data) as T;
     }
     
     // Route to appropriate engine
     switch (modelType) {
       case 'beta-binomial':
-        return this.engines['beta-binomial'].fit(data, options);
+        return this.engines['beta-binomial'].fit(data as DataInput, options) as any;
         
       case 'gamma':
-        return this.engines['gamma'].fit(data, options);
+        return this.engines['gamma'].fit(data as DataInput, options) as any;
         
       case 'normal-mixture':
-        return this.engines['normal-mixture'].fit(data, options);
+        return this.engines['normal-mixture'].fit(data as DataInput, options) as any;
         
       case 'lognormal':
-        return this.engines['lognormal'].fit(data, options);
+        return this.engines['lognormal'].fit(data as DataInput, options) as any;
         
       case 'revenue':
         // Smart selection based on data characteristics
-        return this.selectRevenueModel(data, options);
+        return this.selectRevenueModel(data as DataInput, options) as any;
+        
+      case 'compound-revenue':
+        // Handle compound models
+        return this.fitCompoundModel(data as CompoundDataInput, options) as any;
         
       default:
         throw new Error(`Unknown model type: ${modelType}`);
@@ -80,15 +88,23 @@ export class InferenceEngine {
   /**
    * Automatically detect the best model type for the data
    */
-  private detectModelType(data: DataInput): ModelType {
+  private detectModelType(data: DataInput | CompoundDataInput): ModelType {
+    // Check if this is compound data
+    if ('data' in data && Array.isArray(data.data) && data.data.length > 0) {
+      const firstItem = data.data[0];
+      if (typeof firstItem === 'object' && 'converted' in firstItem) {
+        return 'compound-revenue';
+      }
+    }
+    
     // Binary data or binomial summary
-    if (this.isBinomialData(data)) {
+    if (this.isBinomialData(data as DataInput)) {
       return 'beta-binomial';
     }
     
     // Continuous data
-    if (Array.isArray(data.data)) {
-      const values = data.data;
+    if (Array.isArray((data as DataInput).data)) {
+      const values = (data as DataInput).data as number[];
       
       // Check if all values are 0 or 1
       const isBinary = values.every(x => x === 0 || x === 1);
@@ -123,33 +139,65 @@ export class InferenceEngine {
     options?: FitOptions
   ): Promise<InferenceResult> {
     if (!Array.isArray(data.data)) {
-      throw new Error('Revenue model selection requires array data');
+      throw new Error('Revenue model requires array data');
     }
     
-    const values = data.data;
+    const values = data.data as number[];
     
-    // Check characteristics
-    const allPositive = values.every(x => x > 0);
+    // Check if all values are 0 or 1 (binary data)
+    const isBinary = values.every(v => v === 0 || v === 1);
+    if (isBinary) {
+      // Convert to beta-binomial
+      const binomialData = InferenceEngine.binaryToBinomial(values);
+      return this.engines['beta-binomial'].fit({ data: binomialData }, options);
+    }
+    
+    // For continuous revenue data, use lognormal
     const cv = this.coefficientOfVariation(values);
     const skewness = this.calculateSkewness(values);
     
-    if (!allPositive) {
-      // Has zeros - use normal mixture
+    // If high CV or skewness, use mixture model
+    if (cv > 1.5 || Math.abs(skewness) > 2) {
       return this.engines['normal-mixture'].fit(data, options);
     }
     
-    if (cv > 1.5 || skewness > 2) {
-      // Heavy-tailed - use Bayesian LogNormal
-      const lognormalData = {
-        ...data,
-        config: { ...data.config }
-      };
-      // Will use weakly informative priors by default
-      return this.engines['lognormal'].fit(lognormalData, options);
+    // Otherwise use lognormal
+    return this.engines['lognormal'].fit(data, options);
+  }
+
+  /**
+   * Fit compound revenue model
+   */
+  private async fitCompoundModel(
+    data: CompoundDataInput,
+    options?: FitOptions
+  ): Promise<{ posterior: CompoundPosterior; diagnostics: any }> {
+    if (!Array.isArray(data.data)) {
+      throw new Error('Compound model requires array data');
     }
     
-    // Moderate tail - use gamma
-    return this.engines['gamma'].fit(data, options);
+    const startTime = performance.now();
+    const userData = data.data; // UserData[]
+    
+    // Create compound model (default to Beta-Gamma)
+    const compoundModel = new (await import('../models/compound/CompoundModel')).BetaGammaCompound(this);
+    
+    // Fit the compound model
+    const compoundPosterior = await compoundModel.fit(userData, {
+      frequencyOptions: options,
+      severityOptions: options
+    });
+    
+    const runtime = performance.now() - startTime;
+    
+    return {
+      posterior: compoundPosterior,
+      diagnostics: {
+        converged: true,
+        iterations: 1,
+        runtime: runtime
+      }
+    };
   }
   
   /**
