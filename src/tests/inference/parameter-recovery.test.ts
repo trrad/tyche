@@ -3,6 +3,7 @@ import { describe, test, expect } from 'vitest';
 import { InferenceEngine, ModelType } from '../../inference/InferenceEngine';
 import { BusinessScenarios } from '../utilities/synthetic/BusinessScenarios';
 import { ParameterRecovery } from '../utilities/validation/ParameterRecovery';
+import { CompoundDataInput } from '../../inference/base/types';
 
 describe('Parameter Recovery Tests', () => {
   const engine = new InferenceEngine();
@@ -68,7 +69,7 @@ describe('Parameter Recovery Tests', () => {
 
       const result = await engine.fit('compound-revenue', { 
         data: data.control 
-      });
+      } as CompoundDataInput);
 
       const conversionRate = result.posterior.frequency.mean()[0];
       const revenuePerConverter = result.posterior.severity.mean()[0];
