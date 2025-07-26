@@ -6,6 +6,7 @@
 import { BetaBinomialConjugate } from './exact/BetaBinomial';
 import { GammaExponentialConjugate } from './exact/GammaExponential';
 import { NormalMixtureEM } from './approximate/em/NormalMixtureEM';
+import { LogNormalMixtureEM } from './approximate/em/LogNormalMixtureEM';
 import { LogNormalBayesian } from './exact/LogNormalInference';
 import { CompoundPosterior } from '../models/compound/CompoundModel';
 import { 
@@ -18,14 +19,17 @@ import {
 } from './base/types';
 
 export type ModelType = 
-  | 'auto'                    // Auto-detect from data
-  | 'beta-binomial'           // Binary outcomes
-  | 'gamma'                   // Positive continuous
-  | 'lognormal'               // Heavy-tailed positive
-  | 'normal-mixture'          // Multimodal continuous
-  | 'lognormal-mixture'       // Multimodal heavy-tailed
-  | 'compound-beta-gamma'     // Conversion × Gamma revenue
-  | 'compound-beta-lognormal'; // Conversion × LogNormal revenue
+  | 'auto'                           // Auto-detect from data
+  | 'beta-binomial'                  // Binary outcomes
+  | 'gamma'                          // Positive continuous
+  | 'exponential'                    // Waiting times (with Gamma prior)
+  | 'lognormal'                      // Heavy-tailed positive
+  | 'normal-mixture'                 // Multimodal continuous
+  | 'lognormal-mixture'              // Multimodal heavy-tailed
+  | 'compound-beta-gamma'            // Conversion × Gamma revenue
+  | 'compound-beta-lognormal'        // Conversion × LogNormal revenue
+  | 'compound-beta-lognormalmixture' // Conversion × LogNormal mixture (multimodal revenue)
+  | 'compound-beta-exponential';     // Conversion × Exponential (waiting times)
 
 /**
  npm* Main entry point for all inference in Tyche
@@ -36,6 +40,7 @@ export class InferenceEngine {
     'beta-binomial': new BetaBinomialConjugate(),
     'gamma': new GammaExponentialConjugate(),
     'normal-mixture': new NormalMixtureEM(),
+    'lognormal-mixture': new LogNormalMixtureEM(),
     'lognormal': new LogNormalBayesian(),
   };
   
@@ -77,7 +82,7 @@ export class InferenceEngine {
         return this.engines['normal-mixture'].fit(data as DataInput, options) as any;
         
       case 'lognormal-mixture':
-        return this.engines['normal-mixture'].fit(data as DataInput, options) as any; // Use same engine for now
+        return this.engines['lognormal-mixture'].fit(data as DataInput, options) as any;
         
       case 'lognormal':
         return this.engines['lognormal'].fit(data as DataInput, options) as any;
@@ -87,6 +92,9 @@ export class InferenceEngine {
         
       case 'compound-beta-lognormal':
         return this.fitCompoundModel(data as CompoundDataInput, options, 'lognormal') as any;
+        
+      case 'compound-beta-lognormalmixture':
+        return this.fitCompoundModel(data as CompoundDataInput, options, 'lognormal-mixture') as any;
         
       default:
         throw new Error(`Unknown model type: ${modelType}`);
@@ -186,7 +194,7 @@ export class InferenceEngine {
   private async fitCompoundModel(
     data: CompoundDataInput,
     options?: FitOptions,
-    severityModelType?: 'gamma' | 'lognormal' | 'normal-mixture'
+    severityModelType?: 'gamma' | 'lognormal' | 'lognormal-mixture' | 'normal-mixture'
   ): Promise<{ posterior: CompoundPosterior; diagnostics: any }> {
     if (!Array.isArray(data.data)) {
       throw new Error('Compound model requires array data');
@@ -196,7 +204,7 @@ export class InferenceEngine {
     const userData = data.data; // UserData[]
     
     // Determine severity model type if not specified
-    let severityType: 'gamma' | 'lognormal' | 'normal-mixture' = severityModelType || 'gamma';
+    let severityType: 'gamma' | 'lognormal' | 'lognormal-mixture' | 'normal-mixture' = severityModelType || 'gamma';
     if (!severityModelType) {
       // Analyze severity data to choose appropriate model
       const revenues = userData.filter(u => u.converted && u.value > 0).map(u => u.value);
@@ -208,7 +216,9 @@ export class InferenceEngine {
     
     // Create appropriate compound model
     const { createCompoundModel } = await import('../models/compound/CompoundModel');
-    const compoundModel = createCompoundModel('beta-binomial', severityType, this);
+    const compoundModel = createCompoundModel('beta-binomial', severityType, this, {
+      numComponents: 2 // Default to 2 components for LogNormal mixture
+    });
     
     // Fit the compound model
     const compoundPosterior = await compoundModel.fit(userData, {
