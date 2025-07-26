@@ -6,16 +6,20 @@ import { resolve } from 'path';
 const demos = {
   'ab-test': {
     entry: '/examples/ab-test-demo.html',
-    name: 'A/B Test Demo (Classic)'
+    name: 'Classic A/B Test Demo'
   },
   'combined': {
     entry: '/examples/combined-demo.html',
-    name: 'Combined Analysis Demo (React)'
+    name: 'Combined Analysis Demo'
+  },
+  'inference-explorer': {
+    entry: '/examples/inference-explorer.html',
+    name: 'Inference Explorer'
   }
 };
 
-// Get the demo target from environment variable or default to 'combined'
-const demoTarget = process.env.DEMO || 'combined';
+// Get the demo target from environment variable or default to 'inference-explorer'
+const demoTarget = process.env.DEMO || 'inference-explorer';
 const selectedDemo = demos[demoTarget];
 
 if (!selectedDemo) {

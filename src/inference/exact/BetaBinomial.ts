@@ -129,7 +129,8 @@ export class BetaBinomialConjugate extends InferenceEngine {
       diagnostics: {
         converged: true,  // Always converges (exact inference)
         iterations: 1,    // Single update
-        runtime: 0        // Near-instant
+        runtime: 0,       // Near-instant
+        modelType: 'beta-binomial'
       }
     };
   }

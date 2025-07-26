@@ -13,21 +13,22 @@ import {
   CompoundDataInput,
   FitOptions, 
   InferenceResult,
-  BinomialData 
+  BinomialData,
+  UserData
 } from './base/types';
 
 export type ModelType = 
-  | 'auto'
-  | 'beta-binomial' 
-  | 'normal-mixture'
-  | 'gamma'
-  | 'lognormal'
-  | 'revenue'  // Smart selection for revenue data
-  | 'conversion-value'  // Future: compound model
-  | 'compound-revenue';  // Compound model for revenue
+  | 'auto'                    // Auto-detect from data
+  | 'beta-binomial'           // Binary outcomes
+  | 'gamma'                   // Positive continuous
+  | 'lognormal'               // Heavy-tailed positive
+  | 'normal-mixture'          // Multimodal continuous
+  | 'lognormal-mixture'       // Multimodal heavy-tailed
+  | 'compound-beta-gamma'     // Conversion × Gamma revenue
+  | 'compound-beta-lognormal'; // Conversion × LogNormal revenue
 
 /**
- * Main entry point for all inference in Tyche
+ npm* Main entry point for all inference in Tyche
  * Provides smart routing to appropriate algorithms
  */
 export class InferenceEngine {
@@ -48,11 +49,17 @@ export class InferenceEngine {
    */
   async fit<T extends ModelType>(
     modelType: T,
-    data: T extends 'compound-revenue' ? CompoundDataInput : DataInput,
+    data: T extends 'auto' 
+      ? DataInput | CompoundDataInput
+      : T extends 'compound-beta-gamma' | 'compound-beta-lognormal' 
+        ? CompoundDataInput 
+        : DataInput,
     options?: FitOptions
-  ): Promise<T extends 'compound-revenue' 
-    ? { posterior: CompoundPosterior; diagnostics: any }
-    : InferenceResult> {
+  ): Promise<T extends 'auto'
+    ? InferenceResult | { posterior: CompoundPosterior; diagnostics: any }
+    : T extends 'compound-beta-gamma' | 'compound-beta-lognormal'
+      ? { posterior: CompoundPosterior; diagnostics: any }
+      : InferenceResult> {
     // Auto-detect model type if needed
     if (modelType === 'auto') {
       modelType = this.detectModelType(data) as T;
@@ -69,16 +76,17 @@ export class InferenceEngine {
       case 'normal-mixture':
         return this.engines['normal-mixture'].fit(data as DataInput, options) as any;
         
+      case 'lognormal-mixture':
+        return this.engines['normal-mixture'].fit(data as DataInput, options) as any; // Use same engine for now
+        
       case 'lognormal':
         return this.engines['lognormal'].fit(data as DataInput, options) as any;
         
-      case 'revenue':
-        // Smart selection based on data characteristics
-        return this.selectRevenueModel(data as DataInput, options) as any;
+      case 'compound-beta-gamma':
+        return this.fitCompoundModel(data as CompoundDataInput, options, 'gamma') as any;
         
-      case 'compound-revenue':
-        // Handle compound models
-        return this.fitCompoundModel(data as CompoundDataInput, options) as any;
+      case 'compound-beta-lognormal':
+        return this.fitCompoundModel(data as CompoundDataInput, options, 'lognormal') as any;
         
       default:
         throw new Error(`Unknown model type: ${modelType}`);
@@ -93,7 +101,14 @@ export class InferenceEngine {
     if ('data' in data && Array.isArray(data.data) && data.data.length > 0) {
       const firstItem = data.data[0];
       if (typeof firstItem === 'object' && 'converted' in firstItem) {
-        return 'compound-revenue';
+        // Auto-detect compound model type based on data characteristics
+        const userData = data.data as UserData[];
+        const revenues = userData.filter(u => u.converted && u.value > 0).map(u => u.value);
+        if (revenues.length > 0) {
+          const cv = this.coefficientOfVariation(revenues);
+          return cv > 1.5 ? 'compound-beta-lognormal' : 'compound-beta-gamma';
+        }
+        return 'compound-beta-gamma'; // Default
       }
     }
     
@@ -170,7 +185,8 @@ export class InferenceEngine {
    */
   private async fitCompoundModel(
     data: CompoundDataInput,
-    options?: FitOptions
+    options?: FitOptions,
+    severityModelType?: 'gamma' | 'lognormal' | 'normal-mixture'
   ): Promise<{ posterior: CompoundPosterior; diagnostics: any }> {
     if (!Array.isArray(data.data)) {
       throw new Error('Compound model requires array data');
@@ -179,8 +195,20 @@ export class InferenceEngine {
     const startTime = performance.now();
     const userData = data.data; // UserData[]
     
-    // Create compound model (default to Beta-Gamma)
-    const compoundModel = new (await import('../models/compound/CompoundModel')).BetaGammaCompound(this);
+    // Determine severity model type if not specified
+    let severityType: 'gamma' | 'lognormal' | 'normal-mixture' = severityModelType || 'gamma';
+    if (!severityModelType) {
+      // Analyze severity data to choose appropriate model
+      const revenues = userData.filter(u => u.converted && u.value > 0).map(u => u.value);
+      if (revenues.length > 0) {
+        const cv = this.coefficientOfVariation(revenues);
+        severityType = cv > 1.5 ? 'lognormal' : 'gamma';
+      }
+    }
+    
+    // Create appropriate compound model
+    const { createCompoundModel } = await import('../models/compound/CompoundModel');
+    const compoundModel = createCompoundModel('beta-binomial', severityType, this);
     
     // Fit the compound model
     const compoundPosterior = await compoundModel.fit(userData, {
@@ -195,7 +223,8 @@ export class InferenceEngine {
       diagnostics: {
         converged: true,
         iterations: 1,
-        runtime: runtime
+        runtime: runtime,
+        modelType: `compound-beta-${severityType}`
       }
     };
   }

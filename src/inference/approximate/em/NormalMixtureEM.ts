@@ -143,7 +143,8 @@ export class NormalMixtureEM extends InferenceEngine {
         iterations,
         finalELBO: logLikelihoodHistory[logLikelihoodHistory.length - 1],
         elboHistory: logLikelihoodHistory,
-        runtime
+        runtime,
+        modelType: 'normal-mixture'
       }
     };
   }
@@ -300,7 +301,7 @@ export class NormalMixtureEM extends InferenceEngine {
     const dataVariance = this.computeVariance(data);
     return centers.map(center => ({
       mean: center,
-      variance: dataVariance / K,  // Start with fraction of total variance
+      variance: Math.max(dataVariance / K, this.minVariance), // Ensure minimum variance
       weight: 1 / K
     }));
   }
@@ -336,7 +337,8 @@ export class NormalMixtureEM extends InferenceEngine {
       diagnostics: {
         converged: true,
         iterations: 0,
-        runtime: 0
+        runtime: 0,
+        modelType: 'normal-mixture'
       }
     };
   }

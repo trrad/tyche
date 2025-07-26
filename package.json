@@ -20,7 +20,8 @@
     "dev": "vite",
     "dev:ab": "cross-env DEMO=ab-test vite",
     "dev:combined": "cross-env DEMO=combined vite",
-    "dev:example": "vite serve --config vite.config.ts",
+    "dev:explorer": "cross-env DEMO=inference-explorer vite",
+    "dev:inference": "cross-env DEMO=inference-explorer vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
@@ -70,6 +71,7 @@
     "math-erf": "^1.0.0",
     "random-js": "^2.1.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "recharts": "^3.1.0"
   }
 }
