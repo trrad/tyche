@@ -14,5 +14,7 @@ export { SafeUpliftGraph } from './SafeUpliftGraph';
 
 // Inference visualization components
 export { PPCVisualizer } from './PPCVisualizer';
+export { PPCDiagnostics } from './PPCDiagnostics';
+export { UnifiedPPCDisplay } from './UnifiedPPCDisplay';
 export { DiagnosticsPanel } from './DiagnosticsPanel';
 export { PosteriorSummary } from './PosteriorSummary';

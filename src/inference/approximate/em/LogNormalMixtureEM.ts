@@ -100,6 +100,18 @@ export class LogNormalMixturePosterior implements Posterior {
       };
     });
   }
+
+  /**
+   * Get mixture components in standardized format
+   * Returns same interface as NormalMixturePosterior.getComponents()
+   */
+  getComponents(): { mean: number; variance: number; weight: number }[] {
+    return this.components.map(c => ({
+      mean: c.posterior.mean()[0],
+      variance: c.posterior.variance()[0],
+      weight: c.weight
+    }));
+  }
 }
 
 /**

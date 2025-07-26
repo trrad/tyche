@@ -16,7 +16,7 @@ import { TestScenarios } from '../src/tests/scenarios/TestScenarios';
 import { BusinessScenarios } from '../src/tests/utilities/synthetic/BusinessScenarios';
 
 // Visualization components
-import { PPCVisualizer, DiagnosticsPanel, PosteriorSummary } from '../src/ui/visualizations';
+import { PPCVisualizer, DiagnosticsPanel, PosteriorSummary, UnifiedPPCDisplay } from '../src/ui/visualizations';
 
 // Styles
 import './index.css';
@@ -61,9 +61,7 @@ function InferenceExplorer() {
   const [error, setError] = useState<string | null>(null);
   
   // PPC configuration
-  const [ppcSamples, setPpcSamples] = useState(1000);
   const [showDiagnostics, setShowDiagnostics] = useState(true);
-  const [showComponents, setShowComponents] = useState(true);
   
   // Custom data input
   const [customData, setCustomData] = useState('');
@@ -311,7 +309,7 @@ function InferenceExplorer() {
             onClick={() => setDataSourceType(type)}
             className={`px-4 py-2 rounded ${
               dataSourceType === type
-                ? 'bg-blue-500 text-white'
+                ? 'bg-purple-600 text-white' // Zenith Data lilac
                 : 'bg-gray-200 hover:bg-gray-300'
             }`}
           >
@@ -347,7 +345,7 @@ function InferenceExplorer() {
             disabled={!selectedDataSource}
             className={`px-4 py-2 rounded ${
               selectedDataSource 
-                ? 'bg-green-500 text-white hover:bg-green-600'
+                ? 'bg-red-500 text-white hover:bg-red-600' // Zenith Data coral
                 : 'bg-gray-400 text-gray-600 cursor-not-allowed'
             }`}
           >
@@ -420,7 +418,7 @@ function InferenceExplorer() {
         className={`w-full px-4 py-2 rounded ${
           !generatedData && !customData.trim()
             ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-blue-500 hover:bg-blue-600'
+            : 'bg-purple-600 hover:bg-purple-700' // Zenith Data lilac
         } text-white font-semibold`}
       >
         Run Inference
@@ -431,7 +429,7 @@ function InferenceExplorer() {
           <div className="text-sm text-gray-600 mb-1">{fitProgress.stage}</div>
           <div className="bg-gray-200 rounded-full h-2">
             <div 
-              className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+              className="bg-purple-600 h-2 rounded-full transition-all duration-300" // Zenith Data lilac
               style={{ width: `${fitProgress.progress}%` }}
             />
           </div>
@@ -461,51 +459,12 @@ function InferenceExplorer() {
         </div>
         
         {/* PPC Visualization */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold mb-4">Posterior Predictive Check</h3>
-          
-          <div className="flex gap-4 mb-4">
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={showDiagnostics}
-                onChange={(e) => setShowDiagnostics(e.target.checked)}
-                className="mr-2"
-              />
-              Show Diagnostics
-            </label>
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={showComponents}
-                onChange={(e) => setShowComponents(e.target.checked)}
-                className="mr-2"
-              />
-              Show Components
-            </label>
-            <label className="flex items-center">
-              <span className="mr-2">PPC Samples:</span>
-              <input
-                type="number"
-                value={ppcSamples}
-                onChange={(e) => setPpcSamples(parseInt(e.target.value) || 1000)}
-                className="w-20 p-1 border rounded"
-                min="100"
-                max="10000"
-                step="100"
-              />
-            </label>
-          </div>
-          
-          <PPCVisualizer
-            data={generatedData || parseCustomData()}
-            posterior={inferenceResult.posterior}
-            modelType={inferenceResult.diagnostics.modelType || selectedModel}
-            numPPCSamples={ppcSamples}
-            showDiagnostics={showDiagnostics}
-            showComponents={showComponents}
-          />
-        </div>
+        <UnifiedPPCDisplay
+          data={generatedData || parseCustomData()}
+          posterior={inferenceResult.posterior}
+          modelType={inferenceResult.diagnostics.modelType || selectedModel}
+          showDiagnostics={showDiagnostics}
+        />
       </div>
     );
   };
@@ -523,7 +482,7 @@ function InferenceExplorer() {
         
         {/* Error Display */}
         {error && (
-          <div className="mb-6 p-4 bg-red-100 text-red-700 rounded-lg">
+          <div className="mb-6 p-4 bg-orange-100 text-orange-700 rounded-lg"> // Zenith Data coral theme
             <strong>Error:</strong> {error}
           </div>
         )}
