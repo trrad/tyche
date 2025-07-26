@@ -11,3 +11,8 @@ export type { ComparisonPlotProps } from './ComparisonPlot';
 // Safe wrappers with error handling
 export { SafeDistributionPlot } from './SafeDistributionPlot';
 export { SafeUpliftGraph } from './SafeUpliftGraph';
+
+// Inference visualization components
+export { PPCVisualizer } from './PPCVisualizer';
+export { DiagnosticsPanel } from './DiagnosticsPanel';
+export { PosteriorSummary } from './PosteriorSummary';

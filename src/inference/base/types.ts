@@ -43,6 +43,7 @@ export interface InferenceResult {
       likelihoodHistory?: number[]; // For EM
       acceptanceRate?: number;      // For MCMC
       runtime?: number;
+      modelType?: string;
     };
   }
 
@@ -125,6 +126,13 @@ export interface PriorSpec {
 /**
  * Common options for all model fitting
  */
+export interface FitProgress {
+  stage: string;
+  progress: number;
+  iteration?: number;
+  totalIterations?: number;
+}
+
 export interface FitOptions {
   priorParams?: PriorSpec;
   maxIterations?: number;
@@ -132,6 +140,7 @@ export interface FitOptions {
   warmStart?: boolean;
   verbose?: boolean;
   seed?: number;
+  onProgress?: (progress: FitProgress) => void;
 }
 
 /**

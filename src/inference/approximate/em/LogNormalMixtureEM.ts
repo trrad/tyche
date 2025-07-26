@@ -119,7 +119,7 @@ export class LogNormalMixtureEM extends InferenceEngine {
     super('LogNormal Mixture EM');
     this.numComponents = options?.numComponents || 2;
     this.maxIterations = options?.maxIterations || 100;
-    this.tolerance = options?.tolerance || 1e-6;
+    this.tolerance = options?.tolerance || 1e-4; // Relax from 1e-6
   }
   
   async fit(data: DataInput, options?: FitOptions): Promise<InferenceResult> {
@@ -161,8 +161,9 @@ export class LogNormalMixtureEM extends InferenceEngine {
       const logLik = this.computeLogLikelihood(logValues, components);
       
       // Check convergence
-      if (Math.abs(logLik - prevLogLik) < this.tolerance) {
-        break;
+      if (Math.abs(logLik - prevLogLik) < this.tolerance || 
+          (logLik - prevLogLik) < 0 && Math.abs(logLik - prevLogLik) < this.tolerance * 10) {
+        break; // Allow small decreases due to numerical errors
       }
       prevLogLik = logLik;
     }

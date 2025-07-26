@@ -217,7 +217,8 @@ export class LogNormalBayesian extends InferenceEngine {
       diagnostics: {
         converged: true,
         iterations: 1,
-        runtime: 0
+        runtime: 0,
+        modelType: 'lognormal'
       }
     };
   }
@@ -278,7 +279,8 @@ export class LogNormalBayesian extends InferenceEngine {
       diagnostics: {
         converged: true,
         iterations: 1,
-        runtime: 0
+        runtime: 0,
+        modelType: 'lognormal'
       }
     };
   }

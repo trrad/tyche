@@ -3,6 +3,8 @@ import { describe, test, expect } from 'vitest';
 import { InferenceEngine } from '../../inference/InferenceEngine';
 import { TestScenarios, Tolerances, isWithinTolerance } from '../scenarios/testscenarios';
 import { BusinessScenarios } from '../utilities/synthetic/BusinessScenarios';
+import { CompoundDataInput } from '../../inference/base/types';
+import { CompoundPosterior } from '../../models/compound/CompoundModel';
 
 describe('InferenceEngine - Unified API', () => {
   const engine = new InferenceEngine();
@@ -37,7 +39,7 @@ describe('InferenceEngine - Unified API', () => {
     
     test('handles compound models', async () => {
       const users = TestScenarios.compound.controlVariant.generateUsers(500);
-      const result = await engine.fit('compound-revenue', { data: users });
+      const result = await engine.fit('auto', { data: users } as CompoundDataInput) as { posterior: CompoundPosterior; diagnostics: any };
       
       expect(result.posterior).toHaveProperty('frequency');
       expect(result.posterior).toHaveProperty('severity');
