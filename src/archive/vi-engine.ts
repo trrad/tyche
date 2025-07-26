@@ -3,7 +3,7 @@
 
 import jStat from 'jstat';
 import { Random, MersenneTwister19937 } from 'random-js';
-import { AdamOptimizer } from './optimizers/adam-optimizer';
+import { AdamOptimizer } from '../optimizers/adam-optimizer';
 
 // ============================================
 // Core Types and Interfaces

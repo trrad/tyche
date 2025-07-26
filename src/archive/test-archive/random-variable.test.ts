@@ -4,8 +4,8 @@
  */
 
 import { describe, test, expect, beforeEach } from 'vitest';
-import { RandomVariable, sigmoid } from '../core/RandomVariable';
-import { ComputationGraph } from '../core/ComputationGraph';
+import { RandomVariable, sigmoid } from '../../core/RandomVariable';
+import { ComputationGraph } from '../../core/ComputationGraph';
 
 describe('RandomVariable', () => {
   let graph: ComputationGraph;

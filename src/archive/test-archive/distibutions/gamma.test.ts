@@ -1,8 +1,8 @@
 // tests/distributions/Gamma.test.ts
 import { describe, it, expect, beforeEach } from 'vitest';
-import { gamma, GammaRV } from '../../../src/core/distributions/Gamma';
-import { RandomVariable } from '../../../src/core/RandomVariable';
-import { ComputationGraph } from '../../../src/core/ComputationGraph';
+import { gamma, GammaRV } from '../../../core/distributions/Gamma';
+import { RandomVariable } from '../../../core/RandomVariable';
+import { ComputationGraph } from '../../../core/ComputationGraph';
 import { RNG } from '../../../src/core/math/random';
 
 describe('Gamma Distribution', () => {

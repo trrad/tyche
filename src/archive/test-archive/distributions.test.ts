@@ -3,10 +3,10 @@
  */
 
 import { describe, test, expect, beforeEach } from 'vitest';
-import { beta, binomial, bernoulli, normal, standardNormal, halfNormal } from '../core/distributions';
+import { beta, binomial, bernoulli, normal, standardNormal, halfNormal } from '../../core/distributions';
 import { RNG } from '../core/math/random'; // Import RNG from the correct location
-import { RandomVariable } from '../core/RandomVariable';
-import { ComputationGraph } from '../core/ComputationGraph';
+import { RandomVariable } from '../../core/RandomVariable';
+import { ComputationGraph } from '../../core/ComputationGraph';
 
 describe('Distributions', () => {
   let graph: ComputationGraph;
