@@ -48,10 +48,38 @@ export interface InferenceResult {
 
 /**
  * Common data input format for all models
+ * 
+ * DATA FORMATS BY MODEL TYPE:
+ * 
+ * 1. BETA-BINOMIAL MODELS:
+ *    - { successes: number, trials: number }  // Summary format
+ *    - number[] (all 0s and 1s)              // Binary array format
+ * 
+ * 2. CONTINUOUS MODELS (Normal, LogNormal, Gamma, Mixtures):
+ *    - number[]                               // Raw continuous values
+ * 
+ * 3. COMPOUND MODELS (Revenue, Conversion-Value):
+ *    - UserData[]                             // Array of {converted: boolean, value: number}
+ * 
+ * 4. SUMMARY STATISTICS:
+ *    - { n: number, mean?: number, variance?: number, sum?: number, sumSquares?: number }
  */
 export interface DataInput {
   /** Data points or summary statistics */
   data: number[] | BinomialData | SummaryStats;
+  /** Optional configuration */
+  config?: {
+    numComponents?: number;
+    [key: string]: any;
+  };
+}
+
+/**
+ * Compound model data input (separate from regular DataInput)
+ */
+export interface CompoundDataInput {
+  /** User data for compound models */
+  data: UserData[];
   /** Optional configuration */
   config?: {
     numComponents?: number;
@@ -76,6 +104,14 @@ export interface SummaryStats {
   variance?: number;
   sum?: number;
   sumSquares?: number;
+}
+
+/**
+ * User data for compound models (frequency × severity)
+ */
+export interface UserData {
+  converted: boolean;
+  value: number;
 }
 
 /**
