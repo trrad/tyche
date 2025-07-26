@@ -89,7 +89,7 @@ export const ComparisonPlot: React.FC<ComparisonPlotProps> = ({
       .attr('y', d => yScaleControl(d.length))
       .attr('width', d => xScale(d.x1 || 0) - xScale(d.x0 || 0) - 1)
       .attr('height', d => plotHeight - yScaleControl(d.length))
-      .attr('fill', '#3B82F6')
+      .attr('fill', '#FF6B6B') // Zenith Data coral
       .attr('opacity', 0.7);
     
     // Draw treatment histogram
@@ -110,7 +110,7 @@ export const ComparisonPlot: React.FC<ComparisonPlotProps> = ({
       .attr('y', d => yScaleTreatment(d.length))
       .attr('width', d => xScale(d.x1 || 0) - xScale(d.x0 || 0) - 1)
       .attr('height', d => plotHeight - yScaleTreatment(d.length))
-      .attr('fill', '#10B981')
+      .attr('fill', '#9B59B6') // Zenith Data lilac
       .attr('opacity', 0.7);
     
     // Add statistics overlay

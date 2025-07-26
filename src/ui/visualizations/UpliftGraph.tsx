@@ -146,7 +146,7 @@ export const UpliftGraph: React.FC<UpliftGraphProps> = ({
               y={yScale(bin.density)}
               width={Math.max(1, (innerWidth / bins) - 1)}
               height={innerHeight - yScale(bin.density)}
-              fill="#3B82F6"
+              fill="#FF6B6B" // Zenith Data coral
               fillOpacity={0.6}
             />
           ))}
@@ -169,9 +169,9 @@ export const UpliftGraph: React.FC<UpliftGraphProps> = ({
               y={innerHeight * 0.4}
               width={xScale(upliftData.stats.upper) - xScale(upliftData.stats.lower)}
               height={innerHeight * 0.2}
-              fill="#10B981"
+              fill="#9B59B6" // Zenith Data lilac
               fillOpacity={0.2}
-              stroke="#10B981"
+              stroke="#9B59B6" // Zenith Data lilac
               strokeWidth={2}
             />
             <line

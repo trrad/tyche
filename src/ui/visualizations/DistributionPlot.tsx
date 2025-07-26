@@ -74,7 +74,7 @@ export const DistributionPlot: React.FC<DistributionPlotProps> = ({
   width = 400,
   height = 200,
   bins = 30,
-  color = '#3B82F6',
+  color = '#FF6B6B', // Zenith Data coral
   label,
   credibleLevel = 0.95,
   showMean = true,

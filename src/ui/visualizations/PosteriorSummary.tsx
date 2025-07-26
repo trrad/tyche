@@ -169,6 +169,8 @@ export const PosteriorSummary: React.FC<PosteriorSummaryProps> = ({ posterior, m
         </div>
       )}
 
+
+
       {/* Sample visualization */}
       <div className="border-t pt-4">
         <h4 className="text-sm font-semibold text-gray-700 mb-2">Sample Distribution</h4>
