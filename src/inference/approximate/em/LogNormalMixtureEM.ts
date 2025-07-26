@@ -174,7 +174,8 @@ export class LogNormalMixtureEM extends InferenceEngine {
         converged: iter < this.maxIterations,
         iterations: iter,
         runtime: 0,
-        finalLogLikelihood: prevLogLik
+        finalLogLikelihood: prevLogLik,
+        modelType: 'lognormal-mixture'
       }
     };
   }

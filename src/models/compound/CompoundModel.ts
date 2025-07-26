@@ -280,12 +280,51 @@ export class BetaLogNormalCompound extends CompoundModel<'beta-binomial', 'logno
 }
 
 /**
+ * Concrete implementation: Beta-Binomial × LogNormal Mixture
+ * For conversion rate with multimodal revenue (e.g., budget vs premium customers)
+ */
+export class BetaLogNormalMixtureCompound extends CompoundModel<'beta-binomial', 'lognormal-mixture'> {
+  constructor(
+    inferenceEngine: InferenceEngine,
+    private readonly numComponents: number = 2
+  ) {
+    super('beta-binomial', 'lognormal-mixture', inferenceEngine);
+  }
+  
+  /**
+   * Override to handle LogNormal mixture with proper component configuration
+   */
+  protected separateData(data: UserData[]): {
+    frequencyData: DataInput;
+    severityData: DataInput;
+  } {
+    const base = super.separateData(data);
+    
+    // Add component configuration for LogNormal mixture
+    return {
+      frequencyData: base.frequencyData,
+      severityData: {
+        ...base.severityData,
+        config: {
+          numComponents: this.numComponents
+        }
+      }
+    };
+  }
+  
+  getDescription(): string {
+    return `Compound model: Beta (conversion) × LogNormal Mixture with ${this.numComponents} components (multimodal revenue)`;
+  }
+}
+
+/**
  * Factory function for creating compound models
  */
 export function createCompoundModel(
   frequencyType: 'beta-binomial',
-  severityType: 'gamma' | 'lognormal' | 'normal-mixture',
-  inferenceEngine: InferenceEngine
+  severityType: 'gamma' | 'lognormal' | 'lognormal-mixture' | 'normal-mixture',
+  inferenceEngine: InferenceEngine,
+  options?: { numComponents?: number }
 ): CompoundModel {
   if (frequencyType === 'beta-binomial' && severityType === 'gamma') {
     return new BetaGammaCompound(inferenceEngine);
@@ -293,6 +332,10 @@ export function createCompoundModel(
   
   if (frequencyType === 'beta-binomial' && severityType === 'lognormal') {
     return new BetaLogNormalCompound(inferenceEngine);
+  }
+  
+  if (frequencyType === 'beta-binomial' && severityType === 'lognormal-mixture') {
+    return new BetaLogNormalMixtureCompound(inferenceEngine, options?.numComponents);
   }
   
   // Generic compound model for other combinations

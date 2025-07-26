@@ -2,6 +2,7 @@
 import jStat from 'jstat';
 import { SyntheticDataGenerator } from '../utilities/synthetic/DataGenerator';
 import { BusinessScenarios } from '../utilities/synthetic/BusinessScenarios';
+import { UserData } from '../../inference/base/types';
 
 /**
  * Centralized test scenarios for consistent validation across the test suite
@@ -125,6 +126,35 @@ export const TestScenarios = {
           sampleSize: n * 2 // We'll take treatment half
         });
         return data.treatment;
+      }
+    },
+    
+    multimodalRevenue: {
+      description: 'E-commerce with budget and premium shoppers',
+      generateUsers: (n: number = 2000) => {
+        const users: UserData[] = [];
+        
+        for (let i = 0; i < n; i++) {
+          const converted = Math.random() < 0.08; // 8% conversion
+          let value = 0;
+          
+          if (converted) {
+            // 70% budget shoppers, 30% premium
+            if (Math.random() < 0.7) {
+              // Budget: LogNormal(3.2, 0.4) ~ $20-30
+              const logValue = 3.2 + (Math.random() - 0.5) * 2 * 0.4;
+              value = Math.exp(logValue);
+            } else {
+              // Premium: LogNormal(4.6, 0.3) ~ $80-120  
+              const logValue = 4.6 + (Math.random() - 0.5) * 2 * 0.3;
+              value = Math.exp(logValue);
+            }
+          }
+          
+          users.push({ converted, value });
+        }
+        
+        return users;
       }
     }
   },

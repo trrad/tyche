@@ -36,7 +36,7 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
     
     const generateSamples = async () => {
       // Handle different model types
-      if ((modelType === 'compound-beta-gamma' || modelType === 'compound-beta-lognormal') && 
+      if ((modelType === 'compound-beta-gamma' || modelType === 'compound-beta-lognormal' || modelType === 'compound-beta-lognormalmixture') && 
           'frequency' in posterior && 'severity' in posterior) {
         // Compound model
         const compoundPosterior = posterior as CompoundPosterior;
@@ -91,7 +91,7 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
       };
     }
     
-    if (type === 'compound-beta-gamma' || type === 'compound-beta-lognormal') {
+            if (type === 'compound-beta-gamma' || type === 'compound-beta-lognormal' || type === 'compound-beta-lognormalmixture') {
       // For compound models, compute diagnostics for both components
       const obsConvRate = observed.filter((d: any) => d.converted).length / observed.length;
       const predConvRate = predicted.filter((p: any) => p.converted).length / predicted.length;
@@ -161,23 +161,69 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
         ...bin,
         observed: Math.abs(bin.x - observed) < 0.025 ? 0.2 : 0
       }));
-    } else if (modelType === 'compound-beta-gamma' || modelType === 'compound-beta-lognormal') {
+    } else if (modelType === 'compound-beta-gamma' || modelType === 'compound-beta-lognormal' || modelType === 'compound-beta-lognormalmixture') {
       // Compound model - show both metrics
+      
+      // Parse observed data correctly
+      const observedData = Array.isArray(data) ? data : (data.data || []);
+      
+      // Conversion data
       const convData = {
-        observed: data.filter((d: any) => d.converted).length / data.length,
+        observed: observedData.filter((d: any) => d.converted).length / observedData.length,
         predicted: ppcSamples.filter(s => s.converted).length / ppcSamples.length
       };
       
-      const revenueData = createHistogram(
-        ppcSamples.filter(s => s.converted).map(s => s.value),
-        30
+      // Revenue data - need to compare observed vs predicted
+      const observedRevenues = observedData
+        .filter((d: any) => d.converted && d.value > 0)
+        .map((d: any) => d.value);
+        
+      const predictedRevenues = ppcSamples
+        .filter(s => s.converted && s.value > 0)
+        .map(s => s.value);
+      
+      // Create overlay histogram for revenue
+      const revenueData = createOverlayHistogram(
+        observedRevenues, 
+        predictedRevenues, 
+        30,
+        modelType
       );
       
       return { conversion: convData, revenue: revenueData };
           } else {
         // Continuous data (including mixtures)
         const obsData = Array.isArray(data) ? data : data.data || [];
-        return createOverlayHistogram(obsData, ppcSamples, 30);
+        
+        // Check if this is a positive distribution for kernel density
+        const isPositive = ['lognormal', 'lognormal-mixture', 'gamma', 'exponential'].some(t => modelType.includes(t));
+        
+        if (isPositive) {
+          // Create x-range for smooth curve
+          const allData = [...obsData, ...ppcSamples];
+          const dataMin = Math.min(...allData);
+          const dataMax = Math.max(...allData);
+          const range = dataMax - dataMin;
+          
+          // For positive distributions, start at 0 or slightly below min
+          const xMin = Math.max(0, dataMin - range * 0.1);
+          const xMax = dataMax + range * 0.2;
+          
+          const xRange = [];
+          const steps = 100;
+          for (let i = 0; i <= steps; i++) {
+            xRange.push(xMin + (xMax - xMin) * i / steps);
+          }
+          
+          // Create smooth density curves
+          const observedDensity = createKernelDensity(obsData, xRange, undefined, true);
+          const predictedDensity = createKernelDensity(ppcSamples, xRange, undefined, true);
+          
+          return { observedDensity, predictedDensity, xRange };
+        } else {
+          // Use histogram for general continuous data
+          return createOverlayHistogram(obsData, ppcSamples, 30, modelType);
+        }
       }
   }, [loading, ppcSamples, data, modelType]);
 
@@ -202,10 +248,73 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
     return histogram;
   }
 
-  function createOverlayHistogram(observed: number[], predicted: number[], bins: number) {
-    const allData = [...observed, ...predicted];
-    const min = Math.min(...allData);
-    const max = Math.max(...allData);
+  // Helper function to compute variance
+  function variance(data: number[]): number {
+    const mean = data.reduce((a, b) => a + b, 0) / data.length;
+    return data.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / data.length;
+  }
+
+  // Kernel density estimation for smooth curves
+  function createKernelDensity(
+    data: number[], 
+    xRange: number[], 
+    bandwidth?: number,
+    enforcePositive?: boolean
+  ): Array<{x: number, y: number}> {
+    if (!bandwidth) {
+      // Scott's rule for bandwidth selection
+      const std = Math.sqrt(variance(data));
+      bandwidth = 1.06 * std * Math.pow(data.length, -0.2);
+    }
+    
+    return xRange.map(x => {
+      // Skip negative x values for positive distributions
+      if (enforcePositive && x < 0) {
+        return { x, y: 0 };
+      }
+      
+      let density = 0;
+      for (const xi of data) {
+        // Gaussian kernel
+        const z = (x - xi) / bandwidth;
+        density += Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
+      }
+      density /= (data.length * bandwidth);
+      
+      return { x, y: density };
+    });
+  }
+
+  function createOverlayHistogram(
+    observed: number[], 
+    predicted: number[], 
+    bins: number,
+    modelType?: string  // Add model type parameter
+  ) {
+    // Filter out any invalid predictions (shouldn't happen but defensive)
+    const validPredicted = predicted.filter(x => !isNaN(x) && isFinite(x));
+    
+    // For positive-only distributions, enforce zero minimum
+    const isPositiveModel = modelType && [
+      'lognormal', 
+      'lognormal-mixture', 
+      'gamma', 
+      'exponential',
+      'compound-beta-gamma',
+      'compound-beta-lognormal',
+      'compound-beta-lognormalmixture'
+    ].includes(modelType);
+    
+    const allData = [...observed, ...validPredicted];
+    let min = Math.min(...allData);
+    let max = Math.max(...allData);
+    
+    // For positive distributions, constrain to positive range
+    if (isPositiveModel) {
+      min = Math.max(0, min * 0.9);  // Start slightly below min, but never negative
+      max = max * 1.1;  // Extend slightly above max
+    }
+    
     const binWidth = (max - min) / bins;
     
     const histogram = [];
@@ -214,12 +323,12 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
       const binEnd = binStart + binWidth;
       
       const obsCount = observed.filter(x => x >= binStart && x < binEnd).length;
-      const predCount = predicted.filter(x => x >= binStart && x < binEnd).length;
+      const predCount = validPredicted.filter(x => x >= binStart && x < binEnd).length;
       
       histogram.push({
         x: (binStart + binEnd) / 2,
         observed: obsCount / observed.length / binWidth,
-        predicted: predCount / predicted.length / binWidth
+        predicted: predCount / validPredicted.length / binWidth
       });
     }
     
@@ -271,13 +380,31 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
     );
   }
 
-  if (modelType === 'compound-beta-gamma' || modelType === 'compound-beta-lognormal') {
+  if (modelType === 'compound-beta-gamma' || modelType === 'compound-beta-lognormal' || modelType === 'compound-beta-lognormalmixture') {
     const { conversion, revenue } = chartData as any;
+    
+    // Check if we have revenue data
+    if (!revenue || revenue.length === 0) {
+      return (
+        <div className="p-4 bg-yellow-50 text-yellow-800 rounded">
+          No revenue data to display. Check that the data includes converted users with positive values.
+        </div>
+      );
+    }
+    
+    const getModelName = () => {
+      switch (modelType) {
+        case 'compound-beta-gamma': return 'Beta × Gamma';
+        case 'compound-beta-lognormal': return 'Beta × LogNormal';
+        case 'compound-beta-lognormalmixture': return 'Beta × LogNormal Mixture';
+        default: return modelType;
+      }
+    };
     
     return (
       <div className="space-y-6">
         <div className="text-sm text-gray-600 mb-2">
-          Model: {modelType === 'compound-beta-gamma' ? 'Beta × Gamma' : 'Beta × LogNormal'}
+          Model: {getModelName()}
         </div>
         
         {/* Conversion comparison */}
@@ -295,7 +422,7 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
           </div>
         </div>
         
-        {/* Revenue distribution */}
+        {/* Revenue distribution - now with proper overlay */}
         <div>
           <h4 className="font-semibold mb-2">Revenue Distribution (Converted Users)</h4>
           <ResponsiveContainer width="100%" height={300}>
@@ -303,22 +430,44 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis 
                 dataKey="x" 
-                tickFormatter={(v) => `$${v.toFixed(0)}`}
+                tickFormatter={(v) => {
+                  // For lognormal mixture, format as currency if values are large
+                  if (modelType === 'compound-beta-lognormalmixture' && v > 100) {
+                    return `$${v.toFixed(0)}`;
+                  }
+                  return `$${v.toFixed(0)}`;
+                }}
                 label={{ value: 'Revenue', position: 'insideBottom', offset: -5 }}
               />
               <YAxis label={{ value: 'Density', angle: -90, position: 'insideLeft' }} />
-              <Tooltip formatter={(v: any) => v.toFixed(4)} />
-              <Area 
+              <Tooltip 
+                formatter={(v: any, name: string) => [v.toFixed(4), name]}
+                labelFormatter={(v) => `$${v.toFixed(2)}`}
+              />
+              <Legend />
+              
+              {/* Observed data as bars */}
+              <Bar 
+                dataKey="observed" 
+                fill="#EF4444" 
+                opacity={0.6}
+                name="Observed Data"
+              />
+              
+              {/* Predicted as line/area */}
+              <Line 
                 type="monotone" 
                 dataKey="predicted" 
-                fill="#3B82F6" 
-                opacity={0.6} 
+                stroke="#3B82F6" 
+                strokeWidth={2}
+                dot={false}
                 name="Posterior Predictive"
               />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
         
+        {/* Diagnostics */}
         {showDiagnostics && diagnostics && (
           <div className="bg-gray-50 p-4 rounded">
             <h4 className="font-semibold mb-2">Diagnostics</h4>
@@ -339,6 +488,11 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
                   <div>KS Statistic: {diagnostics.revenue.ksStatistic.toFixed(3)}</div>
                 </div>
               </div>
+              {modelType === 'compound-beta-lognormalmixture' && (
+                <div className="text-xs text-gray-600 mt-2">
+                  Note: LogNormal mixture models may show multimodal revenue distributions representing different customer segments.
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -347,59 +501,107 @@ export const PPCVisualizer: React.FC<PPCVisualizerProps> = ({
   }
 
   // Default continuous visualization
-  const continuousData = chartData as Array<{x: number; observed: number; predicted: number}>;
-  return (
-    <div className="space-y-4">
-      <ResponsiveContainer width="100%" height={400}>
-        <ComposedChart data={continuousData}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis 
-            dataKey="x" 
-            tickFormatter={(v: number) => {
-              // For lognormal mixture, format as currency if values are large
-              if (modelType === 'lognormal-mixture' && v > 100) {
-                return `$${v.toFixed(0)}`;
-              }
-              return v.toFixed(1);
-            }}
-            label={{ value: 'Value', position: 'insideBottom', offset: -5 }}
-          />
-          <YAxis label={{ value: 'Density', angle: -90, position: 'insideLeft' }} />
-          <Tooltip formatter={(v: any) => v.toFixed(4)} />
-          <Legend />
-          <Bar 
-            dataKey="observed" 
-            fill="#3B82F6" 
-            opacity={0.5} 
-            name="Observed Data"
-          />
-          <Line 
-            type="monotone" 
-            dataKey="predicted" 
-            stroke="#EF4444" 
-            strokeWidth={3} 
-            dot={false}
-            name="Posterior Predictive"
-          />
-        </ComposedChart>
-      </ResponsiveContainer>
-      
-      {showDiagnostics && diagnostics && (
-        <div className="bg-gray-50 p-4 rounded">
-          <h4 className="font-semibold mb-2">Diagnostics</h4>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>Observed Mean: {diagnostics.observedMean.toFixed(2)}</div>
-            <div>Predicted Mean: {diagnostics.predictedMean.toFixed(2)}</div>
-            <div>Bias: {diagnostics.bias.toFixed(2)}</div>
-            <div>KS Statistic: {diagnostics.ksStatistic.toFixed(3)}</div>
+  const isPositiveDistribution = ['lognormal', 'lognormal-mixture', 'gamma', 'exponential'].some(t => modelType.includes(t));
+  
+  if (isPositiveDistribution && (chartData as any).observedDensity) {
+    // Kernel density visualization for positive distributions
+    const { observedDensity, predictedDensity } = chartData as any;
+    return (
+      <div className="space-y-4">
+        <ResponsiveContainer width="100%" height={400}>
+          <ComposedChart data={observedDensity}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis 
+              dataKey="x" 
+              tickFormatter={(v: number) => {
+                // For lognormal mixture, format as currency if values are large
+                if (modelType === 'lognormal-mixture' && v > 100) {
+                  return `$${v.toFixed(0)}`;
+                }
+                return v.toFixed(1);
+              }}
+              label={{ value: 'Value', position: 'insideBottom', offset: -5 }}
+            />
+            <YAxis label={{ value: 'Density', angle: -90, position: 'insideLeft' }} />
+            <Tooltip formatter={(v: any) => v.toFixed(4)} />
+            <Legend />
+            <Line 
+              type="monotone" 
+              dataKey="y" 
+              stroke="#3B82F6" 
+              strokeWidth={2} 
+              dot={false}
+              name="Observed Data"
+            />
+            <Line 
+              type="monotone" 
+              data={predictedDensity}
+              dataKey="y" 
+              stroke="#EF4444" 
+              strokeWidth={2} 
+              dot={false}
+              name="Posterior Predictive"
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  } else {
+    // Histogram visualization for general continuous data
+    const continuousData = chartData as Array<{x: number; observed: number; predicted: number}>;
+    return (
+      <div className="space-y-4">
+        <ResponsiveContainer width="100%" height={400}>
+          <ComposedChart data={continuousData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis 
+              dataKey="x" 
+              tickFormatter={(v: number) => {
+                // For lognormal mixture, format as currency if values are large
+                if (modelType === 'lognormal-mixture' && v > 100) {
+                  return `$${v.toFixed(0)}`;
+                }
+                return v.toFixed(1);
+              }}
+              label={{ value: 'Value', position: 'insideBottom', offset: -5 }}
+            />
+            <YAxis label={{ value: 'Density', angle: -90, position: 'insideLeft' }} />
+            <Tooltip formatter={(v: any) => v.toFixed(4)} />
+            <Legend />
+            <Bar 
+              dataKey="observed" 
+              fill="#3B82F6" 
+              opacity={0.5} 
+              name="Observed Data"
+            />
+            <Line 
+              type="monotone" 
+              dataKey="predicted" 
+              stroke="#EF4444" 
+              strokeWidth={3} 
+              dot={false}
+              name="Posterior Predictive"
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+        
+        {showDiagnostics && diagnostics && (
+          <div className="bg-gray-50 p-4 rounded">
+            <h4 className="font-semibold mb-2">Diagnostics</h4>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>Observed Mean: {diagnostics.observedMean.toFixed(2)}</div>
+              <div>Predicted Mean: {diagnostics.predictedMean.toFixed(2)}</div>
+              <div>Bias: {diagnostics.bias.toFixed(2)}</div>
+              <div>KS Statistic: {diagnostics.ksStatistic.toFixed(3)}</div>
+            </div>
+            {(modelType === 'normal-mixture' || modelType === 'lognormal-mixture') && (
+              <p className="text-xs text-gray-600 mt-2">
+                Note: Mixture models may show bimodal distributions. Check if components are well-separated.
+              </p>
+            )}
           </div>
-          {(modelType === 'normal-mixture' || modelType === 'lognormal-mixture') && (
-            <p className="text-xs text-gray-600 mt-2">
-              Note: Mixture models may show bimodal distributions. Check if components are well-separated.
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
+        )}
+      </div>
+    );
+  }
 };

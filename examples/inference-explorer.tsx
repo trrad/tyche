@@ -143,6 +143,12 @@ function InferenceExplorer() {
       description: '6.5% conv, $60 AOV, high variance',
       generator: () => TestScenarios.compound.treatmentVariant.generateUsers(1000)
     },
+    {
+      type: 'test-scenario',
+      name: 'Compound: Multimodal Revenue',
+      description: 'Budget vs premium customer segments',
+      generator: () => TestScenarios.compound.multimodalRevenue.generateUsers(1000)
+    },
     
     // Business Scenarios
     {
@@ -405,6 +411,7 @@ function InferenceExplorer() {
         <option value="lognormal-mixture">LogNormal Mixture</option>
         <option value="compound-beta-gamma">Compound (Beta × Gamma)</option>
         <option value="compound-beta-lognormal">Compound (Beta × LogNormal)</option>
+        <option value="compound-beta-lognormalmixture">Compound (Beta × LogNormal Mixture)</option>
       </select>
       
       <button
