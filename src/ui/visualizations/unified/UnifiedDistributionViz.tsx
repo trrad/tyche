@@ -14,7 +14,8 @@ import {
   renderDensityPlot,
   renderHistogramPlot,
   renderRidgePlot,
-  renderECDFPlot 
+  renderECDFPlot,
+  renderMixedPlot
 } from './renderers';
 import { renderLegend, renderComparisonAnnotations } from './annotations';
 import { getVariantColor } from '../base/colors';
@@ -70,9 +71,11 @@ export const UnifiedDistributionViz: React.FC<UnifiedDistributionVizProps> = ({
     // Auto-select based on data characteristics
     const nDists = distributions.length;
     const hasObserved = distributions.some(d => d.metadata?.isObserved);
+    const hasPredicted = distributions.some(d => !d.metadata?.isObserved);
     
     if (nDists === 1) return 'density';
-    if (nDists === 2 && hasObserved) return 'density'; // PPC style
+    if (hasObserved && hasPredicted) return 'mixed'; // PPC style
+    if (nDists === 2 && hasObserved) return 'mixed'; // PPC style
     if (nDists > 4) return 'ridge';
     return 'density';
   }, [display.mode, distributions]);
@@ -144,12 +147,35 @@ export const UnifiedDistributionViz: React.FC<UnifiedDistributionVizProps> = ({
       case 'histogram':
         renderHistogramPlot(renderContext, dataToPlot, display, comparison);
         break;
+      case 'mixed':
+        renderMixedPlot(renderContext, dataToPlot, display, comparison);
+        break;
       case 'ridge':
         renderRidgePlot(renderContext, dataToPlot, display, comparison);
         break;
       case 'ecdf':
         renderECDFPlot(renderContext, dataToPlot, display, comparison);
         break;
+    }
+    
+    // Add grid lines if requested
+    if (display.showGrid) {
+      g.append('g')
+        .attr('class', 'grid grid-x')
+        .attr('transform', `translate(0,${innerHeight})`)
+        .call(d3.axisBottom(xScale)
+          .tickSize(-innerHeight)
+          .tickFormat(() => ''))
+        .style('stroke-dasharray', '3,3')
+        .style('opacity', 0.3);
+      
+      g.append('g')
+        .attr('class', 'grid grid-y')
+        .call(d3.axisLeft(yScale)
+          .tickSize(-innerWidth)
+          .tickFormat(() => ''))
+        .style('stroke-dasharray', '3,3')
+        .style('opacity', 0.3);
     }
     
     // Add axes
@@ -160,7 +186,7 @@ export const UnifiedDistributionViz: React.FC<UnifiedDistributionVizProps> = ({
       .append('text')
       .attr('x', innerWidth / 2)
       .attr('y', 40)
-      .attr('fill', 'currentColor')
+      .attr('fill', 'black')
       .style('text-anchor', 'middle')
       .style('font-size', '14px')
       .text(xLabel);
@@ -178,7 +204,7 @@ export const UnifiedDistributionViz: React.FC<UnifiedDistributionVizProps> = ({
         .attr('transform', 'rotate(-90)')
         .attr('y', -50)
         .attr('x', -innerHeight / 2)
-        .attr('fill', 'currentColor')
+        .attr('fill', 'black')
         .style('text-anchor', 'middle')
         .style('font-size', '14px')
         .text(yLabel);

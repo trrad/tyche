@@ -4,7 +4,8 @@ import {
   DistributionState, 
   DisplayConfig,
   ComparisonConfig,
-  ComparisonResult 
+  ComparisonResult,
+  BRAND_COLORS
 } from '../types';
 import { calculateKDE } from '../../utils/statistics';
 import { getVariantColor } from '../../base/colors';
@@ -22,9 +23,10 @@ export function renderDensityPlot(
     if (!('samples' in d) || !d.samples) return null;
     
     const kde = calculateKDE(d.samples, 100);
-    const color = 'color' in d ? d.color : getVariantColor(d.id, i);
-    const isBaseline = 'metadata' in d && d.metadata?.isBaseline;
     const isObserved = 'metadata' in d && d.metadata?.isObserved;
+    const color = 'color' in d ? d.color : 
+                  isObserved ? BRAND_COLORS.observed : getVariantColor(d.id, i);
+    const isBaseline = 'metadata' in d && d.metadata?.isBaseline;
     
     return {
       id: d.id,

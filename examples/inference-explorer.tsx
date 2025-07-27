@@ -18,8 +18,8 @@ import { TestScenarios } from '../src/tests/scenarios/TestScenarios';
 import { BusinessScenarios } from '../src/tests/utilities/synthetic/BusinessScenarios';
 
 // Visualization components - Updated to use unified system
-import { DiagnosticsPanel, AsyncPosteriorSummary } from '../src/ui/visualizations';
-import { UnifiedDistributionViz } from '../src/ui/visualizations/unified';
+import { DiagnosticsPanel, AsyncPosteriorSummary, AsyncPPCDiagnostics } from '../src/ui/visualizations';
+import { UnifiedDistributionViz, BRAND_COLORS } from '../src/ui/visualizations/unified';
 
 // Styles
 import './index.css';
@@ -711,28 +711,41 @@ function InferenceExplorer() {
                     id: 'observed',
                     label: 'Observed Data',
                     samples: visualizationData as number[],
-                    color: '#6b7280',
+                    color: BRAND_COLORS.observed,
                     metadata: { isObserved: true }
                   },
                   {
                     id: 'predictive',
                     label: 'Posterior Predictive',
                     posterior: inferenceResult.posterior,
-                    color: '#3b82f6'
+                    color: BRAND_COLORS.predicted
                   }
                 ]}
                 display={{
-                  mode: 'density',
+                  mode: 'mixed',  // Use mixed mode for PPC
                   showCI: true,
-                  ciLevels: [0.8],
-                  opacity: 0.7
+                  ciLevels: [0.8, 0.95],
+                  showGrid: true,
+                  binCount: Math.min(50, Math.max(15, Math.ceil((visualizationData as number[]).length / 3)))
                 }}
                 width={700}
                 height={400}
+                margin={{ top: 40, right: 150, bottom: 60, left: 60 }}
                 formatValue={formatValue}
-                title="Model Fit Assessment"
+                xLabel={getParameterLabel(modelType || selectedModel)}
+                title=""  // Clean look, no title
               />
             </VisualizationErrorBoundary>
+            
+            {/* PPC Diagnostics */}
+            <div className="mt-4 border-t pt-4">
+              <VisualizationErrorBoundary>
+                <AsyncPPCDiagnostics
+                  observedData={visualizationData as number[]}
+                  posterior={inferenceResult.posterior}
+                />
+              </VisualizationErrorBoundary>
+            </div>
           </div>
         )}
       </div>

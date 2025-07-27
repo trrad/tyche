@@ -27,12 +27,23 @@ export interface Distribution {
   };
 }
 
+// Brand colors for better visual design
+export const BRAND_COLORS = {
+  observed: '#FF6B6B',   // Coral red for observed data
+  predicted: '#9B59B6',  // Purple for predictions
+  primary: '#3b82f6',    // Blue
+  success: '#10b981',    // Green
+  warning: '#f59e0b',    // Amber
+  danger: '#ef4444',     // Red
+  info: '#8b5cf6'        // Violet
+};
+
 /**
  * Display configuration for the visualization
  */
 export interface DisplayConfig {
   // Visual representation
-  mode: 'density' | 'histogram' | 'ridge' | 'dots' | 'ecdf';
+  mode: 'density' | 'histogram' | 'ridge' | 'dots' | 'ecdf' | 'mixed';
   
   // Statistical elements to show
   showMean?: boolean;
@@ -45,6 +56,7 @@ export interface DisplayConfig {
   binCount?: number;           // For histograms
   bandwidth?: number;          // For KDE
   opacity?: number;            // Global opacity
+  showGrid?: boolean;          // Show grid lines
   
   // Ridge plot specific
   ridgeOverlap?: number;       // 0-1, how much ridges overlap

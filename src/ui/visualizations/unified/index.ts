@@ -17,6 +17,9 @@ export type {
   SegmentedDistributions
 } from './types';
 
+// Constants
+export { BRAND_COLORS } from './types';
+
 // Import Distribution type for internal use
 import type { Distribution } from './types';
 

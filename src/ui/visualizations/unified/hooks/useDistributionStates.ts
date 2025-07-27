@@ -71,6 +71,14 @@ export function useDistributionStates({
         
         // Generate samples
         let samples: number[];
+        
+        // Check if this is a compound posterior
+        const isCompound = dist.posterior && 
+                          typeof dist.posterior === 'object' &&
+                          'frequency' in dist.posterior && 
+                          'severity' in dist.posterior &&
+                          typeof dist.posterior.sample === 'function';
+        
         if (dist.posterior instanceof PosteriorProxy) {
           // Async posterior
           samples = await dist.posterior.sample(effectiveNSamples);
@@ -84,7 +92,19 @@ export function useDistributionStates({
             
             const batch = Math.min(batchSize, effectiveNSamples - i);
             for (let j = 0; j < batch; j++) {
-              samples.push(dist.posterior.sample()[0]);
+              const sampleResult = dist.posterior.sample();
+              
+              // Handle compound posteriors that return [convRate, value, revenue]
+              if (isCompound && Array.isArray(sampleResult) && sampleResult.length === 3) {
+                // For compound posteriors showing revenue, use the 3rd element
+                samples.push(sampleResult[2]);
+              } else if (Array.isArray(sampleResult)) {
+                // Regular posteriors return array with single element
+                samples.push(sampleResult[0]);
+              } else {
+                // Fallback for any other format
+                samples.push(sampleResult);
+              }
             }
             
             // Update progress

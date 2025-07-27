@@ -4,7 +4,8 @@ import {
   DistributionState, 
   DisplayConfig,
   ComparisonConfig,
-  ComparisonResult 
+  ComparisonResult,
+  BRAND_COLORS
 } from '../types';
 import { calculateHistogram } from '../../utils/statistics';
 import { getVariantColor } from '../../base/colors';
@@ -37,12 +38,14 @@ export function renderHistogramPlot(
     }));
     
     const color = 'color' in d ? d.color : getVariantColor(d.id, i);
+    const isObserved = 'metadata' in d && d.metadata?.isObserved;
     
     return {
       id: d.id,
       label: d.label,
       bins: densityBins,
       color,
+      isObserved,
       stats: 'stats' in d ? d.stats : null
     };
   }).filter((d): d is NonNullable<typeof d> => d !== null);
@@ -62,19 +65,37 @@ export function renderHistogramPlot(
     const g = container.append('g')
       .attr('class', `histogram histogram-${d.id}`);
     
-    g.selectAll('.bar')
-      .data(d.bins)
-      .enter()
-      .append('rect')
-      .attr('class', 'bar')
-      .attr('x', bin => xScale(bin.x0!) + i * barWidth)
-      .attr('width', barWidth * 0.9)
-      .attr('y', bin => yScale(bin.density))
-      .attr('height', bin => height - yScale(bin.density))
-      .attr('fill', d.color || '#3b82f6')
-      .attr('opacity', 0.7)
-      .attr('stroke', d.color || '#3b82f6')
-      .attr('stroke-width', 0.5);
+    // Special styling for observed data (with gaps)
+    if (d.isObserved) {
+      g.selectAll('.bar')
+        .data(d.bins)
+        .enter()
+        .append('rect')
+        .attr('class', 'bar')
+        .attr('x', (bin: any) => xScale(bin.x0!) + 1) // 1px gap on left
+        .attr('width', (bin: any) => Math.max(0, xScale(bin.x1!) - xScale(bin.x0!) - 2)) // 2px total gap
+        .attr('y', (bin: any) => yScale(bin.density))
+        .attr('height', (bin: any) => height - yScale(bin.density))
+        .attr('fill', d.color || BRAND_COLORS.observed)
+        .attr('opacity', 0.7)
+        .attr('stroke', d.color || BRAND_COLORS.observed)
+        .attr('stroke-width', 0.5);
+    } else {
+      // Regular histogram without gaps
+      g.selectAll('.bar')
+        .data(d.bins)
+        .enter()
+        .append('rect')
+        .attr('class', 'bar')
+        .attr('x', (bin: any) => xScale(bin.x0!))
+        .attr('width', (bin: any) => xScale(bin.x1!) - xScale(bin.x0!))
+        .attr('y', (bin: any) => yScale(bin.density))
+        .attr('height', (bin: any) => height - yScale(bin.density))
+        .attr('fill', d.color || '#3b82f6')
+        .attr('opacity', 0.5)
+        .attr('stroke', d.color || '#3b82f6')
+        .attr('stroke-width', 0.5);
+    }
     
     // Add mean line
     if (display.showMean && d.stats && 'mean' in d.stats) {
