@@ -1,12 +1,14 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import * as d3 from 'd3';
 import { Posterior } from '../../inference/base/types';
 import { PosteriorProxy } from '../../workers/PosteriorProxy';
+import { AsyncBaseVisualization } from './base/AsyncBaseVisualization';
 
 interface AsyncPPCVisualizerProps {
   observedData: number[];
   posterior: Posterior | PosteriorProxy;
   nSamples?: number;
+  nCISamples?: number;
   showCI?: boolean;
   ciLevels?: number[];
   width?: number;
@@ -22,12 +24,42 @@ interface AsyncPPCVisualizerProps {
   };
 }
 
-type VisualizationState = 'idle' | 'loading' | 'ready' | 'error';
+export const AsyncPPCVisualizer: React.FC<AsyncPPCVisualizerProps> = (props) => {
+  return (
+    <AsyncBaseVisualization
+      posterior={props.posterior}
+      nSamples={props.nSamples || 5000}
+      loadingComponent={
+        <div className="flex items-center justify-center" style={{ width: props.width, height: props.height }}>
+          <div className="text-gray-600">Generating posterior samples...</div>
+        </div>
+      }
+      errorComponent={(error) => (
+        <div className="flex items-center justify-center" style={{ width: props.width, height: props.height }}>
+          <div className="text-red-600">Error: {error}</div>
+        </div>
+      )}
+    >
+      {({ samples }) => (
+        <PPCVisualizerCore {...props} posteriorSamples={samples!} />
+      )}
+    </AsyncBaseVisualization>
+  );
+};
 
-export const AsyncPPCVisualizer: React.FC<AsyncPPCVisualizerProps> = ({
+// Core visualization component with all the D3 logic from original
+interface PPCVisualizerCoreProps extends AsyncPPCVisualizerProps {
+  posteriorSamples: number[];
+}
+
+type DensityData = 
+  | { type: 'simple'; data: Array<{ x: number; density: number }> }
+  | { type: 'bands'; data: Array<{ x: number; median: number; ci80_lower?: number; ci80_upper?: number; ci95_lower?: number; ci95_upper?: number }> };
+
+const PPCVisualizerCore: React.FC<PPCVisualizerCoreProps> = ({
   observedData,
-  posterior,
-  nSamples = 5000,
+  posteriorSamples,
+  nCISamples = 100,
   showCI = true,
   ciLevels = [0.8, 0.95],
   width = 800,
@@ -43,79 +75,84 @@ export const AsyncPPCVisualizer: React.FC<AsyncPPCVisualizerProps> = ({
   }
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [state, setState] = useState<VisualizationState>('idle');
-  const [posteriorSamples, setPosteriorSamples] = useState<number[] | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  
-  const previousPosteriorRef = useRef<any>(null);
-  const generationIdRef = useRef(0);
-  
-  // Generate posterior samples
-  useEffect(() => {
-    if (posterior === previousPosteriorRef.current) {
-      return;
+
+  // Compute density with uncertainty bands - EXACT COPY FROM ORIGINAL
+  const densityData = useMemo(() => {
+    if (posteriorSamples.length === 0) return null;
+    
+    // Determine x-range from both observed and predicted
+    const allData = [...observedData, ...posteriorSamples];
+    const xMin = Math.min(...allData);
+    const xMax = Math.max(...allData);
+    const range = xMax - xMin;
+    
+    // Create evaluation points
+    const nPoints = 150;
+    const xValues: number[] = [];
+    for (let i = 0; i <= nPoints; i++) {
+      xValues.push(xMin - range * 0.1 + (range * 1.2) * i / nPoints);
     }
     
-    previousPosteriorRef.current = posterior;
-    
-    if (!posterior) {
-      setState('idle');
-      return;
-    }
-    
-    const newGenerationId = ++generationIdRef.current;
-    
-    Promise.resolve().then(async () => {
-      setState('loading');
-      setProgress(0);
-      
-      try {
-        let samples: number[];
+    if (showCI) {
+      // Compute density bands with uncertainty
+      const densityBands = xValues.map(x => {
+        const densities: number[] = [];
         
-        if (posterior instanceof PosteriorProxy || (posterior as any).sample.constructor.name === 'AsyncFunction') {
-          // Async posterior - use batched sampling for large counts
-          samples = [];
-          const batchSize = 1000;
-          const batches = Math.ceil(nSamples / batchSize);
+        // Generate multiple density estimates to capture uncertainty
+        for (let i = 0; i < nCISamples; i++) {
+          // Bootstrap resampling since we can't draw fresh samples synchronously
+          const bootstrapSamples: number[] = [];
+          const sampleSize = Math.min(1000, posteriorSamples.length);
+          for (let j = 0; j < sampleSize; j++) {
+            const idx = Math.floor(Math.random() * posteriorSamples.length);
+            bootstrapSamples.push(posteriorSamples[idx]);
+          }
           
-          for (let i = 0; i < batches; i++) {
-            if (newGenerationId !== generationIdRef.current) return;
-            
-            const currentBatchSize = Math.min(batchSize, nSamples - i * batchSize);
-            const batch = await posterior.sample(currentBatchSize);
-            samples.push(...(Array.isArray(batch) ? batch : [batch]));
-            
-            setProgress(((i + 1) / batches) * 100);
+          // Compute KDE at this point
+          const bandwidth = computeBandwidth(bootstrapSamples);
+          let density = 0;
+          for (const xi of bootstrapSamples) {
+            const z = (x - xi) / bandwidth;
+            density += Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
           }
-        } else {
-          // Sync posterior - fallback
-          samples = [];
-          for (let i = 0; i < nSamples; i++) {
-            samples.push(posterior.sample()[0]);
-            if (i % 100 === 0) {
-              setProgress((i / nSamples) * 100);
-            }
-          }
+          density /= (bootstrapSamples.length * bandwidth);
+          densities.push(density);
         }
         
-        if (newGenerationId === generationIdRef.current) {
-          setPosteriorSamples(samples);
-          setState('ready');
+        // Sort to get quantiles
+        densities.sort((a, b) => a - b);
+        
+        // Extract CI bounds
+        const result: any = { x, median: densities[Math.floor(densities.length / 2)] };
+        ciLevels.forEach(level => {
+          const alpha = (1 - level) / 2;
+          result[`ci${level * 100}_lower`] = densities[Math.floor(alpha * densities.length)];
+          result[`ci${level * 100}_upper`] = densities[Math.floor((1 - alpha) * densities.length)];
+        });
+        
+        return result;
+      });
+      
+      return { type: 'bands' as const, data: densityBands };
+    } else {
+      // Simple KDE without CI
+      const bandwidth = computeBandwidth(posteriorSamples);
+      const density = xValues.map(x => {
+        let d = 0;
+        for (const xi of posteriorSamples) {
+          const z = (x - xi) / bandwidth;
+          d += Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
         }
-      } catch (err) {
-        if (newGenerationId === generationIdRef.current) {
-          console.error('Failed to generate samples:', err);
-          setError(err instanceof Error ? err.message : 'Unknown error');
-          setState('error');
-        }
-      }
-    });
-  }, [posterior, nSamples]);
-  
-  // Visualization rendering effect
+        return { x, density: d / (posteriorSamples.length * bandwidth) };
+      });
+      
+      return { type: 'simple' as const, data: density };
+    }
+  }, [observedData, posteriorSamples, showCI, ciLevels, nCISamples]);
+
+  // Main visualization - EXACT COPY FROM ORIGINAL PPCVisualizer
   useEffect(() => {
-    if (state !== 'ready' || !posteriorSamples || !svgRef.current) return;
+    if (!svgRef.current || !densityData) return;
     
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
@@ -123,163 +160,208 @@ export const AsyncPPCVisualizer: React.FC<AsyncPPCVisualizerProps> = ({
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
     
-    // Create scales
-    const xScale = d3.scaleLinear()
-      .domain([0, Math.max(...observedData, ...posteriorSamples)])
-      .range([0, innerWidth]);
-    
-    const yScale = d3.scaleLinear()
-      .domain([0, 1])
-      .range([innerHeight, 0]);
-    
-    // Create histogram for observed data
-    const histogram = d3.histogram<number, number>()
-      .domain(xScale.domain() as [number, number])
-      .thresholds(xScale.ticks(20));
-    
-    const observedHistogram = histogram(observedData);
-    const maxObservedCount = d3.max(observedHistogram, d => d?.length || 0) || 0;
-    
-    // Create histogram for posterior samples
-    const posteriorHistogram = histogram(posteriorSamples);
-    const maxPosteriorCount = d3.max(posteriorHistogram, d => d?.length || 0) || 0;
-    const maxCount = Math.max(maxObservedCount, maxPosteriorCount);
-    
-    // Normalize counts to [0, 1]
-    const normalizedObserved = observedHistogram.map(d => ({
-      x0: d.x0,
-      x1: d.x1,
-      length: d.length,
-      normalizedCount: (d?.length || 0) / maxCount
-    }));
-    
-    const normalizedPosterior = posteriorHistogram.map(d => ({
-      x0: d.x0,
-      x1: d.x1,
-      length: d.length,
-      normalizedCount: (d?.length || 0) / maxCount
-    }));
-    
-    // Create groups
-    const g = svg.append('g')
+    const g = svg
+      .append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`);
     
-    // Add axes
-    const xAxis = d3.axisBottom(xScale);
-    const yAxis = d3.axisLeft(yScale);
+    // Compute scales
+    const allData = [...observedData, ...posteriorSamples];
+    const xExtent = d3.extent(allData) as [number, number];
+    const xPadding = (xExtent[1] - xExtent[0]) * 0.1;
     
-    g.append('g')
+    const x = d3.scaleLinear()
+      .domain([xExtent[0] - xPadding, xExtent[1] + xPadding])
+      .range([0, innerWidth]);
+    
+    // Create histogram for observed data with better binning logic
+    const numBins = Math.min(50, Math.max(15, Math.ceil(observedData.length / 3)));
+    
+    // Use observed data range for histogram
+    const observedExtent = d3.extent(observedData) as [number, number];
+    
+    const bins = d3.histogram()
+      .domain(observedExtent)
+      .thresholds(numBins)(observedData);
+    
+    // Compute y-scale for density and histogram
+    let maxDensity = 0;
+    if (densityData.type === 'bands') {
+      maxDensity = d3.max(densityData.data, d => 
+        Math.max(d.median, d.ci80_upper || 0, d.ci95_upper || 0)
+      ) || 0;
+    } else {
+      maxDensity = d3.max(densityData.data, d => d.density) || 0;
+    }
+    
+    // Scale histogram to match density scale
+    const maxHistogramDensity = d3.max(bins, (d: any) => 
+      d.length / (observedData.length * (d.x1! - d.x0!))
+    ) || 0;
+    const scaleFactor = maxDensity / maxHistogramDensity;
+    
+    const y = d3.scaleLinear()
+      .domain([0, maxDensity * 1.1])
+      .range([innerHeight, 0]);
+    
+    // Add x-axis
+    const xAxis = g.append('g')
       .attr('transform', `translate(0,${innerHeight})`)
-      .call(xAxis);
+      .call(d3.axisBottom(x).tickFormat(d => formatValue(d as number)));
     
-    g.append('g')
-      .call(yAxis);
-    
-    // Add axis labels
-    g.append('text')
+    xAxis.append('text')
       .attr('x', innerWidth / 2)
-      .attr('y', innerHeight + margin.bottom - 10)
-      .attr('text-anchor', 'middle')
+      .attr('y', 40)
+      .attr('fill', 'black')
+      .style('text-anchor', 'middle')
+      .style('font-size', '14px')
       .text(xLabel);
     
-    g.append('text')
+    // Add y-axis
+    g.append('g')
+      .call(d3.axisLeft(y).tickFormat(d => d3.format('.3f')(d as number)))
+      .append('text')
       .attr('transform', 'rotate(-90)')
+      .attr('y', -40)
       .attr('x', -innerHeight / 2)
-      .attr('y', -margin.left + 20)
-      .attr('text-anchor', 'middle')
+      .attr('fill', 'black')
+      .style('text-anchor', 'middle')
+      .style('font-size', '14px')
       .text('Density');
     
-    // Draw posterior histogram
-    g.selectAll('.posterior-bar')
-      .data(normalizedPosterior)
-      .enter()
-      .append('rect')
-      .attr('class', 'posterior-bar')
-      .attr('x', d => xScale(d.x0 || 0))
-      .attr('y', d => yScale(d.normalizedCount))
-      .attr('width', d => xScale(d.x1 || 0) - xScale(d.x0 || 0))
-      .attr('height', d => innerHeight - yScale(d.normalizedCount))
-      .attr('fill', colors.predicted)
-      .attr('opacity', 0.3);
+    // Add grid lines
+    g.append('g')
+      .attr('class', 'grid')
+      .attr('transform', `translate(0,${innerHeight})`)
+      .call(d3.axisBottom(x).tickSize(-innerHeight).tickFormat(() => ''))
+      .style('stroke-dasharray', '3,3')
+      .style('opacity', 0.3);
     
-    // Draw observed data as points
-    g.selectAll('.observed-point')
-      .data(observedData)
-      .enter()
-      .append('circle')
-      .attr('class', 'observed-point')
-      .attr('cx', d => xScale(d))
-      .attr('cy', innerHeight + 10)
-      .attr('r', 3)
-      .attr('fill', colors.observed);
+    g.append('g')
+      .attr('class', 'grid')
+      .call(d3.axisLeft(y).tickSize(-innerWidth).tickFormat(() => ''))
+      .style('stroke-dasharray', '3,3')
+      .style('opacity', 0.3);
     
-    // Add confidence intervals if requested
-    if (showCI && posteriorSamples) {
-      const sorted = [...posteriorSamples].sort((a, b) => a - b);
-      const q25 = d3.quantile(sorted, 0.25) || 0;
-      const q75 = d3.quantile(sorted, 0.75) || 0;
-      const mean = d3.mean(sorted) || 0;
+    // Draw density visualization
+    if (densityData.type === 'bands') {
+      // Draw CI bands
+      ciLevels.slice().reverse().forEach((level, i) => {
+        const area = d3.area<any>()
+          .x(d => x(d.x))
+          .y0(d => y(d[`ci${level * 100}_lower`]))
+          .y1(d => y(d[`ci${level * 100}_upper`]))
+          .curve(d3.curveMonotoneX);
+        
+        g.append('path')
+          .datum(densityData.data)
+          .attr('fill', i === 0 ? colors.ci95 : colors.ci80)
+          .attr('opacity', i === 0 ? 0.2 : 0.3)
+          .attr('d', area);
+      });
       
-      // 80% CI
-      g.append('rect')
-        .attr('x', xScale(q25))
-        .attr('y', 0)
-        .attr('width', xScale(q75) - xScale(q25))
-        .attr('height', innerHeight)
-        .attr('fill', colors.ci80)
-        .attr('opacity', 0.1);
+      // Draw median line
+      const medianLine = d3.line<any>()
+        .x(d => x(d.x))
+        .y(d => y(d.median))
+        .curve(d3.curveMonotoneX);
       
-      // 95% CI
-      g.append('rect')
-        .attr('x', xScale(q25 - (q75 - q25) * 0.025)) // Adjust for 95% CI
-        .attr('y', 0)
-        .attr('width', xScale(q75 + (q75 - q25) * 0.025) - xScale(q25 - (q75 - q25) * 0.025)) // Adjust for 95% CI
-        .attr('height', innerHeight)
-        .attr('fill', colors.ci95)
-        .attr('opacity', 0.05);
-      
-      // Add mean line
-      g.append('line')
-        .attr('x1', xScale(mean))
-        .attr('x2', xScale(mean))
-        .attr('y1', 0)
-        .attr('y2', innerHeight)
+      g.append('path')
+        .datum(densityData.data)
+        .attr('fill', 'none')
         .attr('stroke', colors.predicted)
-        .attr('stroke-width', 2)
-        .attr('stroke-dasharray', '5,5');
+        .attr('stroke-width', 3)
+        .attr('d', medianLine);
+    } else {
+      // Simple density line
+      const line = d3.line<any>()
+        .x(d => x(d.x))
+        .y(d => y(d.density))
+        .curve(d3.curveMonotoneX);
+      
+      g.append('path')
+        .datum(densityData.data)
+        .attr('fill', 'none')
+        .attr('stroke', colors.predicted)
+        .attr('stroke-width', 3)
+        .attr('d', line);
     }
-  }, [state, posteriorSamples, observedData, showCI, ciLevels, width, height, margin, formatValue, xLabel, colors]);
-  
-  // Render based on state
-  switch (state) {
-    case 'idle':
-      return (
-        <div style={{ width, height }} className="flex items-center justify-center text-gray-500">
-          Waiting for posterior...
-        </div>
+    
+    // Draw observed data histogram with visual separation
+    g.selectAll('.bar')
+      .data(bins)
+      .enter().append('rect')
+      .attr('class', 'bar')
+      .attr('x', d => x(d.x0!) + 1)
+      .attr('width', d => Math.max(0, x(d.x1!) - x(d.x0!) - 2))
+      .attr('y', d => y((d.length / (observedData.length * (d.x1! - d.x0!))) * scaleFactor))
+      .attr('height', d => innerHeight - y((d.length / (observedData.length * (d.x1! - d.x0!))) * scaleFactor))
+      .attr('fill', colors.observed)
+      .attr('opacity', 0.7)
+      .attr('stroke', colors.observed)
+      .attr('stroke-width', 0.5);
+    
+    // Add legend
+    const legend = g.append('g')
+      .attr('transform', `translate(${innerWidth - 150}, 0)`);
+    
+    const legendItems: Array<{
+      label: string;
+      color: string;
+      opacity: number;
+      type: 'rect' | 'line' | 'area';
+    }> = [
+      { label: 'Observed Data', color: colors.observed, opacity: 0.7, type: 'rect' },
+      { label: 'Posterior Predictive', color: colors.predicted, opacity: 1, type: 'line' }
+    ];
+    
+    if (showCI) {
+      legendItems.push(
+        { label: '80% CI', color: colors.ci80, opacity: 0.3, type: 'area' },
+        { label: '95% CI', color: colors.ci95, opacity: 0.2, type: 'area' }
       );
+    }
+    
+    legendItems.forEach((item, i) => {
+      const legendRow = legend.append('g')
+        .attr('transform', `translate(0, ${i * 20})`);
       
-    case 'loading':
-      return (
-        <div style={{ width, height }} className="flex flex-col items-center justify-center">
-          <div className="text-gray-600 mb-2">Generating posterior predictive samples...</div>
-          <div className="w-64 bg-gray-200 rounded-full h-2">
-            <div 
-              className="bg-purple-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
-      );
+      if (item.type === 'rect') {
+        legendRow.append('rect')
+          .attr('width', 15)
+          .attr('height', 15)
+          .attr('fill', item.color)
+          .attr('opacity', item.opacity);
+      } else if (item.type === 'line') {
+        legendRow.append('line')
+          .attr('x1', 0)
+          .attr('x2', 15)
+          .attr('y1', 7.5)
+          .attr('y2', 7.5)
+          .attr('stroke', item.color)
+          .attr('stroke-width', 3)
+          .attr('opacity', item.opacity);
+      } else {
+        legendRow.append('rect')
+          .attr('width', 15)
+          .attr('height', 15)
+          .attr('fill', item.color)
+          .attr('opacity', item.opacity);
+      }
       
-    case 'error':
-      return (
-        <div style={{ width, height }} className="flex items-center justify-center text-red-600">
-          Error: {error}
-        </div>
-      );
-      
-    case 'ready':
-      return <svg ref={svgRef} width={width} height={height} />;
-  }
-}; 
+      legendRow.append('text')
+        .attr('x', 20)
+        .attr('y', 12)
+        .style('font-size', '12px')
+        .text(item.label);
+    });
+    
+  }, [observedData, posteriorSamples, densityData, showCI, ciLevels, width, height, margin, formatValue, xLabel, colors]);
+
+  return <svg ref={svgRef} width={width} height={height} />;
+};
+
+// Helper function - EXACT COPY FROM ORIGINAL
+function computeBandwidth(data: number[]): number {
+  const std = d3.deviation(data) || 1;
+  return 1.06 * std * Math.pow(data.length, -0.2);
+} 

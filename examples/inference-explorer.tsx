@@ -18,7 +18,7 @@ import { TestScenarios } from '../src/tests/scenarios/TestScenarios';
 import { BusinessScenarios } from '../src/tests/utilities/synthetic/BusinessScenarios';
 
 // Visualization components
-import { PPCVisualizer, DiagnosticsPanel, PosteriorSummary, UnifiedPPCDisplay } from '../src/ui/visualizations';
+import { PPCVisualizer, DiagnosticsPanel, AsyncPosteriorSummary, UnifiedPPCDisplay } from '../src/ui/visualizations';
 import { AsyncViolinPlot } from '../src/ui/visualizations/AsyncViolinPlot';
 
 // Styles
@@ -557,7 +557,7 @@ function InferenceExplorer() {
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Posterior Summary</h3>
           <VisualizationErrorBoundary>
-            <PosteriorSummary 
+            <AsyncPosteriorSummary 
               posterior={inferenceResult.posterior} 
               modelType={inferenceResult.diagnostics.modelType || selectedModel}
             />

@@ -12,22 +12,35 @@ export type { ComparisonPlotProps } from './ComparisonPlot';
 export { SafeDistributionPlot } from './SafeDistributionPlot';
 export { SafeUpliftGraph } from './SafeUpliftGraph';
 
-// Inference visualization components
+// Sync inference visualization components (legacy)
 export { PPCVisualizer } from './PPCVisualizer';
 export { PPCDiagnostics } from './PPCDiagnostics';
-export { UnifiedPPCDisplay } from './UnifiedPPCDisplay';
 export { ParameterSpaceVisualizer } from './ParameterSpaceVisualizer';
-export { UnifiedParameterSpaceDisplay } from './UnifiedParameterSpaceDisplay';
 export { DiagnosticsPanel } from './DiagnosticsPanel';
 export { PosteriorSummary } from './PosteriorSummary';
 
-// Async visualization components
+// Async visualization components (recommended)
 export { AsyncViolinPlot } from './AsyncViolinPlot';
 export { AsyncPPCVisualizer } from './AsyncPPCVisualizer';
 export { AsyncPPCDiagnostics } from './AsyncPPCDiagnostics';
+export { AsyncPosteriorSummary } from './AsyncPosteriorSummary';
+// export { AsyncParameterSpaceVisualizer } from './AsyncParameterSpaceVisualizer'; // When implemented
 
-// NEW: Violin plot and base utilities
+// Unified displays (use async components internally)
+export { UnifiedPPCDisplay } from './UnifiedPPCDisplay';
+export { UnifiedParameterSpaceDisplay } from './UnifiedParameterSpaceDisplay';
+
+// Base visualization utilities
 export * from './base';
+export { useAsyncPosterior, usePosteriorStats } from './base/useAsyncPosterior';
+export type { AsyncPosteriorState, UseAsyncPosteriorOptions } from './base/useAsyncPosterior';
+export { AsyncBaseVisualization, withAsyncPosterior } from './base/AsyncBaseVisualization';
+export type { AsyncVisualizationProps } from './base/AsyncBaseVisualization';
+
+// Violin plot and utilities
 export { ViolinPlot } from './ViolinPlot';
 export type { ViolinPlotProps, ViolinPlotSpec, ViolinData } from './ViolinPlot';
 export { SimpleViolinPlot } from './SimpleViolinExample';
+
+// Utility functions
+export * from './utils/statistics';
