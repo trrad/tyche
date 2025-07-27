@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useTransition } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { ViolinPlot, ViolinPlotSpec, ViolinData } from './ViolinPlot';
 import { getVariantColor } from './base/colors';
 import { calculateKDE, calculateViolinStats } from './utils/statistics';
@@ -6,15 +6,14 @@ import { PosteriorProxy } from '../../workers/PosteriorProxy';
 
 interface AsyncViolinPlotProps {
   data: any;
-  posteriors: Map<string, any> | Record<string, any>;
+  posteriors: Map<string, any> | Record<string, any> | null;
   modelType: string;
   width?: number;
   height?: number;
 }
 
-/**
- * Async-compatible violin plot that works with PosteriorProxy
- */
+type PlotState = 'idle' | 'loading' | 'ready' | 'error';
+
 export const AsyncViolinPlot: React.FC<AsyncViolinPlotProps> = ({
   data,
   posteriors,
@@ -22,162 +21,215 @@ export const AsyncViolinPlot: React.FC<AsyncViolinPlotProps> = ({
   width = 800,
   height = 400
 }) => {
+  const [state, setState] = useState<PlotState>('idle');
   const [plotSpec, setPlotSpec] = useState<ViolinPlotSpec | null>(null);
-  const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
-  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   
-  useEffect(() => {
-    let cancelled = false;
+  // Use a generation ID to handle rapid updates
+  const generationIdRef = useRef(0);
+  
+  // Store previous posteriors to detect changes
+  const previousPosteriorsRef = useRef<any>(null);
+  
+  const generatePlotData = useCallback(async (currentGenerationId: number) => {
+    console.log('🟢 [I] Starting plot generation', { generationId: currentGenerationId });
     
-    const generatePlotData = async () => {
-      setLoading(true);
-      setProgress(0);
+    if (!posteriors || Object.keys(posteriors).length === 0) {
+      console.log('No posteriors to plot');
+      setState('idle');
+      return;
+    }
+    
+    setState('loading');
+    setProgress(0);
+    setError(null);
+    
+    try {
+      const violins: ViolinData[] = [];
+      let index = 0;
       
-      try {
-        const violins: ViolinData[] = [];
-        let index = 0;
+      // Handle both Map and Record types
+      const entries = posteriors instanceof Map 
+        ? Array.from(posteriors.entries())
+        : Object.entries(posteriors);
+      
+      for (const [variantId, posterior] of entries) {
+        // Check if this generation was cancelled
+        if (currentGenerationId !== generationIdRef.current) {
+          console.log('Generation cancelled', currentGenerationId);
+          return;
+        }
         
-        // Handle both Map and Record types, plus single posterior case
-        let entries: [string, any][];
+        const variantName = variantId.charAt(0).toUpperCase() + variantId.slice(1);
         
-        if (posteriors instanceof Map) {
-          entries = Array.from(posteriors.entries());
-        } else if (typeof posteriors === 'object' && posteriors !== null) {
-          // Check if this is a single posterior case (has 'result' key)
-          if ('result' in posteriors) {
-            entries = [['Posterior', posteriors.result]];
-          } else {
-            entries = Object.entries(posteriors);
-          }
+        // Direct sampling from PosteriorProxy
+        let samples: number[];
+        
+        if (posterior instanceof PosteriorProxy || posterior.sample) {
+          // For async posteriors, use the sample method
+          const sampleResult = await posterior.sample(1000);
+          // Handle both array return and single value return
+          samples = Array.isArray(sampleResult) ? sampleResult : Array(1000).fill(0).map(() => sampleResult);
         } else {
-          entries = [];
+          // Fallback for any legacy sync posteriors
+          samples = [];
+          for (let i = 0; i < 1000; i++) {
+            samples.push(posterior.sample()[0]);
+          }
         }
         
-        // Process each posterior
-        for (const [variantId, posterior] of entries) {
-          if (cancelled) break;
-          
-          const variantName = variantId.charAt(0).toUpperCase() + variantId.slice(1);
-          
-          // Generate samples directly from posterior
-          let samples: number[];
-          if (posterior instanceof PosteriorProxy) {
-            // Async proxy - use batching
-            samples = await posterior.sample(1000);
-          } else {
-            // Sync posterior - generate all at once
-            samples = posterior.sample(1000);
-          }
-          
-          // Update progress
-          if (!cancelled) {
-            const variantProgress = (index + 1) / entries.length;
-            setProgress(variantProgress * 100);
-          }
-          
-          // Calculate density
-          const densityPoints = calculateKDE(samples, 50);
-          
-          // Calculate statistics
-          const statistics = calculateViolinStats(samples);
-          
-          violins.push({
-            variantId,
-            variantName,
-            densityPoints,
-            statistics,
-            visual: {
-              color: getVariantColor(variantId, index),
-              isBaseline: variantId === 'control' || variantId === 'baseline'
-            }
-          });
-          
-          index++;
+        // Update progress
+        if (currentGenerationId === generationIdRef.current) {
+          const variantProgress = ((index + 1) / entries.length) * 100;
+          setProgress(variantProgress);
         }
         
-        if (!cancelled) {
-          // Determine parameter type and labels
-          let yLabel = 'Value';
-          let transform: 'linear' | 'log' | 'percentage' = 'linear';
-          
-          if (modelType.includes('beta') || modelType.includes('binomial')) {
-            yLabel = 'Conversion Rate';
-            transform = 'percentage';
-          } else if (modelType.includes('revenue') || modelType.includes('compound')) {
-            yLabel = 'Revenue per User';
-          } else if (modelType.includes('gamma') || modelType.includes('lognormal')) {
-            yLabel = 'Value';
+        console.log('🟢 [II] Generated samples for', variantId);
+        
+        const densityPoints = calculateKDE(samples, 50);
+        const statistics = calculateViolinStats(samples);
+        
+        violins.push({
+          variantId,
+          variantName,
+          densityPoints,
+          statistics,
+          visual: {
+            color: getVariantColor(variantId, index),
+            isBaseline: variantId === 'control' || variantId === 'baseline'
           }
-          
-          const finalSpec: ViolinPlotSpec = {
-            title: `${yLabel} Distribution`,
-            layout: 'grouped' as const,
-            violins,
-            axes: {
-              x: { label: 'Variant', type: 'categorical' },
-              y: { 
-                label: yLabel,
-                transform
-              }
-            },
-            visual: {
-              violinWidth: 0.7,
-              showBoxPlot: true,
-              showDataPoints: false,
-              showMean: true,
-              bandwidthMethod: 'scott',
-              kernelType: 'gaussian'
-            }
-          };
-          
-          console.log('AsyncViolinPlot: Setting plot spec:', finalSpec);
-          startTransition(() => {
-            setPlotSpec(finalSpec);
-            setLoading(false);
-          });
-        }
-      } catch (error) {
-        console.error('Failed to generate violin plot:', error);
-        if (!cancelled) {
-          setLoading(false);
-        }
+        });
+        
+        index++;
       }
-    };
-    
-    generatePlotData();
-    
-    return () => {
-      cancelled = true;
-    };
+      
+      // Only update if this is still the current generation
+      if (currentGenerationId === generationIdRef.current) {
+        let yLabel = 'Value';
+        let transform: 'linear' | 'log' | 'percentage' = 'linear';
+        
+        if (modelType.includes('beta') || modelType.includes('binomial')) {
+          yLabel = 'Conversion Rate';
+          transform = 'percentage';
+        } else if (modelType.includes('revenue') || modelType.includes('compound')) {
+          yLabel = 'Revenue per User';
+        }
+        
+        const spec: ViolinPlotSpec = {
+          title: `${yLabel} Distribution`,
+          layout: 'grouped',
+          violins,
+          axes: {
+            x: { label: 'Variant', type: 'categorical' },
+            y: { label: yLabel, transform }
+          },
+          visual: {
+            violinWidth: 0.7,
+            showBoxPlot: true,
+            showDataPoints: false,
+            showMean: true,
+            bandwidthMethod: 'scott',
+            kernelType: 'gaussian'
+          }
+        };
+        
+        console.log('🟢 [III] Setting plot spec');
+        setPlotSpec(spec);
+        setState('ready');
+      }
+    } catch (err) {
+      if (currentGenerationId === generationIdRef.current) {
+        console.error('Plot generation failed:', err);
+        setError(err instanceof Error ? err.message : 'Unknown error');
+        setState('error');
+      }
+    }
   }, [posteriors, modelType]);
   
-  console.log('AsyncViolinPlot render: loading=', loading, 'plotSpec=', plotSpec, 'isPending=', isPending);
+  // Main effect - trigger generation when posteriors change
+  useEffect(() => {
+    console.log('📍 Posteriors effect running', { 
+      hasPosteriors: !!posteriors,
+      posteriorsChanged: posteriors !== previousPosteriorsRef.current 
+    });
+    
+    // Check if posteriors actually changed
+    if (posteriors === previousPosteriorsRef.current) {
+      return;
+    }
+    
+    previousPosteriorsRef.current = posteriors;
+    
+    if (!posteriors) {
+      setState('idle');
+      return;
+    }
+    
+    // Increment generation ID to cancel any in-progress generations
+    const newGenerationId = ++generationIdRef.current;
+    
+    // Start generation immediately
+    // Using Promise.resolve() to ensure it runs after the current execution
+    Promise.resolve().then(() => {
+      generatePlotData(newGenerationId);
+    });
+  }, [posteriors, modelType, generatePlotData]);
   
-  if (loading || isPending) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <div className="text-gray-600 mb-2">Generating violin plot...</div>
-        <div className="w-64 bg-gray-200 rounded-full h-2">
-          <div 
-            className="bg-purple-600 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${progress}%` }}
-          />
+  // Render based on state
+  console.log('AsyncViolinPlot render:', { state, hasPlotSpec: !!plotSpec });
+  
+  switch (state) {
+    case 'idle':
+      return (
+        <div className="flex items-center justify-center h-64 text-gray-500">
+          Waiting for data...
         </div>
-      </div>
-    );
+      );
+      
+    case 'loading':
+      return (
+        <div className="flex flex-col items-center justify-center h-64">
+          <div className="text-gray-600 mb-2">Generating violin plot...</div>
+          <div className="w-64 bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <div className="text-sm text-gray-500 mt-1">
+            {Math.round(progress)}% complete
+          </div>
+        </div>
+      );
+      
+    case 'error':
+      return (
+        <div className="flex flex-col items-center justify-center h-64">
+          <div className="text-red-600 mb-2">Failed to generate plot</div>
+          <div className="text-sm text-gray-600">{error}</div>
+          <button
+            onClick={() => {
+              const newGenerationId = ++generationIdRef.current;
+              generatePlotData(newGenerationId);
+            }}
+            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            Retry
+          </button>
+        </div>
+      );
+      
+    case 'ready':
+      return plotSpec ? (
+        <ViolinPlot 
+          spec={plotSpec} 
+          width={width} 
+          height={height}
+          responsive={true}
+        />
+      ) : (
+        <div className="text-red-600">Invalid state: ready but no spec</div>
+      );
   }
-  
-  if (!plotSpec) {
-    return <div className="text-red-600">Failed to generate plot</div>;
-  }
-  
-  return (
-    <ViolinPlot 
-      spec={plotSpec} 
-      width={width} 
-      height={height}
-      responsive={true}
-    />
-  );
 }; 

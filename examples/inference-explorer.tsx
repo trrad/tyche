@@ -77,6 +77,11 @@ function InferenceExplorer() {
     setError(null);
   }, [selectedDataSource, selectedModel, dataSourceType]);
   
+  // Debug: Log when inferenceResult changes
+  useEffect(() => {
+    console.log('📍 InferenceResult changed');
+  }, [inferenceResult]);
+  
   // Initialize scenarios
   const businessScenarios = useMemo(() => new BusinessScenarios(Date.now()), []);
   
@@ -267,6 +272,34 @@ function InferenceExplorer() {
       return null;
     }
   }, [customData, customDataFormat]);
+  
+  // Memoize data and posteriors to prevent unnecessary re-renders
+  const visualizationData = useMemo(() => {
+    return generatedData || parseCustomData();
+  }, [generatedData, customData]);
+  
+  const posteriorData = useMemo(() => {
+    if (!inferenceResult?.posterior) return null;
+    return { result: inferenceResult.posterior };
+  }, [inferenceResult?.posterior]);
+  
+  const isCompound = useMemo(() => {
+    return inferenceResult?.posterior && 
+           'frequency' in inferenceResult.posterior && 
+           'severity' in inferenceResult.posterior;
+  }, [inferenceResult?.posterior]);
+  
+  const frequencyPosteriorData = useMemo(() => {
+    if (!isCompound || !inferenceResult?.posterior) return null;
+    const compoundPosterior = inferenceResult.posterior as any;
+    return { result: compoundPosterior.frequency };
+  }, [isCompound, inferenceResult?.posterior]);
+  
+  const severityPosteriorData = useMemo(() => {
+    if (!isCompound || !inferenceResult?.posterior) return null;
+    const compoundPosterior = inferenceResult.posterior as any;
+    return { result: compoundPosterior.severity };
+  }, [isCompound, inferenceResult?.posterior]);
   
   // Run inference
   const runInference = useCallback(async () => {
@@ -499,10 +532,6 @@ function InferenceExplorer() {
   const ResultsDisplay = () => {
     if (!inferenceResult) return null;
     
-    // Check if compound posterior
-    const isCompound = 'frequency' in inferenceResult.posterior && 
-                      'severity' in inferenceResult.posterior;
-    
     return (
       <div className="space-y-6">
         {/* Diagnostics */}
@@ -525,13 +554,13 @@ function InferenceExplorer() {
         </div>
         
         {/* Violin Plot for Simple Models */}
-        {!isCompound && (
+        {!isCompound && posteriorData && (
           <div className="bg-white p-6 rounded-lg shadow">
             <h3 className="text-lg font-semibold mb-4">Parameter Distribution</h3>
             <VisualizationErrorBoundary>
               <AsyncViolinPlot
-                data={generatedData || parseCustomData()}
-                posteriors={{ result: inferenceResult.posterior }}
+                data={visualizationData}
+                posteriors={posteriorData}
                 modelType={inferenceResult.diagnostics.modelType || selectedModel}
               />
             </VisualizationErrorBoundary>
@@ -539,14 +568,14 @@ function InferenceExplorer() {
         )}
         
         {/* Violin Plots for Compound Models */}
-        {isCompound && (
+        {isCompound && frequencyPosteriorData && severityPosteriorData && (
           <>
             <div className="bg-white p-6 rounded-lg shadow">
               <h3 className="text-lg font-semibold mb-4">Conversion Rate Distribution</h3>
               <VisualizationErrorBoundary>
                 <AsyncViolinPlot
-                  data={generatedData || parseCustomData()}
-                  posteriors={{ result: (inferenceResult.posterior as any).frequency }}
+                  data={visualizationData}
+                  posteriors={frequencyPosteriorData}
                   modelType="beta-binomial"
                 />
               </VisualizationErrorBoundary>
@@ -556,8 +585,8 @@ function InferenceExplorer() {
               <h3 className="text-lg font-semibold mb-4">Value Distribution (Converted Users)</h3>
               <VisualizationErrorBoundary>
                 <AsyncViolinPlot
-                  data={generatedData || parseCustomData()}
-                  posteriors={{ result: (inferenceResult.posterior as any).severity }}
+                  data={visualizationData}
+                  posteriors={severityPosteriorData}
                   modelType={selectedModel.includes('lognormal') ? 'lognormal' : 'gamma'}
                 />
               </VisualizationErrorBoundary>
@@ -568,7 +597,7 @@ function InferenceExplorer() {
         {/* PPC Visualization */}
         <VisualizationErrorBoundary>
           <UnifiedPPCDisplay
-            data={generatedData || parseCustomData()}
+            data={visualizationData}
             posterior={inferenceResult.posterior}
             modelType={inferenceResult.diagnostics.modelType || selectedModel}
             showDiagnostics={showDiagnostics}

@@ -3,6 +3,10 @@ import type { ModelType } from '../inference/InferenceEngine';
 import type { DataInput, CompoundDataInput, FitOptions, InferenceResult, FitProgress } from '../inference/base/types';
 import { PosteriorProxy, CompoundPosteriorProxy, PosteriorSummary } from '../workers/PosteriorProxy';
 
+// Import worker using Vite's worker syntax
+// @ts-ignore - Vite worker import
+import InferenceWorker from '../workers/inference.worker.ts?worker';
+
 export function useInferenceWorker() {
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState<FitProgress | null>(null);
@@ -15,10 +19,8 @@ export function useInferenceWorker() {
   // Initialize worker
   useEffect(() => {
     try {
-      workerRef.current = new Worker(
-        new URL('../workers/inference.worker.ts', import.meta.url),
-        { type: 'module' }
-      );
+      // Use Vite's worker import for better development compatibility
+      workerRef.current = new InferenceWorker();
       console.log('✅ Worker initialized successfully');
     } catch (err) {
       console.warn('❌ Worker initialization failed, will use main thread fallback:', err);
@@ -52,6 +54,7 @@ export function useInferenceWorker() {
     data: DataInput | CompoundDataInput,
     options?: FitOptions
   ): Promise<InferenceResult | null> => {
+    console.log('🔵 [1] runInference started');
     setIsRunning(true);
     setProgress(null);
     setError(null);
@@ -61,14 +64,13 @@ export function useInferenceWorker() {
 
     try {
       if (workerRef.current) {
-        console.log('🚀 Using worker for inference');
-        
+        console.log('🔵 [2] About to post message to worker');
         const result = await new Promise<InferenceResult>((resolve, reject) => {
           let timeoutId: number;
           
           const handleMessage = (event: MessageEvent) => {
             if (event.data.id !== requestId) return;
-
+            console.log('🔵 [4] handleMessage called with:', event.data.type);
             switch (event.data.type) {
               case 'progress':
                 setProgress(event.data.payload);
@@ -83,7 +85,7 @@ export function useInferenceWorker() {
                 
                 // Create appropriate proxy based on posterior type
                 let posterior: PosteriorProxy | CompoundPosteriorProxy;
-                
+                console.log('🔵 [5] Creating posterior proxies');
                 if (posteriorIds.type === 'compound') {
                   const freqProxy = new PosteriorProxy(
                     workerRef.current!,
@@ -109,7 +111,7 @@ export function useInferenceWorker() {
                   posteriorProxies.current.add(proxy);
                   posterior = proxy;
                 }
-                
+                console.log('🔵 [6] About to resolve promise');
                 resolve({ posterior: posterior as any, diagnostics });
                 break;
               }
@@ -129,7 +131,7 @@ export function useInferenceWorker() {
             type: 'fit',
             payload: { modelType, data, options }
           });
-
+          console.log('🔵 [3] Message posted to worker');
           // Timeout
           timeoutId = window.setTimeout(() => {
             workerRef.current?.removeEventListener('message', handleMessage);
@@ -154,6 +156,7 @@ export function useInferenceWorker() {
       }
     } catch (err: any) {
       setError(err.message);
+      setIsRunning(false);
       return null;
     } finally {
       setIsRunning(false);

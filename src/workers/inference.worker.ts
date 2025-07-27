@@ -26,11 +26,13 @@ type WorkerRequest =
   | { id: string; type: 'getStats'; payload: { posteriorId: string } };
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
+  console.log('🟡 [A] Worker received message');
   const { id, type, payload } = event.data;
 
   try {
     switch (type) {
       case 'fit': {
+        console.log('🟡 [B] Starting inference');
         const { modelType, data, options } = payload;
         
         // Run inference
@@ -46,7 +48,8 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         
         // Compute summary statistics for immediate use
         const summary = computePosteriorSummary(result.posterior);
-        
+        console.log('🟡 [C] Inference complete');
+        console.log('🟡 [D] About to send result');
         self.postMessage({ 
           id, 
           type: 'result', 

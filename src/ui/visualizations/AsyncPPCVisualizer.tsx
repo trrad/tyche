@@ -1,13 +1,12 @@
-import React, { useEffect, useState, useMemo, useRef, useTransition } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import * as d3 from 'd3';
 import { Posterior } from '../../inference/base/types';
 import { PosteriorProxy } from '../../workers/PosteriorProxy';
 
 interface AsyncPPCVisualizerProps {
   observedData: number[];
-  posterior: Posterior | any; // Allow PosteriorProxy
+  posterior: Posterior | PosteriorProxy;
   nSamples?: number;
-  nCISamples?: number;
   showCI?: boolean;
   ciLevels?: number[];
   width?: number;
@@ -23,11 +22,12 @@ interface AsyncPPCVisualizerProps {
   };
 }
 
+type VisualizationState = 'idle' | 'loading' | 'ready' | 'error';
+
 export const AsyncPPCVisualizer: React.FC<AsyncPPCVisualizerProps> = ({
   observedData,
   posterior,
   nSamples = 5000,
-  nCISamples = 100,
   showCI = true,
   ciLevels = [0.8, 0.95],
   width = 800,
@@ -43,77 +43,79 @@ export const AsyncPPCVisualizer: React.FC<AsyncPPCVisualizerProps> = ({
   }
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
+  const [state, setState] = useState<VisualizationState>('idle');
   const [posteriorSamples, setPosteriorSamples] = useState<number[] | null>(null);
-  const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
-  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  
+  const previousPosteriorRef = useRef<any>(null);
+  const generationIdRef = useRef(0);
   
   // Generate posterior samples
   useEffect(() => {
-    let cancelled = false;
+    if (posterior === previousPosteriorRef.current) {
+      return;
+    }
     
-    const generateSamples = async () => {
-      setLoading(true);
+    previousPosteriorRef.current = posterior;
+    
+    if (!posterior) {
+      setState('idle');
+      return;
+    }
+    
+    const newGenerationId = ++generationIdRef.current;
+    
+    Promise.resolve().then(async () => {
+      setState('loading');
       setProgress(0);
       
       try {
         let samples: number[];
-        if (posterior instanceof PosteriorProxy) {
-          // Async proxy - use batching
-          samples = await posterior.sample(nSamples);
+        
+        if (posterior instanceof PosteriorProxy || (posterior as any).sample.constructor.name === 'AsyncFunction') {
+          // Async posterior - use batched sampling for large counts
+          samples = [];
+          const batchSize = 1000;
+          const batches = Math.ceil(nSamples / batchSize);
+          
+          for (let i = 0; i < batches; i++) {
+            if (newGenerationId !== generationIdRef.current) return;
+            
+            const currentBatchSize = Math.min(batchSize, nSamples - i * batchSize);
+            const batch = await posterior.sample(currentBatchSize);
+            samples.push(...(Array.isArray(batch) ? batch : [batch]));
+            
+            setProgress(((i + 1) / batches) * 100);
+          }
         } else {
-          // Sync posterior - generate all at once
-          samples = posterior.sample(nSamples);
+          // Sync posterior - fallback
+          samples = [];
+          for (let i = 0; i < nSamples; i++) {
+            samples.push(posterior.sample()[0]);
+            if (i % 100 === 0) {
+              setProgress((i / nSamples) * 100);
+            }
+          }
         }
         
-        if (!cancelled) {
-          setProgress(100);
-          startTransition(() => {
-            setPosteriorSamples(samples);
-            setLoading(false);
-          });
+        if (newGenerationId === generationIdRef.current) {
+          setPosteriorSamples(samples);
+          setState('ready');
         }
-      } catch (error) {
-        console.error('AsyncPPCVisualizer: Failed to generate samples:', error);
-        if (!cancelled) {
-          setLoading(false);
+      } catch (err) {
+        if (newGenerationId === generationIdRef.current) {
+          console.error('Failed to generate samples:', err);
+          setError(err instanceof Error ? err.message : 'Unknown error');
+          setState('error');
         }
       }
-    };
-    
-    generateSamples();
-    
-    return () => {
-      cancelled = true;
-    };
+    });
   }, [posterior, nSamples]);
   
-  // Compute statistics when samples are ready
-  const stats = useMemo(() => {
-    if (!posteriorSamples) return null;
-    
-    const sorted = [...posteriorSamples].sort((a, b) => a - b);
-    const n = sorted.length;
-    
-    return {
-      mean: d3.mean(sorted) || 0,
-      median: d3.median(sorted) || 0,
-      q1: d3.quantile(sorted, 0.25) || 0,
-      q3: d3.quantile(sorted, 0.75) || 0,
-      ci80: [
-        d3.quantile(sorted, 0.1) || 0,
-        d3.quantile(sorted, 0.9) || 0
-      ],
-      ci95: [
-        d3.quantile(sorted, 0.025) || 0,
-        d3.quantile(sorted, 0.975) || 0
-      ]
-    };
-  }, [posteriorSamples]);
-  
-  // Render visualization
+  // Visualization rendering effect
   useEffect(() => {
-    if (!svgRef.current || !posteriorSamples || !stats) return;
+    if (state !== 'ready' || !posteriorSamples || !svgRef.current) return;
     
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
@@ -212,59 +214,72 @@ export const AsyncPPCVisualizer: React.FC<AsyncPPCVisualizerProps> = ({
       .attr('fill', colors.observed);
     
     // Add confidence intervals if requested
-    if (showCI && stats) {
+    if (showCI && posteriorSamples) {
+      const sorted = [...posteriorSamples].sort((a, b) => a - b);
+      const q25 = d3.quantile(sorted, 0.25) || 0;
+      const q75 = d3.quantile(sorted, 0.75) || 0;
+      const mean = d3.mean(sorted) || 0;
+      
       // 80% CI
       g.append('rect')
-        .attr('x', xScale(stats.ci80[0]))
+        .attr('x', xScale(q25))
         .attr('y', 0)
-        .attr('width', xScale(stats.ci80[1]) - xScale(stats.ci80[0]))
+        .attr('width', xScale(q75) - xScale(q25))
         .attr('height', innerHeight)
         .attr('fill', colors.ci80)
         .attr('opacity', 0.1);
       
       // 95% CI
       g.append('rect')
-        .attr('x', xScale(stats.ci95[0]))
+        .attr('x', xScale(q25 - (q75 - q25) * 0.025)) // Adjust for 95% CI
         .attr('y', 0)
-        .attr('width', xScale(stats.ci95[1]) - xScale(stats.ci95[0]))
+        .attr('width', xScale(q75 + (q75 - q25) * 0.025) - xScale(q25 - (q75 - q25) * 0.025)) // Adjust for 95% CI
         .attr('height', innerHeight)
         .attr('fill', colors.ci95)
         .attr('opacity', 0.05);
       
       // Add mean line
       g.append('line')
-        .attr('x1', xScale(stats.mean))
-        .attr('x2', xScale(stats.mean))
+        .attr('x1', xScale(mean))
+        .attr('x2', xScale(mean))
         .attr('y1', 0)
         .attr('y2', innerHeight)
         .attr('stroke', colors.predicted)
         .attr('stroke-width', 2)
         .attr('stroke-dasharray', '5,5');
     }
-    
-  }, [posteriorSamples, stats, observedData, width, height, margin, colors, showCI]);
+  }, [state, posteriorSamples, observedData, showCI, ciLevels, width, height, margin, formatValue, xLabel, colors]);
   
-  if (loading || isPending) {
-    return (
-      <div className="flex flex-col items-center justify-center" style={{ width, height }}>
-        <div className="text-gray-600 mb-2">Generating posterior predictive samples...</div>
-        <div className="w-64 bg-gray-200 rounded-full h-2">
-          <div 
-            className="bg-purple-600 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${progress}%` }}
-          />
+  // Render based on state
+  switch (state) {
+    case 'idle':
+      return (
+        <div style={{ width, height }} className="flex items-center justify-center text-gray-500">
+          Waiting for posterior...
         </div>
-      </div>
-    );
+      );
+      
+    case 'loading':
+      return (
+        <div style={{ width, height }} className="flex flex-col items-center justify-center">
+          <div className="text-gray-600 mb-2">Generating posterior predictive samples...</div>
+          <div className="w-64 bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      );
+      
+    case 'error':
+      return (
+        <div style={{ width, height }} className="flex items-center justify-center text-red-600">
+          Error: {error}
+        </div>
+      );
+      
+    case 'ready':
+      return <svg ref={svgRef} width={width} height={height} />;
   }
-  
-  if (!posteriorSamples) {
-    return <div className="text-red-600">Failed to generate samples</div>;
-  }
-  
-  return (
-    <svg ref={svgRef} width={width} height={height}>
-      {/* Visualization is rendered via D3 in useEffect */}
-    </svg>
-  );
 }; 
