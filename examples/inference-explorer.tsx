@@ -16,7 +16,7 @@ import { TestScenarios } from '../src/tests/scenarios/TestScenarios';
 import { BusinessScenarios } from '../src/tests/utilities/synthetic/BusinessScenarios';
 
 // Visualization components
-import { PPCVisualizer, DiagnosticsPanel, PosteriorSummary, UnifiedPPCDisplay } from '../src/ui/visualizations';
+import { PPCVisualizer, DiagnosticsPanel, PosteriorSummary, UnifiedPPCDisplay, UnifiedParameterSpaceDisplay, SimpleViolinPlot } from '../src/ui/visualizations';
 
 // Styles
 import './index.css';
@@ -441,6 +441,10 @@ function InferenceExplorer() {
   const ResultsDisplay = () => {
     if (!inferenceResult) return null;
     
+    // Check if compound posterior
+    const isCompound = 'frequency' in inferenceResult.posterior && 
+                      'severity' in inferenceResult.posterior;
+    
     return (
       <div className="space-y-6">
         {/* Diagnostics */}
@@ -458,12 +462,55 @@ function InferenceExplorer() {
           />
         </div>
         
+        {/* Violin Plot for Simple Models */}
+        {!isCompound && (
+          <div className="bg-white p-6 rounded-lg shadow">
+            <h3 className="text-lg font-semibold mb-4">Parameter Distribution</h3>
+            <SimpleViolinPlot
+              data={generatedData || parseCustomData()}
+              posteriors={{ result: inferenceResult.posterior }}
+              modelType={inferenceResult.diagnostics.modelType || selectedModel}
+            />
+          </div>
+        )}
+        
+        {/* Violin Plots for Compound Models */}
+        {isCompound && (
+          <>
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h3 className="text-lg font-semibold mb-4">Conversion Rate Distribution</h3>
+              <SimpleViolinPlot
+                data={generatedData || parseCustomData()}
+                posteriors={{ result: (inferenceResult.posterior as any).frequency }}
+                modelType="beta-binomial"
+              />
+            </div>
+            
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h3 className="text-lg font-semibold mb-4">Value Distribution (Converted Users)</h3>
+              <SimpleViolinPlot
+                data={generatedData || parseCustomData()}
+                posteriors={{ result: (inferenceResult.posterior as any).severity }}
+                modelType={selectedModel.includes('lognormal') ? 'lognormal' : 'gamma'}
+              />
+            </div>
+          </>
+        )}
+        
         {/* PPC Visualization */}
         <UnifiedPPCDisplay
           data={generatedData || parseCustomData()}
           posterior={inferenceResult.posterior}
           modelType={inferenceResult.diagnostics.modelType || selectedModel}
           showDiagnostics={showDiagnostics}
+        />
+        
+        {/* Parameter Space Visualization */}
+        <UnifiedParameterSpaceDisplay
+          data={generatedData || parseCustomData()}
+          posterior={inferenceResult.posterior}
+          modelType={inferenceResult.diagnostics.modelType || selectedModel}
+          showComparison={true}
         />
       </div>
     );

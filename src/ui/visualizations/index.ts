@@ -16,5 +16,13 @@ export { SafeUpliftGraph } from './SafeUpliftGraph';
 export { PPCVisualizer } from './PPCVisualizer';
 export { PPCDiagnostics } from './PPCDiagnostics';
 export { UnifiedPPCDisplay } from './UnifiedPPCDisplay';
+export { ParameterSpaceVisualizer } from './ParameterSpaceVisualizer';
+export { UnifiedParameterSpaceDisplay } from './UnifiedParameterSpaceDisplay';
 export { DiagnosticsPanel } from './DiagnosticsPanel';
 export { PosteriorSummary } from './PosteriorSummary';
+
+// NEW: Violin plot and base utilities
+export * from './base';
+export { ViolinPlot } from './ViolinPlot';
+export type { ViolinPlotProps, ViolinPlotSpec, ViolinData } from './ViolinPlot';
+export { SimpleViolinPlot } from './SimpleViolinExample';
