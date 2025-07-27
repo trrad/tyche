@@ -4,52 +4,271 @@ import type { DataInput, CompoundDataInput, FitOptions } from '../inference/base
 
 const inferenceEngine = new InferenceEngine();
 
-interface WorkerMessage {
-  id: string;
-  modelType: ModelType;
-  data: DataInput | CompoundDataInput;
-  options?: FitOptions;
+// Store posteriors with their metadata
+interface StoredPosterior {
+  posterior: any;
+  type: string;
+  created: number;
+  lastAccessed: number;
 }
 
-/**
- * Reconstruct posterior objects with their methods after serialization
- */
-function reconstructPosterior(posterior: any, modelType: string): any {
-  // For now, we'll return the posterior as-is since the methods should be preserved
-  // The issue might be elsewhere - let's add some debugging
-  console.log('Posterior type:', typeof posterior);
-  console.log('Posterior keys:', Object.keys(posterior));
-  console.log('Has sample method:', typeof posterior.sample === 'function');
-  
-  return posterior;
-}
+const posteriorStore = new Map<string, StoredPosterior>();
 
-self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
-  const { id, modelType, data, options } = event.data;
+// Message types
+type WorkerRequest = 
+  | { id: string; type: 'fit'; payload: { modelType: ModelType; data: DataInput | CompoundDataInput; options?: FitOptions } }
+  | { id: string; type: 'sample'; payload: { posteriorId: string; n: number } }
+  | { id: string; type: 'mean'; payload: { posteriorId: string } }
+  | { id: string; type: 'variance'; payload: { posteriorId: string } }
+  | { id: string; type: 'credibleInterval'; payload: { posteriorId: string; level: number } }
+  | { id: string; type: 'clear'; payload: { posteriorId: string } }
+  | { id: string; type: 'clearAll'; payload?: never }
+  | { id: string; type: 'getStats'; payload: { posteriorId: string } };
+
+self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
+  const { id, type, payload } = event.data;
 
   try {
-    const result = await inferenceEngine.fit(
-      modelType,
-      data,
-      {
-        ...options,
-        onProgress: (progress) => {
-          self.postMessage({ id, type: 'progress', payload: progress });
-        }
+    switch (type) {
+      case 'fit': {
+        const { modelType, data, options } = payload;
+        
+        // Run inference
+        const result = await inferenceEngine.fit(modelType, data, {
+          ...options,
+          onProgress: (progress) => {
+            self.postMessage({ id, type: 'progress', payload: progress });
+          }
+        });
+        
+        // Store the posterior(s)
+        const posteriorIds = storePosteriorResult(id, result.posterior);
+        
+        // Compute summary statistics for immediate use
+        const summary = computePosteriorSummary(result.posterior);
+        
+        self.postMessage({ 
+          id, 
+          type: 'result', 
+          payload: {
+            posteriorIds,
+            diagnostics: result.diagnostics,
+            summary
+          }
+        });
+        break;
       }
-    );
-
-    // Reconstruct posteriors if needed
-    if (result.posterior) {
-      result.posterior = reconstructPosterior(result.posterior, modelType);
+      
+      case 'sample': {
+        const { posteriorId, n } = payload;
+        const stored = posteriorStore.get(posteriorId);
+        
+        if (!stored) {
+          throw new Error(`Posterior ${posteriorId} not found`);
+        }
+        
+        stored.lastAccessed = Date.now();
+        
+        // Generate samples in batches to avoid blocking
+        const samples: number[] = [];
+        const batchSize = Math.min(n, 10000);
+        
+        for (let i = 0; i < n; i += batchSize) {
+          const currentBatch = Math.min(batchSize, n - i);
+          for (let j = 0; j < currentBatch; j++) {
+            samples.push(stored.posterior.sample()[0]);
+          }
+          
+          // Yield to message queue periodically
+          if (i + batchSize < n) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+          }
+        }
+        
+        self.postMessage({ id, type: 'samples', payload: samples });
+        break;
+      }
+      
+      case 'mean': {
+        const { posteriorId } = payload;
+        const stored = posteriorStore.get(posteriorId);
+        
+        if (!stored) {
+          throw new Error(`Posterior ${posteriorId} not found`);
+        }
+        
+        stored.lastAccessed = Date.now();
+        self.postMessage({ 
+          id, 
+          type: 'mean', 
+          payload: stored.posterior.mean() 
+        });
+        break;
+      }
+      
+      case 'variance': {
+        const { posteriorId } = payload;
+        const stored = posteriorStore.get(posteriorId);
+        
+        if (!stored) {
+          throw new Error(`Posterior ${posteriorId} not found`);
+        }
+        
+        stored.lastAccessed = Date.now();
+        const variance = stored.posterior.variance ? 
+          stored.posterior.variance() : 
+          estimateVariance(stored.posterior);
+        
+        self.postMessage({ id, type: 'variance', payload: variance });
+        break;
+      }
+      
+      case 'credibleInterval': {
+        const { posteriorId, level } = payload;
+        const stored = posteriorStore.get(posteriorId);
+        
+        if (!stored) {
+          throw new Error(`Posterior ${posteriorId} not found`);
+        }
+        
+        stored.lastAccessed = Date.now();
+        self.postMessage({ 
+          id, 
+          type: 'credibleInterval', 
+          payload: stored.posterior.credibleInterval(level) 
+        });
+        break;
+      }
+      
+      case 'getStats': {
+        const { posteriorId } = payload;
+        const stored = posteriorStore.get(posteriorId);
+        
+        if (!stored) {
+          throw new Error(`Posterior ${posteriorId} not found`);
+        }
+        
+        stored.lastAccessed = Date.now();
+        const stats = computePosteriorSummary(stored.posterior);
+        
+        self.postMessage({ id, type: 'stats', payload: stats });
+        break;
+      }
+      
+      case 'clear': {
+        const { posteriorId } = payload;
+        posteriorStore.delete(posteriorId);
+        self.postMessage({ id, type: 'cleared', payload: { posteriorId } });
+        break;
+      }
+      
+      case 'clearAll': {
+        posteriorStore.clear();
+        self.postMessage({ id, type: 'cleared', payload: { all: true } });
+        break;
+      }
     }
-
-    self.postMessage({ id, type: 'result', payload: result });
   } catch (error: any) {
     self.postMessage({ 
       id, 
       type: 'error', 
-      payload: { message: error.message } 
+      payload: { 
+        message: error.message,
+        stack: error.stack 
+      } 
     });
   }
-}; 
+};
+
+// Helper functions
+function storePosteriorResult(requestId: string, posterior: any): any {
+  // Handle compound posteriors
+  if ('frequency' in posterior && 'severity' in posterior) {
+    const freqId = `${requestId}-frequency`;
+    const sevId = `${requestId}-severity`;
+    
+    posteriorStore.set(freqId, {
+      posterior: posterior.frequency,
+      type: 'frequency',
+      created: Date.now(),
+      lastAccessed: Date.now()
+    });
+    
+    posteriorStore.set(sevId, {
+      posterior: posterior.severity,
+      type: 'severity',
+      created: Date.now(),
+      lastAccessed: Date.now()
+    });
+    
+    return {
+      type: 'compound',
+      frequency: freqId,
+      severity: sevId
+    };
+  }
+  
+  // Simple posterior
+  const posteriorId = `${requestId}-posterior`;
+  posteriorStore.set(posteriorId, {
+    posterior,
+    type: 'simple',
+    created: Date.now(),
+    lastAccessed: Date.now()
+  });
+  
+  return {
+    type: 'simple',
+    id: posteriorId
+  };
+}
+
+function computePosteriorSummary(posterior: any): any {
+  // Handle compound posteriors
+  if ('frequency' in posterior && 'severity' in posterior) {
+    return {
+      type: 'compound',
+      frequency: computePosteriorSummary(posterior.frequency),
+      severity: computePosteriorSummary(posterior.severity),
+      expectedValuePerUser: posterior.expectedValuePerUser ? 
+        posterior.expectedValuePerUser() : 
+        posterior.frequency.mean()[0] * posterior.severity.mean()[0]
+    };
+  }
+  
+  // Simple posterior
+  return {
+    type: 'simple',
+    mean: posterior.mean(),
+    variance: posterior.variance ? posterior.variance() : null,
+    ci95: posterior.credibleInterval(0.95),
+    ci90: posterior.credibleInterval(0.90),
+    ci80: posterior.credibleInterval(0.80)
+  };
+}
+
+function estimateVariance(posterior: any): number[] {
+  // If posterior doesn't have variance method, estimate from samples
+  const samples: number[] = [];
+  for (let i = 0; i < 1000; i++) {
+    samples.push(posterior.sample()[0]);
+  }
+  
+  const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+  const variance = samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / samples.length;
+  
+  return [variance];
+}
+
+// Optional: Clean up old posteriors periodically
+setInterval(() => {
+  const now = Date.now();
+  const maxAge = 30 * 60 * 1000; // 30 minutes
+  
+  for (const [id, stored] of posteriorStore.entries()) {
+    if (now - stored.lastAccessed > maxAge) {
+      posteriorStore.delete(id);
+      console.log(`Cleaned up old posterior: ${id}`);
+    }
+  }
+}, 60 * 1000); // Check every minute 

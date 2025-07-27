@@ -18,7 +18,8 @@ import { TestScenarios } from '../src/tests/scenarios/TestScenarios';
 import { BusinessScenarios } from '../src/tests/utilities/synthetic/BusinessScenarios';
 
 // Visualization components
-import { PPCVisualizer, DiagnosticsPanel, PosteriorSummary, UnifiedPPCDisplay, UnifiedParameterSpaceDisplay, SimpleViolinPlot } from '../src/ui/visualizations';
+import { PPCVisualizer, DiagnosticsPanel, PosteriorSummary, UnifiedPPCDisplay } from '../src/ui/visualizations';
+import { AsyncViolinPlot } from '../src/ui/visualizations/AsyncViolinPlot';
 
 // Styles
 import './index.css';
@@ -528,7 +529,7 @@ function InferenceExplorer() {
           <div className="bg-white p-6 rounded-lg shadow">
             <h3 className="text-lg font-semibold mb-4">Parameter Distribution</h3>
             <VisualizationErrorBoundary>
-              <SimpleViolinPlot
+              <AsyncViolinPlot
                 data={generatedData || parseCustomData()}
                 posteriors={{ result: inferenceResult.posterior }}
                 modelType={inferenceResult.diagnostics.modelType || selectedModel}
@@ -543,7 +544,7 @@ function InferenceExplorer() {
             <div className="bg-white p-6 rounded-lg shadow">
               <h3 className="text-lg font-semibold mb-4">Conversion Rate Distribution</h3>
               <VisualizationErrorBoundary>
-                <SimpleViolinPlot
+                <AsyncViolinPlot
                   data={generatedData || parseCustomData()}
                   posteriors={{ result: (inferenceResult.posterior as any).frequency }}
                   modelType="beta-binomial"
@@ -554,7 +555,7 @@ function InferenceExplorer() {
             <div className="bg-white p-6 rounded-lg shadow">
               <h3 className="text-lg font-semibold mb-4">Value Distribution (Converted Users)</h3>
               <VisualizationErrorBoundary>
-                <SimpleViolinPlot
+                <AsyncViolinPlot
                   data={generatedData || parseCustomData()}
                   posteriors={{ result: (inferenceResult.posterior as any).severity }}
                   modelType={selectedModel.includes('lognormal') ? 'lognormal' : 'gamma'}
@@ -571,16 +572,6 @@ function InferenceExplorer() {
             posterior={inferenceResult.posterior}
             modelType={inferenceResult.diagnostics.modelType || selectedModel}
             showDiagnostics={showDiagnostics}
-          />
-        </VisualizationErrorBoundary>
-        
-        {/* Parameter Space Visualization */}
-        <VisualizationErrorBoundary>
-          <UnifiedParameterSpaceDisplay
-            data={generatedData || parseCustomData()}
-            posterior={inferenceResult.posterior}
-            modelType={inferenceResult.diagnostics.modelType || selectedModel}
-            showComparison={true}
           />
         </VisualizationErrorBoundary>
       </div>

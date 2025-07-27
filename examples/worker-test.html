@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Worker Proxy Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ccc; }
+        .success { color: green; }
+        .error { color: red; }
+        .loading { color: orange; }
+    </style>
+</head>
+<body>
+    <h1>Worker Proxy Pattern Test</h1>
+    
+    <div class="test-section">
+        <h2>Test 1: Basic Inference</h2>
+        <button onclick="testBasicInference()">Run Basic Inference</button>
+        <div id="test1-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 2: Large Sample Generation</h2>
+        <button onclick="testLargeSamples()">Generate 100k Samples</button>
+        <div id="test2-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test 3: Compound Posterior</h2>
+        <button onclick="testCompoundPosterior()">Test Compound Model</button>
+        <div id="test3-result"></div>
+    </div>
+
+    <script type="module">
+        import { useInferenceWorker } from '../src/hooks/useInferenceWorker.js';
+        
+        // Simple test function
+        window.testBasicInference = async function() {
+            const resultDiv = document.getElementById('test1-result');
+            resultDiv.innerHTML = '<span class="loading">Running inference...</span>';
+            
+            try {
+                // This would need to be adapted for browser environment
+                // For now, just test the worker directly
+                const worker = new Worker('../src/workers/inference.worker.ts', { type: 'module' });
+                
+                const result = await new Promise((resolve, reject) => {
+                    const id = 'test-' + Date.now();
+                    
+                    worker.onmessage = (event) => {
+                        if (event.data.id === id) {
+                            if (event.data.type === 'result') {
+                                resolve(event.data.payload);
+                            } else if (event.data.type === 'error') {
+                                reject(new Error(event.data.payload.message));
+                            }
+                        }
+                    };
+                    
+                    worker.postMessage({
+                        id,
+                        type: 'fit',
+                        payload: {
+                            modelType: 'beta-binomial',
+                            data: { data: [1, 0, 1, 1, 0, 1, 0, 1, 1, 1] }
+                        }
+                    });
+                });
+                
+                resultDiv.innerHTML = `<span class="success">✅ Inference completed! Posterior IDs: ${JSON.stringify(result.posteriorIds)}</span>`;
+                
+                // Test sampling
+                const samples = await new Promise((resolve, reject) => {
+                    const sampleId = 'sample-' + Date.now();
+                    
+                    worker.onmessage = (event) => {
+                        if (event.data.id === sampleId) {
+                            if (event.data.type === 'samples') {
+                                resolve(event.data.payload);
+                            } else if (event.data.type === 'error') {
+                                reject(new Error(event.data.payload.message));
+                            }
+                        }
+                    };
+                    
+                    worker.postMessage({
+                        id: sampleId,
+                        type: 'sample',
+                        payload: {
+                            posteriorId: result.posteriorIds.id,
+                            n: 1000
+                        }
+                    });
+                });
+                
+                resultDiv.innerHTML += `<br><span class="success">✅ Generated ${samples.length} samples</span>`;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Error: ${error.message}</span>`;
+            }
+        };
+        
+        window.testLargeSamples = async function() {
+            const resultDiv = document.getElementById('test2-result');
+            resultDiv.innerHTML = '<span class="loading">Generating large samples...</span>';
+            
+            try {
+                // Test large sample generation
+                const startTime = Date.now();
+                
+                // This would need the full setup, but we can test the concept
+                resultDiv.innerHTML = `<span class="success">✅ Large sample test would run here (${Date.now() - startTime}ms)</span>`;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Error: ${error.message}</span>`;
+            }
+        };
+        
+        window.testCompoundPosterior = async function() {
+            const resultDiv = document.getElementById('test3-result');
+            resultDiv.innerHTML = '<span class="loading">Testing compound posterior...</span>';
+            
+            try {
+                // Test compound posterior
+                resultDiv.innerHTML = '<span class="success">✅ Compound posterior test would run here</span>';
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<span class="error">❌ Error: ${error.message}</span>`;
+            }
+        };
+    </script>
+</body>
+</html> 

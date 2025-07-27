@@ -21,6 +21,10 @@ export { UnifiedParameterSpaceDisplay } from './UnifiedParameterSpaceDisplay';
 export { DiagnosticsPanel } from './DiagnosticsPanel';
 export { PosteriorSummary } from './PosteriorSummary';
 
+// Async visualization components
+export { AsyncViolinPlot } from './AsyncViolinPlot';
+export { AsyncPPCVisualizer } from './AsyncPPCVisualizer';
+
 // NEW: Violin plot and base utilities
 export * from './base';
 export { ViolinPlot } from './ViolinPlot';

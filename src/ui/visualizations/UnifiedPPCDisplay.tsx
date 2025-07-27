@@ -1,6 +1,6 @@
 // src/ui/visualizations/UnifiedPPCDisplay.tsx
 import React, { useMemo } from 'react';
-import { PPCVisualizer } from './PPCVisualizer';
+import { AsyncPPCVisualizer } from './AsyncPPCVisualizer';
 import { PPCDiagnostics } from './PPCDiagnostics';
 import { Posterior } from '../../inference/base/types';
 
@@ -91,7 +91,7 @@ export const UnifiedPPCDisplay: React.FC<UnifiedPPCDisplayProps> = ({
       <div className="bg-white p-6 rounded-lg shadow">
         <h3 className="text-lg font-semibold mb-4">Posterior Predictive Check</h3>
         
-        <PPCVisualizer
+        <AsyncPPCVisualizer
           observedData={observedData}
           posterior={displayPosterior}
           nSamples={10000}
