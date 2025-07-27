@@ -17,9 +17,9 @@ import { useInferenceWorker } from '../src/hooks/useInferenceWorker';
 import { TestScenarios } from '../src/tests/scenarios/TestScenarios';
 import { BusinessScenarios } from '../src/tests/utilities/synthetic/BusinessScenarios';
 
-// Visualization components
-import { PPCVisualizer, DiagnosticsPanel, AsyncPosteriorSummary, UnifiedPPCDisplay } from '../src/ui/visualizations';
-import { AsyncViolinPlot } from '../src/ui/visualizations/AsyncViolinPlot';
+// Visualization components - Updated to use unified system
+import { DiagnosticsPanel, AsyncPosteriorSummary } from '../src/ui/visualizations';
+import { UnifiedDistributionViz } from '../src/ui/visualizations/unified';
 
 // Styles
 import './index.css';
@@ -59,6 +59,7 @@ function InferenceExplorer() {
   const [generatedData, setGeneratedData] = useState<any>(null);
   const [selectedModel, setSelectedModel] = useState<ModelType>('auto');
   const [inferenceResult, setInferenceResult] = useState<InferenceResult | null>(null);
+  const [modelType, setModelType] = useState<ModelType | undefined>();
   const [error, setError] = useState<string | null>(null);
   
   // PPC configuration
@@ -278,6 +279,35 @@ function InferenceExplorer() {
     return generatedData || parseCustomData();
   }, [generatedData, customData]);
   
+  // Format value based on model type
+  const formatValue = useCallback((value: number) => {
+    if (!modelType) return value.toFixed(3);
+    
+    if (modelType.includes('beta') || modelType.includes('binomial')) {
+      return `${(value * 100).toFixed(1)}%`;
+    } else if (modelType.includes('revenue') || modelType.includes('compound')) {
+      return `$${value.toFixed(2)}`;
+    } else {
+      return value.toFixed(3);
+    }
+  }, [modelType]);
+  
+  // Helper function to get parameter label
+  const getParameterLabel = (modelType: string): string => {
+    if (modelType.includes('beta') || modelType.includes('binomial')) {
+      return 'Conversion Rate';
+    } else if (modelType.includes('revenue') || modelType.includes('compound')) {
+      return 'Revenue per User';
+    } else if (modelType.includes('gamma')) {
+      return 'Rate Parameter';
+    } else if (modelType.includes('lognormal')) {
+      return 'Value';
+    } else if (modelType.includes('normal')) {
+      return 'Mean';
+    }
+    return 'Parameter';
+  };
+  
   // Use the posterior directly instead of wrapping in a new object
   const posteriorData = useMemo(() => {
     if (!inferenceResult?.posterior) return null;
@@ -344,6 +374,7 @@ function InferenceExplorer() {
     
     if (result) {
       setInferenceResult(result);
+      setModelType(result.diagnostics.modelType as ModelType || selectedModel);
     }
   }, [selectedDataSource, generatedData, parseCustomData, selectedModel, runInferenceWorker]);
   
@@ -564,30 +595,55 @@ function InferenceExplorer() {
           </VisualizationErrorBoundary>
         </div>
         
-        {/* Violin Plot for Simple Models */}
+        {/* Distribution Plot for Simple Models - Replaces AsyncViolinPlot */}
         {!isCompound && posteriorData && (
           <div className="bg-white p-6 rounded-lg shadow">
             <h3 className="text-lg font-semibold mb-4">Parameter Distribution</h3>
             <VisualizationErrorBoundary>
-              <AsyncViolinPlot
-                data={visualizationData}
-                posteriors={posteriorData}
-                modelType={inferenceResult.diagnostics.modelType || selectedModel}
+              <UnifiedDistributionViz
+                distributions={[{
+                  id: 'posterior',
+                  label: getParameterLabel(modelType || selectedModel),
+                  posterior: posteriorData.result
+                }]}
+                display={{
+                  mode: 'density',
+                  showMean: true,
+                  showCI: true,
+                  ciLevels: [0.8, 0.5]
+                }}
+                width={700}
+                height={400}
+                formatValue={formatValue}
+                title={`${getParameterLabel(modelType || selectedModel)} Distribution`}
               />
             </VisualizationErrorBoundary>
           </div>
         )}
         
-        {/* Violin Plots for Compound Models */}
+        {/* Distribution Plots for Compound Models - Replaces AsyncViolinPlot */}
         {isCompound && frequencyPosteriorData && severityPosteriorData && (
           <>
             <div className="bg-white p-6 rounded-lg shadow">
               <h3 className="text-lg font-semibold mb-4">Conversion Rate Distribution</h3>
               <VisualizationErrorBoundary>
-                <AsyncViolinPlot
-                  data={visualizationData}
-                  posteriors={frequencyPosteriorData}
-                  modelType="beta-binomial"
+                <UnifiedDistributionViz
+                  distributions={[{
+                    id: 'conversion',
+                    label: 'Conversion Rate',
+                    posterior: frequencyPosteriorData.result,
+                    color: '#10b981'
+                  }]}
+                  display={{
+                    mode: 'density',
+                    showMean: true,
+                    showCI: true,
+                    ciLevels: [0.8, 0.5]
+                  }}
+                  width={700}
+                  height={350}
+                  formatValue={v => `${(v * 100).toFixed(1)}%`}
+                  title="Conversion Rate Distribution"
                 />
               </VisualizationErrorBoundary>
             </div>
@@ -595,25 +651,90 @@ function InferenceExplorer() {
             <div className="bg-white p-6 rounded-lg shadow">
               <h3 className="text-lg font-semibold mb-4">Value Distribution (Converted Users)</h3>
               <VisualizationErrorBoundary>
-                <AsyncViolinPlot
-                  data={visualizationData}
-                  posteriors={severityPosteriorData}
-                  modelType={selectedModel.includes('lognormal') ? 'lognormal' : 'gamma'}
+                <UnifiedDistributionViz
+                  distributions={[{
+                    id: 'value',
+                    label: 'Value | Converted',
+                    posterior: severityPosteriorData.result,
+                    color: '#3b82f6'
+                  }]}
+                  display={{
+                    mode: 'density',
+                    showMean: true,
+                    showCI: true,
+                    ciLevels: [0.8, 0.5]
+                  }}
+                  width={700}
+                  height={350}
+                  formatValue={v => `$${v.toFixed(2)}`}
+                  title="Value per Converted User"
+                />
+              </VisualizationErrorBoundary>
+            </div>
+            
+            {/* Revenue per User - Shows the compound result */}
+            <div className="bg-white p-6 rounded-lg shadow">
+              <h3 className="text-lg font-semibold mb-4">Revenue per User Distribution</h3>
+              <VisualizationErrorBoundary>
+                <UnifiedDistributionViz
+                  distributions={[{
+                    id: 'revenue',
+                    label: 'Revenue per User',
+                    posterior: inferenceResult.posterior,
+                    color: '#8b5cf6'
+                  }]}
+                  display={{
+                    mode: 'density',
+                    showMean: true,
+                    showCI: true,
+                    ciLevels: [0.8, 0.5]
+                  }}
+                  width={700}
+                  height={350}
+                  formatValue={v => `$${v.toFixed(2)}`}
+                  title="Expected Revenue per User"
+                  subtitle="Conversion × Value = Revenue"
                 />
               </VisualizationErrorBoundary>
             </div>
           </>
         )}
         
-        {/* PPC Visualization */}
-        <VisualizationErrorBoundary>
-          <UnifiedPPCDisplay
-            data={visualizationData}
-            posterior={inferenceResult.posterior}
-            modelType={inferenceResult.diagnostics.modelType || selectedModel}
-            showDiagnostics={showDiagnostics}
-          />
-        </VisualizationErrorBoundary>
+        {/* PPC Visualization - Replaces UnifiedPPCDisplay */}
+        {visualizationData && Array.isArray(visualizationData) && (
+          <div className="bg-white p-6 rounded-lg shadow">
+            <h3 className="text-lg font-semibold mb-4">Posterior Predictive Check</h3>
+            <VisualizationErrorBoundary>
+              <UnifiedDistributionViz
+                distributions={[
+                  {
+                    id: 'observed',
+                    label: 'Observed Data',
+                    samples: visualizationData as number[],
+                    color: '#6b7280',
+                    metadata: { isObserved: true }
+                  },
+                  {
+                    id: 'predictive',
+                    label: 'Posterior Predictive',
+                    posterior: inferenceResult.posterior,
+                    color: '#3b82f6'
+                  }
+                ]}
+                display={{
+                  mode: 'density',
+                  showCI: true,
+                  ciLevels: [0.8],
+                  opacity: 0.7
+                }}
+                width={700}
+                height={400}
+                formatValue={formatValue}
+                title="Model Fit Assessment"
+              />
+            </VisualizationErrorBoundary>
+          </div>
+        )}
       </div>
     );
   };

@@ -99,4 +99,47 @@ function interquartileRange(values: number[]): number {
   const q1 = sorted[Math.floor(sorted.length * 0.25)];
   const q3 = sorted[Math.floor(sorted.length * 0.75)];
   return q3 - q1;
+}
+
+/**
+ * Calculate histogram data from samples
+ */
+export function calculateHistogram(
+  samples: number[],
+  binCount: number = 30
+): Array<{
+  x0: number;
+  x1: number;
+  count: number;
+  density: number;
+}> {
+  if (samples.length === 0) return [];
+  
+  const min = Math.min(...samples);
+  const max = Math.max(...samples);
+  const range = max - min;
+  
+  // Create bins
+  const binWidth = range / binCount;
+  const bins: Array<{
+    x0: number;
+    x1: number;
+    count: number;
+    density: number;
+  }> = [];
+  
+  for (let i = 0; i < binCount; i++) {
+    const x0 = min + i * binWidth;
+    const x1 = min + (i + 1) * binWidth;
+    
+    // Count samples in this bin
+    const count = samples.filter(s => s >= x0 && s < x1).length;
+    
+    // Calculate density (count / total samples / bin width)
+    const density = count / (samples.length * binWidth);
+    
+    bins.push({ x0, x1, count, density });
+  }
+  
+  return bins;
 } 
