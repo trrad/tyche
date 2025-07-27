@@ -296,6 +296,20 @@ export function posteriorToViolin(
   nSamples: number = 1000,
   colorIndex: number = 0
 ): ViolinData {
+  // Debug: Check if posterior has sample method
+  console.log('🔍 Posterior debug:', {
+    variantId,
+    type: typeof posterior,
+    hasSample: typeof posterior.sample === 'function',
+    keys: Object.keys(posterior),
+    sampleMethod: posterior.sample
+  });
+  
+  if (typeof posterior.sample !== 'function') {
+    console.error('❌ Posterior does not have sample method:', posterior);
+    throw new Error(`Posterior for ${variantId} does not have sample method`);
+  }
+  
   // Generate samples
   const samples: number[] = [];
   for (let i = 0; i < nSamples; i++) {

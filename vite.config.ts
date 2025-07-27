@@ -58,6 +58,10 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['react', 'react-dom'] // Pre-bundle React for better dev performance
+    include: ['react', 'react-dom'], // Pre-bundle React for better dev performance
+    exclude: ['src/workers/inference.worker.ts'] // Exclude worker from optimization
+  },
+  worker: {
+    format: 'es'
   }
 });

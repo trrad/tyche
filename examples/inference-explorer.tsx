@@ -3,13 +3,15 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import ReactDOM from 'react-dom/client';
 
 // Core imports
-import { InferenceEngine } from '../src/inference/InferenceEngine';
 import { 
   DataInput, 
   CompoundDataInput,
   InferenceResult,
   FitOptions 
 } from '../src/inference/base/types';
+
+// Worker hook
+import { useInferenceWorker } from '../src/hooks/useInferenceWorker';
 
 // Test utilities
 import { TestScenarios } from '../src/tests/scenarios/TestScenarios';
@@ -55,8 +57,6 @@ function InferenceExplorer() {
   const [selectedDataSource, setSelectedDataSource] = useState<DataSource | null>(null);
   const [generatedData, setGeneratedData] = useState<any>(null);
   const [selectedModel, setSelectedModel] = useState<ModelType>('auto');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [fitProgress, setFitProgress] = useState<FitProgress | null>(null);
   const [inferenceResult, setInferenceResult] = useState<InferenceResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   
@@ -70,9 +70,30 @@ function InferenceExplorer() {
   // State for data source type selection
   const [dataSourceType, setDataSourceType] = useState<'test-scenario' | 'business-scenario' | 'custom'>('test-scenario');
   
+  // CRASH FIX: Clear results when data/model changes
+  useEffect(() => {
+    setInferenceResult(null);
+    setError(null);
+  }, [selectedDataSource, selectedModel, dataSourceType]);
+  
   // Initialize scenarios
   const businessScenarios = useMemo(() => new BusinessScenarios(Date.now()), []);
-  const inferenceEngine = useMemo(() => new InferenceEngine(), []);
+  
+  // Use the worker hook
+  const { 
+    runInference: runInferenceWorker, 
+    cancelInference,
+    isRunning: isAnalyzing,
+    progress: fitProgress,
+    error: inferenceError
+  } = useInferenceWorker();
+  
+  // Update error display
+  useEffect(() => {
+    if (inferenceError) {
+      setError(inferenceError);
+    }
+  }, [inferenceError]);
   
   // Available data sources
   const dataSources: DataSource[] = useMemo(() => [
@@ -254,48 +275,32 @@ function InferenceExplorer() {
       return;
     }
     
-    setIsAnalyzing(true);
     setError(null);
     setInferenceResult(null);
     
-    try {
-      // Prepare data input
-      let dataInput: DataInput | CompoundDataInput;
-      
-      // Detect data type
-      if (Array.isArray(dataToAnalyze)) {
-        if (dataToAnalyze.length > 0 && typeof dataToAnalyze[0] === 'object' && 'converted' in dataToAnalyze[0]) {
-          // Compound data
-          dataInput = { data: dataToAnalyze } as CompoundDataInput;
-        } else {
-          // Array data
-          dataInput = { data: dataToAnalyze };
-        }
-      } else if (dataToAnalyze.successes !== undefined && dataToAnalyze.trials !== undefined) {
-        // Binomial data
-        dataInput = { data: dataToAnalyze };
+    // Prepare data input
+    let dataInput: DataInput | CompoundDataInput;
+    
+    if (Array.isArray(dataToAnalyze)) {
+      if (dataToAnalyze.length > 0 && typeof dataToAnalyze[0] === 'object' && 'converted' in dataToAnalyze[0]) {
+        dataInput = { data: dataToAnalyze } as CompoundDataInput;
       } else {
-        throw new Error('Unknown data format');
+        dataInput = { data: dataToAnalyze };
       }
-      
-      // Run inference with progress tracking
-      const result = await inferenceEngine.fit(
-        selectedModel,
-        dataInput,
-        {
-          onProgress: (progress: FitProgress) => setFitProgress(progress)
-        }
-      );
-      
-      setInferenceResult(result);
-      setFitProgress(null);
-      
-    } catch (err) {
-      setError(`Inference failed: ${(err as Error).message}`);
-    } finally {
-      setIsAnalyzing(false);
+    } else if (dataToAnalyze.successes !== undefined && dataToAnalyze.trials !== undefined) {
+      dataInput = { data: dataToAnalyze };
+    } else {
+      setError('Unknown data format');
+      return;
     }
-  }, [selectedDataSource, generatedData, parseCustomData, selectedModel, inferenceEngine]);
+    
+    // Run inference with worker
+    const result = await runInferenceWorker(selectedModel, dataInput);
+    
+    if (result) {
+      setInferenceResult(result);
+    }
+  }, [selectedDataSource, generatedData, parseCustomData, selectedModel, runInferenceWorker]);
   
   // UI Components
   const DataSourceSelector = () => (
@@ -392,6 +397,49 @@ function InferenceExplorer() {
     </div>
   );
   
+  // Update the button to show loading and cancel
+  const InferenceButton = () => (
+    <div className="space-y-2">
+      <button
+        onClick={isAnalyzing ? cancelInference : runInference}
+        disabled={(!generatedData && !customData.trim()) && !isAnalyzing}
+        className={`w-full px-4 py-2 rounded flex items-center justify-center ${
+          isAnalyzing
+            ? 'bg-red-500 text-white hover:bg-red-600' // Cancel button
+            : (!generatedData && !customData.trim())
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-purple-600 hover:bg-purple-700 text-white'
+        }`}
+      >
+        {isAnalyzing ? (
+          <>
+            <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+            Cancel Inference
+          </>
+        ) : (
+          'Run Inference'
+        )}
+      </button>
+      
+      {isAnalyzing && fitProgress && (
+        <div className="space-y-1">
+          <div className="text-sm text-gray-600">{fitProgress.stage}</div>
+          <div className="bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${fitProgress.progress}%` }}
+            />
+          </div>
+          {fitProgress.iteration && fitProgress.totalIterations && (
+            <div className="text-xs text-gray-500 text-center">
+              Iteration {fitProgress.iteration} / {fitProgress.totalIterations}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   const ModelSelector = () => (
     <div className="bg-white p-6 rounded-lg shadow">
       <h3 className="text-lg font-semibold mb-4">2. Select Model</h3>
@@ -400,6 +448,7 @@ function InferenceExplorer() {
         value={selectedModel}
         onChange={(e) => setSelectedModel(e.target.value as ModelType)}
         className="w-full p-2 border rounded mb-4"
+        disabled={isAnalyzing} // Disable during inference
       >
         <option value="auto">Auto-detect</option>
         <option value="beta-binomial">Beta-Binomial</option>
@@ -412,32 +461,40 @@ function InferenceExplorer() {
         <option value="compound-beta-lognormalmixture">Compound (Beta × LogNormal Mixture)</option>
       </select>
       
-      <button
-        onClick={runInference}
-        disabled={!generatedData && !customData.trim()}
-        className={`w-full px-4 py-2 rounded ${
-          !generatedData && !customData.trim()
-            ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-purple-600 hover:bg-purple-700' // Zenith Data lilac
-        } text-white font-semibold`}
-      >
-        Run Inference
-      </button>
-      
-      {isAnalyzing && fitProgress && (
-        <div className="mt-4">
-          <div className="text-sm text-gray-600 mb-1">{fitProgress.stage}</div>
-          <div className="bg-gray-200 rounded-full h-2">
-            <div 
-              className="bg-purple-600 h-2 rounded-full transition-all duration-300" // Zenith Data lilac
-              style={{ width: `${fitProgress.progress}%` }}
-            />
-          </div>
-        </div>
-      )}
+      <InferenceButton />
     </div>
   );
   
+  // Add error boundary to visualizations
+  const VisualizationErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const [hasError, setHasError] = useState(false);
+    
+    useEffect(() => {
+      setHasError(false);
+    }, [inferenceResult]); // Reset when results change
+    
+    if (hasError) {
+      return (
+        <div className="p-4 bg-red-50 rounded">
+          <p className="text-red-600">Unable to render visualization</p>
+          <button
+            onClick={() => setHasError(false)}
+            className="text-sm text-red-700 underline mt-2"
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    
+    try {
+      return <>{children}</>;
+    } catch (error) {
+      setHasError(true);
+      return null;
+    }
+  };
+
   const ResultsDisplay = () => {
     if (!inferenceResult) return null;
     
@@ -450,27 +507,33 @@ function InferenceExplorer() {
         {/* Diagnostics */}
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Diagnostics</h3>
-          <DiagnosticsPanel diagnostics={inferenceResult.diagnostics} />
+          <VisualizationErrorBoundary>
+            <DiagnosticsPanel diagnostics={inferenceResult.diagnostics} />
+          </VisualizationErrorBoundary>
         </div>
         
         {/* Posterior Summary */}
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Posterior Summary</h3>
-          <PosteriorSummary 
-            posterior={inferenceResult.posterior} 
-            modelType={inferenceResult.diagnostics.modelType || selectedModel}
-          />
+          <VisualizationErrorBoundary>
+            <PosteriorSummary 
+              posterior={inferenceResult.posterior} 
+              modelType={inferenceResult.diagnostics.modelType || selectedModel}
+            />
+          </VisualizationErrorBoundary>
         </div>
         
         {/* Violin Plot for Simple Models */}
         {!isCompound && (
           <div className="bg-white p-6 rounded-lg shadow">
             <h3 className="text-lg font-semibold mb-4">Parameter Distribution</h3>
-            <SimpleViolinPlot
-              data={generatedData || parseCustomData()}
-              posteriors={{ result: inferenceResult.posterior }}
-              modelType={inferenceResult.diagnostics.modelType || selectedModel}
-            />
+            <VisualizationErrorBoundary>
+              <SimpleViolinPlot
+                data={generatedData || parseCustomData()}
+                posteriors={{ result: inferenceResult.posterior }}
+                modelType={inferenceResult.diagnostics.modelType || selectedModel}
+              />
+            </VisualizationErrorBoundary>
           </div>
         )}
         
@@ -479,39 +542,47 @@ function InferenceExplorer() {
           <>
             <div className="bg-white p-6 rounded-lg shadow">
               <h3 className="text-lg font-semibold mb-4">Conversion Rate Distribution</h3>
-              <SimpleViolinPlot
-                data={generatedData || parseCustomData()}
-                posteriors={{ result: (inferenceResult.posterior as any).frequency }}
-                modelType="beta-binomial"
-              />
+              <VisualizationErrorBoundary>
+                <SimpleViolinPlot
+                  data={generatedData || parseCustomData()}
+                  posteriors={{ result: (inferenceResult.posterior as any).frequency }}
+                  modelType="beta-binomial"
+                />
+              </VisualizationErrorBoundary>
             </div>
             
             <div className="bg-white p-6 rounded-lg shadow">
               <h3 className="text-lg font-semibold mb-4">Value Distribution (Converted Users)</h3>
-              <SimpleViolinPlot
-                data={generatedData || parseCustomData()}
-                posteriors={{ result: (inferenceResult.posterior as any).severity }}
-                modelType={selectedModel.includes('lognormal') ? 'lognormal' : 'gamma'}
-              />
+              <VisualizationErrorBoundary>
+                <SimpleViolinPlot
+                  data={generatedData || parseCustomData()}
+                  posteriors={{ result: (inferenceResult.posterior as any).severity }}
+                  modelType={selectedModel.includes('lognormal') ? 'lognormal' : 'gamma'}
+                />
+              </VisualizationErrorBoundary>
             </div>
           </>
         )}
         
         {/* PPC Visualization */}
-        <UnifiedPPCDisplay
-          data={generatedData || parseCustomData()}
-          posterior={inferenceResult.posterior}
-          modelType={inferenceResult.diagnostics.modelType || selectedModel}
-          showDiagnostics={showDiagnostics}
-        />
+        <VisualizationErrorBoundary>
+          <UnifiedPPCDisplay
+            data={generatedData || parseCustomData()}
+            posterior={inferenceResult.posterior}
+            modelType={inferenceResult.diagnostics.modelType || selectedModel}
+            showDiagnostics={showDiagnostics}
+          />
+        </VisualizationErrorBoundary>
         
         {/* Parameter Space Visualization */}
-        <UnifiedParameterSpaceDisplay
-          data={generatedData || parseCustomData()}
-          posterior={inferenceResult.posterior}
-          modelType={inferenceResult.diagnostics.modelType || selectedModel}
-          showComparison={true}
-        />
+        <VisualizationErrorBoundary>
+          <UnifiedParameterSpaceDisplay
+            data={generatedData || parseCustomData()}
+            posterior={inferenceResult.posterior}
+            modelType={inferenceResult.diagnostics.modelType || selectedModel}
+            showComparison={true}
+          />
+        </VisualizationErrorBoundary>
       </div>
     );
   };
