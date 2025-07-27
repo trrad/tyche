@@ -235,10 +235,13 @@ export interface SegmentedDistributions {
 export const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
   mode: 'density',
   showMean: true,
+  showMedian: false,
+  showMode: false,
   showCI: true,
-  ciLevels: [0.8, 0.5], // Show multiple levels of uncertainty
+  ciLevels: [0.95, 0.8],  // Just show 95% and 80% by default
   binCount: 30,
-  opacity: 0.8
+  opacity: 1,
+  showGrid: true
 };
 
 export const DEFAULT_COMPARISON_CONFIG: ComparisonConfig = {

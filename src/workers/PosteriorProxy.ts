@@ -147,6 +147,21 @@ export class CompoundPosteriorProxy {
            (this.frequency.mean()[0] * this.severity.mean()[0]);
   }
   
+  // Add this method to prevent "sample is not a function" errors
+  sample(): never {
+    throw new Error(
+      'CompoundPosteriorProxy cannot be sampled directly. ' +
+      'Sample from frequency and severity components separately.'
+    );
+  }
+  
+  // Add marker to identify compound proxies
+  get __isCompoundProxy(): boolean {
+    return true;
+  }
+  
+
+  
   async dispose(): Promise<void> {
     await Promise.all([
       this.frequency.dispose(),

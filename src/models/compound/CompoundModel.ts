@@ -106,49 +106,49 @@ class CompoundPosteriorImpl implements CompoundPosterior {
   }
   
   /**
-   * Sample from the compound distribution
-   * This naturally handles any dependence structure
+   * Sample from the compound posterior
+   * Returns [conversion_rate, value_given_conversion, revenue_per_user]
    */
   sample(): number[] {
-    const convRate = this.frequency.sample()[0];
-    const valueGivenConv = this.severity.sample()[0];
-    const revenuePerUser = convRate * valueGivenConv;
-    
-    return [convRate, valueGivenConv, revenuePerUser];
+    const p = this.frequency.sample()[0];
+    const v = this.severity.sample()[0];
+    return [p, v, p * v];
   }
   
   /**
-   * Get credible intervals via Monte Carlo
+   * Get credible intervals for all three quantities
    */
   credibleInterval(level: number = 0.95): Array<[number, number]> {
-    const alpha = (1 - level) / 2;
-    
-    // Generate samples for each quantity
+    const stats = this.computeStats();
     const samples = {
       convRate: [] as number[],
       valueGivenConv: [] as number[],
       revenuePerUser: [] as number[]
     };
     
+    // Generate samples for CI calculation
     for (let i = 0; i < this.MC_SAMPLES; i++) {
-      const [p, v, r] = this.sample();
+      const p = this.frequency.sample()[0];
+      const v = this.severity.sample()[0];
       samples.convRate.push(p);
       samples.valueGivenConv.push(v);
-      samples.revenuePerUser.push(r);
+      samples.revenuePerUser.push(p * v);
     }
     
-    // Sort and extract quantiles
-    const getCI = (data: number[]): [number, number] => {
-      data.sort((a, b) => a - b);
-      const lower = data[Math.floor(alpha * data.length)];
-      const upper = data[Math.floor((1 - alpha) * data.length)];
-      return [lower, upper];
-    };
+    // Sort each set of samples
+    samples.convRate.sort((a, b) => a - b);
+    samples.valueGivenConv.sort((a, b) => a - b);
+    samples.revenuePerUser.sort((a, b) => a - b);
+    
+    // Calculate quantiles
+    const alpha = (1 - level) / 2;
+    const lowerIdx = Math.floor(alpha * this.MC_SAMPLES);
+    const upperIdx = Math.floor((1 - alpha) * this.MC_SAMPLES);
     
     return [
-      getCI(samples.convRate),
-      getCI(samples.valueGivenConv),
-      getCI(samples.revenuePerUser)
+      [samples.convRate[lowerIdx], samples.convRate[upperIdx]],
+      [samples.valueGivenConv[lowerIdx], samples.valueGivenConv[upperIdx]],
+      [samples.revenuePerUser[lowerIdx], samples.revenuePerUser[upperIdx]]
     ];
   }
   

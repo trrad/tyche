@@ -34,7 +34,7 @@ export const UnifiedDistributionViz: React.FC<UnifiedDistributionVizProps> = ({
   subtitle,
   xLabel = 'Value',
   yLabel = 'Density',
-  nSamples = 5000,
+  nSamples = 10000,  // Default to 10k samples!
   cacheSamples = true,
   adaptiveSampling = false,
   onHover,

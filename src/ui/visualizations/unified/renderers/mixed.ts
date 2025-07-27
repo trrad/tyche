@@ -102,26 +102,30 @@ export function renderMixedPlot(
     const g = container.append('g')
       .attr('class', `distribution distribution-${d.id}`);
     
-    // Draw CI bands if requested
+    // Draw simple CI bands if requested
     if (display.showCI && d.stats && display.ciLevels) {
-      // Create CI bands by sampling from the KDE
-      const ciBands = createCIBands(d.samples!, xScale, display.ciLevels);
-      
       display.ciLevels.slice().reverse().forEach((level, idx) => {
-        const band = ciBands[level];
-        if (!band) return;
+        let ci: [number, number] | undefined;
         
-        const area = d3.area<any>()
-          .x(d => xScale(d.x))
-          .y0(d => yScale(d.lower))
-          .y1(d => yScale(d.upper))
-          .curve(d3.curveMonotoneX);
+        if (level === 0.95 && d.stats?.ci95) {
+          ci = d.stats.ci95;
+        } else if (level === 0.80 && d.stats?.ci80) {
+          ci = d.stats.ci80;
+        } else if (level === 0.50 && d.stats?.ci50) {
+          ci = d.stats.ci50;
+        }
         
-        g.append('path')
-          .datum(band)
-          .attr('fill', d.color || BRAND_COLORS.predicted)
-          .attr('opacity', idx === 0 ? 0.2 : 0.3)
-          .attr('d', area);
+        if (ci) {
+          // Simple vertical rectangle for CI
+          g.append('rect')
+            .attr('x', xScale(ci[0]))
+            .attr('y', 0)
+            .attr('width', Math.max(0, xScale(ci[1]) - xScale(ci[0])))
+            .attr('height', height)
+            .attr('fill', d.color || BRAND_COLORS.predicted)
+            .attr('opacity', 0.15 - idx * 0.05)
+            .attr('class', `ci-band ci-${Math.round(level * 100)}`);
+        }
       });
     }
     
@@ -129,7 +133,8 @@ export function renderMixedPlot(
     const line = d3.line<{ value: number; density: number }>()
       .x(d => xScale(d.value))
       .y(d => yScale(d.density))
-      .curve(d3.curveMonotoneX);
+      .curve(d3.curveMonotoneX)
+      .defined(d => !isNaN(d.value) && !isNaN(d.density));
     
     g.append('path')
       .datum(d.kde)
@@ -179,53 +184,7 @@ export function renderMixedPlot(
   renderEnhancedLegend(container, legendItems, width - 150, 0);
 }
 
-// Helper to create CI bands for density plots
-function createCIBands(
-  samples: number[], 
-  xScale: d3.ScaleLinear<number, number>,
-  ciLevels: number[]
-): Record<number, Array<{x: number; lower: number; upper: number}>> {
-  const nPoints = 150;
-  const xDomain = xScale.domain();
-  const xValues: number[] = [];
-  
-  for (let i = 0; i <= nPoints; i++) {
-    xValues.push(xDomain[0] + (xDomain[1] - xDomain[0]) * i / nPoints);
-  }
-  
-  const bands: Record<number, Array<{x: number; lower: number; upper: number}>> = {};
-  
-  // Bootstrap to create CI bands
-  const nBootstrap = 100;
-  ciLevels.forEach(level => {
-    const densityEstimates: number[][] = [];
-    
-    for (let b = 0; b < nBootstrap; b++) {
-      // Bootstrap sample
-      const bootstrapSample = [];
-      for (let i = 0; i < samples.length; i++) {
-        bootstrapSample.push(samples[Math.floor(Math.random() * samples.length)]);
-      }
-      
-      // Calculate KDE for this bootstrap
-      const kde = calculateKDE(bootstrapSample, 150);
-      densityEstimates.push(kde.map(d => d.density));
-    }
-    
-    // Calculate percentiles
-    const alpha = (1 - level) / 2;
-    bands[level] = xValues.map((x, i) => {
-      const densities = densityEstimates.map(d => d[i]).sort((a, b) => a - b);
-      return {
-        x,
-        lower: densities[Math.floor(alpha * nBootstrap)],
-        upper: densities[Math.floor((1 - alpha) * nBootstrap)]
-      };
-    });
-  });
-  
-  return bands;
-}
+
 
 // Enhanced legend rendering
 function renderEnhancedLegend(

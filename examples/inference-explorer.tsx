@@ -710,14 +710,31 @@ function InferenceExplorer() {
                   {
                     id: 'observed',
                     label: 'Observed Data',
-                    samples: visualizationData as number[],
+                    samples: (() => {
+                      // For compound models, extract revenue values from converted users
+                      if (isCompound && typeof visualizationData[0] === 'object') {
+                        return (visualizationData as any[])
+                          .filter(u => u.converted && u.value > 0)
+                          .map(u => u.value);
+                      }
+                      // For simple models, use data as-is
+                      return visualizationData as number[];
+                    })(),
                     color: BRAND_COLORS.observed,
                     metadata: { isObserved: true }
                   },
                   {
                     id: 'predictive',
                     label: 'Posterior Predictive',
-                    posterior: inferenceResult.posterior,
+                    posterior: (() => {
+                      // For compound models, use severity posterior for value predictions
+                      if (isCompound && inferenceResult?.posterior) {
+                        const compoundPosterior = inferenceResult.posterior as any;
+                        return compoundPosterior.severity;
+                      }
+                      // For simple models, use the posterior directly
+                      return inferenceResult.posterior;
+                    })(),
                     color: BRAND_COLORS.predicted
                   }
                 ]}
@@ -726,13 +743,19 @@ function InferenceExplorer() {
                   showCI: true,
                   ciLevels: [0.8, 0.95],
                   showGrid: true,
-                  binCount: Math.min(50, Math.max(15, Math.ceil((visualizationData as number[]).length / 3)))
+                  binCount: (() => {
+                    // Adjust bin count based on data type
+                    const obsData = isCompound && typeof visualizationData[0] === 'object'
+                      ? (visualizationData as any[]).filter(u => u.converted && u.value > 0)
+                      : visualizationData as number[];
+                    return Math.min(50, Math.max(15, Math.ceil(obsData.length / 3)));
+                  })()
                 }}
                 width={700}
                 height={400}
                 margin={{ top: 40, right: 150, bottom: 60, left: 60 }}
-                formatValue={formatValue}
-                xLabel={getParameterLabel(modelType || selectedModel)}
+                formatValue={isCompound ? (v => `$${v.toFixed(0)}`) : formatValue}
+                xLabel={isCompound ? 'Value (Converted Users)' : getParameterLabel(modelType || selectedModel)}
                 title=""  // Clean look, no title
               />
             </VisualizationErrorBoundary>
@@ -741,8 +764,23 @@ function InferenceExplorer() {
             <div className="mt-4 border-t pt-4">
               <VisualizationErrorBoundary>
                 <AsyncPPCDiagnostics
-                  observedData={visualizationData as number[]}
-                  posterior={inferenceResult.posterior}
+                  observedData={(() => {
+                    // Same logic for observed data extraction
+                    if (isCompound && typeof visualizationData[0] === 'object') {
+                      return (visualizationData as any[])
+                        .filter(u => u.converted && u.value > 0)
+                        .map(u => u.value);
+                    }
+                    return visualizationData as number[];
+                  })()}
+                  posterior={(() => {
+                    // Same logic for posterior selection
+                    if (isCompound && inferenceResult?.posterior) {
+                      const compoundPosterior = inferenceResult.posterior as any;
+                      return compoundPosterior.severity;
+                    }
+                    return inferenceResult.posterior;
+                  })()}
                 />
               </VisualizationErrorBoundary>
             </div>

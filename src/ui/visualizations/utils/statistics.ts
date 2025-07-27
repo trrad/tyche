@@ -6,51 +6,80 @@ export interface DensityPoint {
 
 /**
  * Calculate kernel density estimate using Gaussian kernel
- * Uses Scott's rule for bandwidth selection
+ * Uses Silverman's rule for bandwidth selection
  */
 export function calculateKDE(
-  samples: number[], 
+  samples: number[],
   nPoints: number = 100,
-  bandwidth?: number
-): DensityPoint[] {
-  if (samples.length === 0) return [];
+  bandwidth?: number,
+  minValue?: number  // For positive-only constraint
+): Array<{ value: number; density: number }> {
+  if (!samples || samples.length === 0) {
+    return Array(nPoints).fill(0).map((_, i) => ({ 
+      value: i / (nPoints - 1), 
+      density: 0 
+    }));
+  }
+
+  // Filter valid samples
+  const validSamples = samples.filter(s => !isNaN(s) && isFinite(s));
   
-  // Calculate statistics
-  const n = samples.length;
-  const mean = samples.reduce((a, b) => a + b, 0) / n;
-  const variance = samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / n;
-  const std = Math.sqrt(variance);
+  if (validSamples.length === 0) {
+    return Array(nPoints).fill(0).map((_, i) => ({ 
+      value: i / (nPoints - 1), 
+      density: 0 
+    }));
+  }
+
+  // Calculate range
+  const sampleMin = Math.min(...validSamples);
+  const sampleMax = Math.max(...validSamples);
+  const range = sampleMax - sampleMin;
   
-  // Scott's rule for bandwidth if not provided
-  const h = bandwidth || (1.06 * std * Math.pow(n, -1/5));
+  // Handle edge case where all samples are identical
+  if (range === 0) {
+    const points = Array(nPoints).fill(0).map((_, i) => {
+      const offset = i - Math.floor(nPoints / 2);
+      const value = sampleMin + offset * 0.01;
+      const density = i === Math.floor(nPoints / 2) ? 1 : 0;
+      return { value, density };
+    });
+    return points;
+  }
   
-  // Determine range with padding
-  const min = Math.min(...samples);
-  const max = Math.max(...samples);
-  const range = max - min;
-  const paddedMin = min - range * 0.1;
-  const paddedMax = max + range * 0.1;
+  // Set domain with padding, respecting minValue constraint
+  const padding = range * 0.1;
+  const domainMin = minValue !== undefined 
+    ? Math.max(minValue, sampleMin - padding) 
+    : sampleMin - padding;
+  const domainMax = sampleMax + padding;
   
-  // Calculate density at each point
-  const points: DensityPoint[] = [];
+  // Generate x values
+  const xValues = Array(nPoints).fill(0).map((_, i) => 
+    domainMin + (domainMax - domainMin) * i / (nPoints - 1)
+  );
   
-  for (let i = 0; i < nPoints; i++) {
-    const value = paddedMin + (paddedMax - paddedMin) * i / (nPoints - 1);
+  // Calculate bandwidth using Silverman's rule if not provided
+  const h = bandwidth || silvermanBandwidth(validSamples);
+  
+  // Calculate KDE
+  const points = xValues.map(x => {
     let density = 0;
     
-    // Sum kernel contributions
-    for (const sample of samples) {
-      const u = (value - sample) / h;
-      density += Math.exp(-0.5 * u * u) / Math.sqrt(2 * Math.PI);
+    for (const xi of validSamples) {
+      const z = (x - xi) / h;
+      density += Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
     }
     
-    density /= (n * h);
+    density /= (validSamples.length * h);
     
-    // Calculate quantile (optional)
-    const quantile = samples.filter(s => s <= value).length / n;
+    // Enforce zero density below minValue
+    if (minValue !== undefined && x < minValue) {
+      density = 0;
+    }
     
-    points.push({ value, density, quantile });
-  }
+    return { value: x, density };
+  });
   
   return points;
 }

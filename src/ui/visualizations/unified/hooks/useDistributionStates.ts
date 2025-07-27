@@ -12,9 +12,9 @@ interface UseDistributionStatesOptions {
 
 export function useDistributionStates({
   distributions,
-  nSamples,
+  nSamples = 10000,  // Default to 10k samples - it's fast!
   cacheSamples = true,
-  adaptiveSampling = false
+  adaptiveSampling = false  // Usually not needed with 10k default
 }: UseDistributionStatesOptions): DistributionState[] {
   const [states, setStates] = useState<Map<string, DistributionState>>(new Map());
   const sampleCache = useRef<Map<string, number[]>>(new Map());
@@ -72,17 +72,33 @@ export function useDistributionStates({
         // Generate samples
         let samples: number[];
         
-        // Check if this is a compound posterior
-        const isCompound = dist.posterior && 
-                          typeof dist.posterior === 'object' &&
-                          'frequency' in dist.posterior && 
-                          'severity' in dist.posterior &&
-                          typeof dist.posterior.sample === 'function';
+        // Check if the posterior exists
+        if (!dist.posterior) {
+          throw new Error(`Distribution ${dist.id} does not have a posterior`);
+        }
         
-        if (dist.posterior instanceof PosteriorProxy) {
-          // Async posterior
+        // Special handling for compound proxy posteriors
+        if ((dist.posterior as any).__isCompoundProxy) {
+          const compound = dist.posterior as any;
+          
+          // For revenue distributions, sample from both components
+          if (dist.label?.toLowerCase().includes('revenue')) {
+            const [freqSamples, sevSamples] = await Promise.all([
+              compound.frequency.sample(effectiveNSamples),
+              compound.severity.sample(effectiveNSamples)
+            ]);
+            samples = freqSamples.map((f: number, i: number) => f * sevSamples[i]);
+          } else {
+            throw new Error('Cannot sample from compound posterior directly. Use frequency or severity components.');
+          }
+        } else if (dist.posterior instanceof PosteriorProxy) {
+          // Regular proxy posterior
           samples = await dist.posterior.sample(effectiveNSamples);
         } else {
+          // Sync posterior
+          if (typeof dist.posterior.sample !== 'function') {
+            throw new Error(`Distribution ${dist.id} posterior does not have a sample method`);
+          }
           // Sync posterior - generate in batches
           samples = [];
           const batchSize = 1000;
@@ -95,8 +111,8 @@ export function useDistributionStates({
               const sampleResult = dist.posterior.sample();
               
               // Handle compound posteriors that return [convRate, value, revenue]
-              if (isCompound && Array.isArray(sampleResult) && sampleResult.length === 3) {
-                // For compound posteriors showing revenue, use the 3rd element
+              if (Array.isArray(sampleResult) && sampleResult.length === 3) {
+                // For compound posteriors showing revenue, use the 3rd element (revenue per user)
                 samples.push(sampleResult[2]);
               } else if (Array.isArray(sampleResult)) {
                 // Regular posteriors return array with single element
