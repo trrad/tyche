@@ -1,7 +1,7 @@
 // src/ui/visualizations/UnifiedPPCDisplay.tsx
 import React, { useMemo } from 'react';
 import { AsyncPPCVisualizer } from './AsyncPPCVisualizer';
-import { PPCDiagnostics } from './PPCDiagnostics';
+import { AsyncPPCDiagnostics } from './AsyncPPCDiagnostics';
 import { Posterior } from '../../inference/base/types';
 
 interface UnifiedPPCDisplayProps {
@@ -112,7 +112,7 @@ export const UnifiedPPCDisplay: React.FC<UnifiedPPCDisplayProps> = ({
       </div>
       
       {showDiagnostics && (
-        <PPCDiagnostics
+        <AsyncPPCDiagnostics
           observedData={observedData}
           posterior={displayPosterior}
           nSamples={5000}

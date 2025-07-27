@@ -14,6 +14,19 @@ interface AsyncViolinPlotProps {
 
 type PlotState = 'idle' | 'loading' | 'ready' | 'error';
 
+// Helper to create a stable key from posteriors for change detection
+const getPosteriorKey = (posteriors: any): string => {
+  if (!posteriors) return 'null';
+  
+  if (posteriors instanceof Map) {
+    const keys = Array.from(posteriors.keys()).sort();
+    return `map:${keys.join(',')}:${posteriors.size}`;
+  }
+  
+  const keys = Object.keys(posteriors).sort();
+  return `obj:${keys.join(',')}:${keys.length}`;
+};
+
 export const AsyncViolinPlot: React.FC<AsyncViolinPlotProps> = ({
   data,
   posteriors,
@@ -29,11 +42,12 @@ export const AsyncViolinPlot: React.FC<AsyncViolinPlotProps> = ({
   // Use a generation ID to handle rapid updates
   const generationIdRef = useRef(0);
   
-  // Store previous posteriors to detect changes
-  const previousPosteriorsRef = useRef<any>(null);
+  // Track posterior changes more reliably
+  const previousPosteriorKeyRef = useRef<string>('');
+  const debounceTimerRef = useRef<number | null>(null);
   
   const generatePlotData = useCallback(async (currentGenerationId: number) => {
-    console.log('🟢 [I] Starting plot generation', { generationId: currentGenerationId });
+    console.log('🟢 [Plot Generation] Starting', { generationId: currentGenerationId });
     
     if (!posteriors || Object.keys(posteriors).length === 0) {
       console.log('No posteriors to plot');
@@ -54,6 +68,8 @@ export const AsyncViolinPlot: React.FC<AsyncViolinPlotProps> = ({
         ? Array.from(posteriors.entries())
         : Object.entries(posteriors);
       
+      console.log(`🟢 [Plot Generation] Processing ${entries.length} variants`);
+      
       for (const [variantId, posterior] of entries) {
         // Check if this generation was cancelled
         if (currentGenerationId !== generationIdRef.current) {
@@ -63,20 +79,61 @@ export const AsyncViolinPlot: React.FC<AsyncViolinPlotProps> = ({
         
         const variantName = variantId.charAt(0).toUpperCase() + variantId.slice(1);
         
-        // Direct sampling from PosteriorProxy
+        // Generate samples with proper PosteriorProxy handling
         let samples: number[];
         
-        if (posterior instanceof PosteriorProxy || posterior.sample) {
-          // For async posteriors, use the sample method
-          const sampleResult = await posterior.sample(1000);
-          // Handle both array return and single value return
-          samples = Array.isArray(sampleResult) ? sampleResult : Array(1000).fill(0).map(() => sampleResult);
-        } else {
-          // Fallback for any legacy sync posteriors
-          samples = [];
-          for (let i = 0; i < 1000; i++) {
-            samples.push(posterior.sample()[0]);
+        try {
+          if (posterior instanceof PosteriorProxy) {
+            // PosteriorProxy path - sample() returns Promise<number[]>
+            console.log(`🔵 [Sampling] Using PosteriorProxy for ${variantId}`);
+            samples = await posterior.sample(1000);
+            
+          } else if (posterior && typeof posterior.sample === 'function') {
+            // Check if it's async by testing the return value
+            const testResult = posterior.sample(1);
+            
+            if (testResult instanceof Promise) {
+              // Async posterior (but not PosteriorProxy)
+              console.log(`🔵 [Sampling] Using async posterior for ${variantId}`);
+              samples = await testResult; // Use the test result
+              if (samples.length < 1000) {
+                // Need more samples
+                const moreSamples = await posterior.sample(999);
+                samples = [...samples, ...moreSamples];
+              }
+            } else if (Array.isArray(testResult)) {
+              // Sync posterior that returns array
+              console.log(`🔵 [Sampling] Using sync array posterior for ${variantId}`);
+              samples = posterior.sample(1000);
+            } else {
+              // Legacy sync posterior returning single values
+              console.warn(`⚠️ [Sampling] Legacy single-value posterior for ${variantId}`);
+              samples = [];
+              for (let i = 0; i < 1000; i++) {
+                const value = posterior.sample();
+                samples.push(Array.isArray(value) ? value[0] : value);
+              }
+            }
+          } else {
+            throw new Error(`Invalid posterior type for ${variantId}`);
           }
+          
+          // Validate and clean samples
+          if (!Array.isArray(samples)) {
+            throw new Error(`Expected array of samples, got ${typeof samples}`);
+          }
+          
+          samples = samples.filter(s => typeof s === 'number' && !isNaN(s) && isFinite(s));
+          
+          if (samples.length === 0) {
+            throw new Error('No valid samples generated');
+          }
+          
+          console.log(`✅ [Sampling] Generated ${samples.length} samples for ${variantId}`);
+          
+        } catch (samplingError: any) {
+          console.error(`❌ [Sampling] Error for ${variantId}:`, samplingError);
+          throw new Error(`Failed to sample from ${variantId}: ${samplingError.message}`);
         }
         
         // Update progress
@@ -85,8 +142,7 @@ export const AsyncViolinPlot: React.FC<AsyncViolinPlotProps> = ({
           setProgress(variantProgress);
         }
         
-        console.log('🟢 [II] Generated samples for', variantId);
-        
+        // Calculate statistics
         const densityPoints = calculateKDE(samples, 50);
         const statistics = calculateViolinStats(samples);
         
@@ -134,50 +190,63 @@ export const AsyncViolinPlot: React.FC<AsyncViolinPlotProps> = ({
           }
         };
         
-        console.log('🟢 [III] Setting plot spec');
+        console.log('✅ [Plot Generation] Complete, setting spec');
         setPlotSpec(spec);
         setState('ready');
       }
     } catch (err) {
       if (currentGenerationId === generationIdRef.current) {
-        console.error('Plot generation failed:', err);
+        console.error('❌ [Plot Generation] Failed:', err);
         setError(err instanceof Error ? err.message : 'Unknown error');
         setState('error');
       }
     }
-  }, [posteriors, modelType]);
+  }, [modelType]); // Only depend on modelType, not posteriors
   
-  // Main effect - trigger generation when posteriors change
+  // Main effect with proper change detection and debouncing
   useEffect(() => {
-    console.log('📍 Posteriors effect running', { 
-      hasPosteriors: !!posteriors,
-      posteriorsChanged: posteriors !== previousPosteriorsRef.current 
+    const currentKey = getPosteriorKey(posteriors);
+    
+    console.log('📍 [Effect] Posteriors check', { 
+      currentKey,
+      previousKey: previousPosteriorKeyRef.current,
+      changed: currentKey !== previousPosteriorKeyRef.current
     });
     
     // Check if posteriors actually changed
-    if (posteriors === previousPosteriorsRef.current) {
+    if (currentKey === previousPosteriorKeyRef.current) {
       return;
     }
     
-    previousPosteriorsRef.current = posteriors;
+    previousPosteriorKeyRef.current = currentKey;
     
     if (!posteriors) {
       setState('idle');
       return;
     }
     
-    // Increment generation ID to cancel any in-progress generations
-    const newGenerationId = ++generationIdRef.current;
+    // Clear any existing debounce timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
     
-    // Start generation immediately
-    // Using Promise.resolve() to ensure it runs after the current execution
-    Promise.resolve().then(() => {
+    // Debounce plot generation by 100ms to batch rapid updates
+    debounceTimerRef.current = setTimeout(() => {
+      const newGenerationId = ++generationIdRef.current;
+      console.log('📍 [Effect] Triggering generation after debounce', { generationId: newGenerationId });
       generatePlotData(newGenerationId);
-    });
+    }, 100);
+    
+    // Cleanup
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
   }, [posteriors, modelType, generatePlotData]);
   
   // Render based on state
-  console.log('AsyncViolinPlot render:', { state, hasPlotSpec: !!plotSpec });
+  console.log('🎨 [Render]', { state, hasPlotSpec: !!plotSpec });
   
   switch (state) {
     case 'idle':

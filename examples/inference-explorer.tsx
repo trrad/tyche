@@ -278,10 +278,21 @@ function InferenceExplorer() {
     return generatedData || parseCustomData();
   }, [generatedData, customData]);
   
+  // Use the posterior directly instead of wrapping in a new object
   const posteriorData = useMemo(() => {
     if (!inferenceResult?.posterior) return null;
-    return { result: inferenceResult.posterior };
-  }, [inferenceResult?.posterior]);
+    
+    // For simple posteriors, create a stable object structure
+    const posterior = inferenceResult.posterior;
+    
+    // Check if it's a compound posterior
+    if ('frequency' in posterior && 'severity' in posterior) {
+      return null; // Will be handled by compound posterior memos
+    }
+    
+    // For simple posteriors, return a stable reference
+    return { result: posterior };
+  }, [inferenceResult]); // Use the whole result to detect actual changes
   
   const isCompound = useMemo(() => {
     return inferenceResult?.posterior && 
@@ -293,13 +304,13 @@ function InferenceExplorer() {
     if (!isCompound || !inferenceResult?.posterior) return null;
     const compoundPosterior = inferenceResult.posterior as any;
     return { result: compoundPosterior.frequency };
-  }, [isCompound, inferenceResult?.posterior]);
+  }, [isCompound, inferenceResult]); // Use stable dependencies
   
   const severityPosteriorData = useMemo(() => {
     if (!isCompound || !inferenceResult?.posterior) return null;
     const compoundPosterior = inferenceResult.posterior as any;
     return { result: compoundPosterior.severity };
-  }, [isCompound, inferenceResult?.posterior]);
+  }, [isCompound, inferenceResult]); // Use stable dependencies
   
   // Run inference
   const runInference = useCallback(async () => {

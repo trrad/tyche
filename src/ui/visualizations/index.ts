@@ -24,6 +24,7 @@ export { PosteriorSummary } from './PosteriorSummary';
 // Async visualization components
 export { AsyncViolinPlot } from './AsyncViolinPlot';
 export { AsyncPPCVisualizer } from './AsyncPPCVisualizer';
+export { AsyncPPCDiagnostics } from './AsyncPPCDiagnostics';
 
 // NEW: Violin plot and base utilities
 export * from './base';
