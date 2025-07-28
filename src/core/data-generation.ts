@@ -3,6 +3,8 @@ import { SyntheticDataGenerator } from '../tests/utilities/synthetic/DataGenerat
 import { BusinessScenarios } from '../tests/utilities/synthetic/BusinessScenarios';
 import { UserData } from '../inference/base/types';
 
+export type NoiseLevel = 'clean' | 'realistic' | 'noisy';
+
 export interface ComponentTruth {
   weight: number;
   distribution: string;
@@ -23,6 +25,7 @@ export interface GeneratedDataset {
     type: string;
     parameters: any;
     components?: ComponentTruth[];
+    noiseLevel?: NoiseLevel;
   };
   metadata: {
     sampleSize: number;
@@ -41,6 +44,44 @@ export class DataGenerator {
     this.seed = seed;
     this.generator = new SyntheticDataGenerator(seed);
     this.scenarios = new BusinessScenarios(seed);
+  }
+
+  /**
+   * Apply noise based on predefined noise level
+   */
+  applyNoiseLevel(data: number[], level: NoiseLevel): number[] {
+    if (level === 'clean') return data;
+    
+    let noisyData = [...data];
+    
+    // Noise parameters based on level
+    const noiseStd = level === 'realistic' ? 0.05 : 0.15;
+    const outlierRate = level === 'realistic' ? 0.02 : 0.05;
+    const outlierMagnitude = level === 'realistic' ? 5 : 20;
+    
+    // Apply measurement noise
+    noisyData = noisyData.map(value => {
+      const noise = this.generator.generateFromDistribution('normal', 
+        [0, Math.abs(value) * noiseStd], 1)[0];
+      return Math.max(0, value + noise);
+    });
+    
+    // Apply outliers
+    const numOutliers = Math.floor(data.length * outlierRate);
+    if (numOutliers > 0) {
+      const indices = Array.from({length: data.length}, (_, i) => i)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, numOutliers);
+      
+      const sorted = [...data].sort((a, b) => a - b);
+      const q75 = sorted[Math.floor(sorted.length * 0.75)];
+      
+      indices.forEach(idx => {
+        noisyData[idx] = q75 * outlierMagnitude * (0.8 + Math.random() * 0.4);
+      });
+    }
+    
+    return noisyData;
   }
 
   /**
@@ -126,17 +167,26 @@ export class DataGenerator {
    * Generate compound model data with ground truth
    */
   compound(conversionRate: number, revenueConfig: any, n: number): GeneratedDataset {
-    const result = this.scenarios.ecommerce({
-      baseConversionRate: conversionRate,
-      conversionLift: 0,
-      revenueDistribution: revenueConfig.distribution || 'lognormal',
-      revenueParams: revenueConfig.params || { mean: 75, variance: 1200 },
-      revenueLift: 0,
-      sampleSize: n
-    });
+    const users: UserData[] = [];
+    
+    for (let i = 0; i < n; i++) {
+      const converted = Math.random() < conversionRate;
+      let value = 0;
+      
+      if (converted) {
+        // Generate revenue for converted users
+        const { mean, variance } = revenueConfig.params || { mean: 75, variance: 1200 };
+        const cv = Math.sqrt(variance) / mean;
+        const sigma = Math.sqrt(Math.log(1 + cv * cv));
+        const mu = Math.log(mean) - sigma * sigma / 2;
+        value = Math.exp(this.generator.generateFromDistribution('normal', [mu, sigma], 1)[0]);
+      }
+      
+      users.push({ converted, value });
+    }
     
     return {
-      data: result.control,
+      data: users,
       groundTruth: {
         type: 'compound',
         parameters: {
@@ -358,6 +408,436 @@ export class DataGenerator {
     // LogNormal distribution
     lognormal: (logMean: number, logStd: number, n: number, seed?: number) =>
       new DataGenerator(seed).continuous('lognormal', { logMean, logStd }, n)
+  };
+
+  // Scenarios with noise levels
+  static scenarios = {
+    // Beta-Binomial scenarios
+    betaBinomial: {
+      clean: (p: number, n: number, seed?: number): GeneratedDataset => {
+        const gen = new DataGenerator(seed);
+        
+        // Seed-controlled conversion rate
+        const rng = new DataGenerator(seed);
+        const actualP = p + (rng.generator.generateFromDistribution('normal', [0, p * 0.1], 1)[0]);
+        const clampedP = Math.max(0.001, Math.min(0.999, actualP));
+        
+        const successes = Math.floor(clampedP * n + gen.generator.generateFromDistribution('normal', [0, Math.sqrt(n * clampedP * (1 - clampedP))], 1)[0]);
+        
+        return {
+          data: { 
+            successes: Math.max(0, Math.min(n, successes)), 
+            trials: n 
+          },
+          groundTruth: {
+            type: 'beta-binomial',
+            parameters: { 
+              probability: clampedP,
+              trials: n
+            },
+            noiseLevel: 'clean'
+          },
+          metadata: {
+            sampleSize: n,
+            seed,
+            generatedAt: new Date()
+          }
+        };
+      },
+      
+      realistic: (p: number, n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.betaBinomial.clean(p, n, seed);
+        const errorRate = 0.05;
+        
+        // Simulate measurement error
+        let noisySuccesses = 0;
+        for (let i = 0; i < base.data.trials; i++) {
+          const isSuccess = i < base.data.successes;
+          const hasError = Math.random() < errorRate;
+          if (hasError ? !isSuccess : isSuccess) {
+            noisySuccesses++;
+          }
+        }
+        
+        return {
+          ...base,
+          data: { successes: noisySuccesses, trials: base.data.trials },
+          groundTruth: { ...base.groundTruth, noiseLevel: 'realistic' }
+        };
+      },
+      
+      noisy: (p: number, n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.betaBinomial.clean(p, n, seed);
+        const errorRate = 0.15;
+        
+        let noisySuccesses = 0;
+        for (let i = 0; i < base.data.trials; i++) {
+          const isSuccess = i < base.data.successes;
+          const hasError = Math.random() < errorRate;
+          if (hasError ? !isSuccess : isSuccess) {
+            noisySuccesses++;
+          }
+        }
+        
+        return {
+          ...base,
+          data: { successes: noisySuccesses, trials: base.data.trials },
+          groundTruth: { ...base.groundTruth, noiseLevel: 'noisy' }
+        };
+      }
+    },
+    
+    // Revenue scenarios  
+    revenue: {
+      clean: (logMean: number, logStd: number, n: number, seed?: number): GeneratedDataset => {
+        const gen = new DataGenerator(seed);
+        
+        // Seed-controlled parameters
+        const rng = new DataGenerator(seed);
+        const actualLogMean = logMean + (rng.generator.generateFromDistribution('normal', [0, 0.1], 1)[0]);
+        const actualLogStd = logStd + (rng.generator.generateFromDistribution('normal', [0, 0.05], 1)[0]);
+        
+        const data = gen.generator.generateFromDistribution('lognormal', [actualLogMean, actualLogStd], n);
+        
+        return {
+          data,
+          groundTruth: {
+            type: 'lognormal',
+            parameters: { logMean: actualLogMean, logStd: actualLogStd },
+            noiseLevel: 'clean'
+          },
+          metadata: {
+            sampleSize: n,
+            seed,
+            generatedAt: new Date()
+          }
+        };
+      },
+      
+      realistic: (logMean: number, logStd: number, n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.revenue.clean(logMean, logStd, n, seed);
+        const gen = new DataGenerator(seed);
+        return {
+          ...base,
+          data: gen.applyNoiseLevel(base.data, 'realistic'),
+          groundTruth: { ...base.groundTruth, noiseLevel: 'realistic' }
+        };
+      },
+      
+      noisy: (logMean: number, logStd: number, n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.revenue.clean(logMean, logStd, n, seed);
+        const gen = new DataGenerator(seed);
+        return {
+          ...base,
+          data: gen.applyNoiseLevel(base.data, 'noisy'),
+          groundTruth: { ...base.groundTruth, noiseLevel: 'noisy' }
+        };
+      }
+    },
+    
+    // Customer segments
+    segments: {
+      clean: (n: number, seed?: number): GeneratedDataset => {
+        const gen = new DataGenerator(seed);
+        
+        // Seed-controlled parameters
+        const rng = new DataGenerator(seed);
+        const numSegments = Math.floor(2 + rng.generator.generateFromDistribution('normal', [0, 0.5], 1)[0]); // 2-3 segments
+        const segments = [];
+        
+        for (let i = 0; i < numSegments; i++) {
+          const weight = (1 / numSegments) + (rng.generator.generateFromDistribution('normal', [0, 0.1], 1)[0]);
+          const logMean = 3.2 + i * 0.8 + (rng.generator.generateFromDistribution('normal', [0, 0.2], 1)[0]);
+          const logStd = 0.4 + (rng.generator.generateFromDistribution('normal', [0, 0.1], 1)[0]);
+          
+          segments.push({
+            distribution: 'lognormal' as const,
+            params: [logMean, logStd],
+            weight: Math.max(0.1, Math.min(0.8, weight))
+          });
+        }
+        
+        // Normalize weights
+        const totalWeight = segments.reduce((sum, seg) => sum + seg.weight, 0);
+        segments.forEach(seg => seg.weight /= totalWeight);
+        
+        return gen.mixture(segments, n);
+      },
+      
+      realistic: (n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.segments.clean(n, seed);
+        const gen = new DataGenerator(seed);
+        return {
+          ...base,
+          data: gen.applyNoiseLevel(base.data, 'realistic'),
+          groundTruth: { ...base.groundTruth, noiseLevel: 'realistic' }
+        };
+      },
+      
+      noisy: (n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.segments.clean(n, seed);
+        const gen = new DataGenerator(seed);
+        return {
+          ...base,
+          data: gen.applyNoiseLevel(base.data, 'noisy'),
+          groundTruth: { ...base.groundTruth, noiseLevel: 'noisy' }
+        };
+      }
+    },
+    
+    // E-commerce compound
+    ecommerce: {
+      clean: (n: number, seed?: number): GeneratedDataset => {
+        const gen = new DataGenerator(seed);
+        const users: UserData[] = [];
+        
+        // Seed-controlled parameters
+        const rng = new DataGenerator(seed);
+        const conversionRate = 0.05 + (rng.generator.generateFromDistribution('normal', [0, 0.015], 1)[0]);
+        const revenueMean = 75 + (rng.generator.generateFromDistribution('normal', [0, 15], 1)[0]);
+        const revenueVariance = 1200 + (rng.generator.generateFromDistribution('normal', [0, 300], 1)[0]);
+        
+        for (let i = 0; i < n; i++) {
+          const converted = Math.random() < conversionRate;
+          let value = 0;
+          
+          if (converted) {
+            // Generate LogNormal revenue for converted users
+            const cv = Math.sqrt(revenueVariance) / revenueMean;
+            const sigma = Math.sqrt(Math.log(1 + cv * cv));
+            const mu = Math.log(revenueMean) - sigma * sigma / 2;
+            value = Math.exp(gen.generator.generateFromDistribution('normal', [mu, sigma], 1)[0]);
+          }
+          
+          users.push({ converted, value });
+        }
+        
+        return {
+          data: users,
+          groundTruth: {
+            type: 'compound-ecommerce',
+            parameters: { conversionRate, revenueMean, revenueVariance },
+            noiseLevel: 'clean'
+          },
+          metadata: { sampleSize: n, seed, generatedAt: new Date() }
+        };
+      },
+      
+      realistic: (n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.ecommerce.clean(n, seed);
+        const gen = new DataGenerator(seed);
+        
+        const noisyUsers = base.data.map((user: UserData) => {
+          if (user.converted && user.value > 0) {
+            const noisy = gen.applyNoiseLevel([user.value], 'realistic')[0];
+            return { ...user, value: noisy };
+          }
+          return user;
+        });
+        
+        return {
+          ...base,
+          data: noisyUsers,
+          groundTruth: { ...base.groundTruth, noiseLevel: 'realistic' }
+        };
+      },
+      
+      noisy: (n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.ecommerce.clean(n, seed);
+        const gen = new DataGenerator(seed);
+        
+        const noisyUsers = base.data.map((user: UserData) => {
+          if (user.converted && user.value > 0) {
+            const noisy = gen.applyNoiseLevel([user.value], 'noisy')[0];
+            return { ...user, value: noisy };
+          }
+          return user;
+        });
+        
+        return {
+          ...base,
+          data: noisyUsers,
+          groundTruth: { ...base.groundTruth, noiseLevel: 'noisy' }
+        };
+      }
+    },
+    
+    // SaaS subscription with tiers
+    saas: {
+      clean: (n: number, seed?: number): GeneratedDataset => {
+        const gen = new DataGenerator(seed);
+        const users: UserData[] = [];
+        
+        // Seed-controlled parameters
+        const rng = new DataGenerator(seed);
+        const conversionRate = 0.08 + (rng.generator.generateFromDistribution('normal', [0, 0.02], 1)[0]);
+        const tiers = [
+          { weight: 0.6, mean: 25 + rng.generator.generateFromDistribution('normal', [0, 5], 1)[0] },
+          { weight: 0.3, mean: 75 + rng.generator.generateFromDistribution('normal', [0, 15], 1)[0] },
+          { weight: 0.1, mean: 200 + rng.generator.generateFromDistribution('normal', [0, 50], 1)[0] }
+        ];
+        
+        for (let i = 0; i < n; i++) {
+          const converted = Math.random() < conversionRate;
+          let value = 0;
+          
+          if (converted) {
+            const rand = Math.random();
+            let cumulativeWeight = 0;
+            let selectedTier = tiers[0];
+            
+            for (const tier of tiers) {
+              cumulativeWeight += tier.weight;
+              if (rand <= cumulativeWeight) {
+                selectedTier = tier;
+                break;
+              }
+            }
+            
+            value = Math.max(0, selectedTier.mean + rng.generator.generateFromDistribution('normal', [0, selectedTier.mean * 0.3], 1)[0]);
+          }
+          
+          users.push({ converted, value });
+        }
+        
+        return {
+          data: users,
+          groundTruth: {
+            type: 'compound-saas',
+            parameters: { conversionRate, tiers },
+            noiseLevel: 'clean'
+          },
+          metadata: { sampleSize: n, seed, generatedAt: new Date() }
+        };
+      },
+      
+      realistic: (n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.saas.clean(n, seed);
+        const gen = new DataGenerator(seed);
+        
+        const noisyUsers = base.data.map((user: UserData) => {
+          if (user.converted && user.value > 0) {
+            const noisy = gen.applyNoiseLevel([user.value], 'realistic')[0];
+            return { ...user, value: noisy };
+          }
+          return user;
+        });
+        
+        return {
+          ...base,
+          data: noisyUsers,
+          groundTruth: { ...base.groundTruth, noiseLevel: 'realistic' }
+        };
+      },
+      
+      noisy: (n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.saas.clean(n, seed);
+        const gen = new DataGenerator(seed);
+        
+        const noisyUsers = base.data.map((user: UserData) => {
+          if (user.converted && user.value > 0) {
+            const noisy = gen.applyNoiseLevel([user.value], 'noisy')[0];
+            return { ...user, value: noisy };
+          }
+          return user;
+        });
+        
+        return {
+          ...base,
+          data: noisyUsers,
+          groundTruth: { ...base.groundTruth, noiseLevel: 'noisy' }
+        };
+      }
+    },
+    
+    // Marketplace with multiple sellers
+    marketplace: {
+      clean: (n: number, seed?: number): GeneratedDataset => {
+        const gen = new DataGenerator(seed);
+        const users: UserData[] = [];
+        
+        // Seed-controlled parameters
+        const rng = new DataGenerator(seed);
+        const conversionRate = 0.12 + (rng.generator.generateFromDistribution('normal', [0, 0.03], 1)[0]);
+        const sellers = [
+          { weight: 0.4, mean: 15 + rng.generator.generateFromDistribution('normal', [0, 3], 1)[0] },
+          { weight: 0.35, mean: 45 + rng.generator.generateFromDistribution('normal', [0, 8], 1)[0] },
+          { weight: 0.2, mean: 120 + rng.generator.generateFromDistribution('normal', [0, 25], 1)[0] },
+          { weight: 0.05, mean: 350 + rng.generator.generateFromDistribution('normal', [0, 100], 1)[0] }
+        ];
+        
+        for (let i = 0; i < n; i++) {
+          const converted = Math.random() < conversionRate;
+          let value = 0;
+          
+          if (converted) {
+            const rand = Math.random();
+            let cumulativeWeight = 0;
+            let selectedSeller = sellers[0];
+            
+            for (const seller of sellers) {
+              cumulativeWeight += seller.weight;
+              if (rand <= cumulativeWeight) {
+                selectedSeller = seller;
+                break;
+              }
+            }
+            
+            value = Math.max(0, selectedSeller.mean + rng.generator.generateFromDistribution('normal', [0, selectedSeller.mean * 0.4], 1)[0]);
+          }
+          
+          users.push({ converted, value });
+        }
+        
+        return {
+          data: users,
+          groundTruth: {
+            type: 'compound-marketplace',
+            parameters: { conversionRate, sellers },
+            noiseLevel: 'clean'
+          },
+          metadata: { sampleSize: n, seed, generatedAt: new Date() }
+        };
+      },
+      
+      realistic: (n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.marketplace.clean(n, seed);
+        const gen = new DataGenerator(seed);
+        
+        const noisyUsers = base.data.map((user: UserData) => {
+          if (user.converted && user.value > 0) {
+            const noisy = gen.applyNoiseLevel([user.value], 'realistic')[0];
+            return { ...user, value: noisy };
+          }
+          return user;
+        });
+        
+        return {
+          ...base,
+          data: noisyUsers,
+          groundTruth: { ...base.groundTruth, noiseLevel: 'realistic' }
+        };
+      },
+      
+      noisy: (n: number, seed?: number): GeneratedDataset => {
+        const base = DataGenerator.scenarios.marketplace.clean(n, seed);
+        const gen = new DataGenerator(seed);
+        
+        const noisyUsers = base.data.map((user: UserData) => {
+          if (user.converted && user.value > 0) {
+            const noisy = gen.applyNoiseLevel([user.value], 'noisy')[0];
+            return { ...user, value: noisy };
+          }
+          return user;
+        });
+        
+        return {
+          ...base,
+          data: noisyUsers,
+          groundTruth: { ...base.groundTruth, noiseLevel: 'noisy' }
+        };
+      }
+    }
   };
 }
 

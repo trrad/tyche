@@ -26,6 +26,7 @@ import { UnifiedDistributionViz, BRAND_COLORS } from '../src/ui/visualizations/u
 
 // New components
 import { ModelSelector } from '../src/ui/components/ModelSelector';
+import { CustomDataEditor } from '../src/ui/components/CustomDataEditor';
 import { MODEL_DESCRIPTIONS } from '../src/inference/InferenceEngine';
 
 // Styles
@@ -42,10 +43,12 @@ interface FitProgress {
 }
 
 interface DataSource {
-  type: 'test-scenario' | 'business-scenario' | 'generated' | 'custom' | 'preset';
   name: string;
   description: string;
-  generator: (n?: number) => any;
+  category: 'conversion' | 'revenue' | 'mixture' | 'compound';
+  noiseLevel: 'clean' | 'realistic' | 'noisy';
+  generator: (n?: number, seed?: number) => any;
+  code: string; // The code that generates this data
 }
 
 /**
@@ -77,6 +80,12 @@ function InferenceExplorer() {
   const [sampleSize, setSampleSize] = useState(1000);
   const [useCustomSampleSize, setUseCustomSampleSize] = useState(false);
   
+  // State for tracking selected synthetic source (for code auto-fill)
+  const [selectedSyntheticSource, setSelectedSyntheticSource] = useState<DataSource | null>(null);
+  const [useSeed, setUseSeed] = useState(false);
+  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 100000));
+  const [selectedNoiseLevel, setSelectedNoiseLevel] = useState<'clean' | 'realistic' | 'noisy'>('realistic');
+  
   // CRASH FIX: Clear results when data/model changes
   useEffect(() => {
     setInferenceResult(null);
@@ -90,6 +99,14 @@ function InferenceExplorer() {
       setError(null);
     }
   }, [generatedData]);
+  
+  // Clear results when noise level changes (since data sources are dynamic)
+  useEffect(() => {
+    setGeneratedData(null);
+    setGeneratedDataset(null);
+    setInferenceResult(null);
+    setError(null);
+  }, [selectedNoiseLevel]);
   
   // Debug: Log when inferenceResult changes
   useEffect(() => {
@@ -115,118 +132,182 @@ function InferenceExplorer() {
     }
   }, [inferenceError]);
   
-  // Available data sources - Simplified and curated selection
-  const dataSources: DataSource[] = useMemo(() => [
-    // Basic Models (minimal selection)
+  // Available data sources - Using new DataGenerator.scenarios API
+  const syntheticDataSources: DataSource[] = useMemo(() => [
+    // Conversion Rate Models
     {
-      type: 'test-scenario',
-      name: 'Beta-Binomial: Typical',
-      description: 'Low conversion rate (3%) with high sample size',
-      generator: (n?: number) => TestScenarios.betaBinomial.typical.generateData(n)
-    },
-    {
-      type: 'test-scenario',
-      name: 'Revenue: E-commerce',
-      description: 'Heavy-tailed LogNormal with high variance',
-      generator: (n?: number) => TestScenarios.revenue.ecommerce.generateData(n || 500)
-    },
-    
-    // Mixture Models (more variety)
-    {
-      type: 'test-scenario',
-      name: 'Mixture: Bimodal',
-      description: 'Two distinct Normal components',
-      generator: (n?: number) => TestScenarios.mixtures.bimodal.generateData(n || 500)
-    },
-    {
-      type: 'test-scenario',
-      name: 'Mixture: Revenue Segments',
-      description: 'LogNormal mixture with customer tiers',
-      generator: (n?: number) => TestScenarios.mixtures.revenueMixture.generateData(n || 500)
+      name: 'Conversion Rate',
+      description: '5% conversion rate',
+      category: 'conversion',
+      noiseLevel: selectedNoiseLevel,
+      generator: (n, seed) => {
+        switch (selectedNoiseLevel) {
+          case 'clean': return DataGenerator.scenarios.betaBinomial.clean(0.05, n || 1000, seed);
+          case 'realistic': return DataGenerator.scenarios.betaBinomial.realistic(0.05, n || 1000, seed);
+          case 'noisy': return DataGenerator.scenarios.betaBinomial.noisy(0.05, n || 1000, seed);
+        }
+      },
+      code: `return DataGenerator.scenarios.betaBinomial.${selectedNoiseLevel}(0.05, 1000, seed);`
     },
     
-    // Compound Models (most variety - real-world complexity)
+    // Revenue Models - Different distributions
     {
-      type: 'test-scenario',
-      name: 'Compound: Control (Gamma)',
-      description: 'Low variance Gamma with moderate conversion',
-      generator: (n?: number) => TestScenarios.compound.controlVariant.generateUsers(n || 1000)
-    },
-    {
-      type: 'test-scenario',
-      name: 'Compound: Treatment (LogNormal)',
-      description: 'High variance LogNormal with conversion lift',
-      generator: (n?: number) => TestScenarios.compound.treatmentVariant.generateUsers(n || 1000)
-    },
-    {
-      type: 'test-scenario',
-      name: 'Compound: Multimodal Revenue',
-      description: 'Bimodal revenue with customer segments',
-      generator: (n?: number) => TestScenarios.compound.multimodalRevenue.generateUsers(n || 1000)
+      name: 'Revenue (LogNormal)',
+      description: 'LogNormal(μ=3.5, σ=0.5) revenue distribution',
+      category: 'revenue',
+      noiseLevel: selectedNoiseLevel,
+      generator: (n, seed) => {
+        switch (selectedNoiseLevel) {
+          case 'clean': return DataGenerator.scenarios.revenue.clean(3.5, 0.5, n || 1000, seed);
+          case 'realistic': return DataGenerator.scenarios.revenue.realistic(3.5, 0.5, n || 1000, seed);
+          case 'noisy': return DataGenerator.scenarios.revenue.noisy(3.5, 0.5, n || 1000, seed);
+        }
+      },
+      code: `return DataGenerator.scenarios.revenue.${selectedNoiseLevel}(3.5, 0.5, 1000, seed);`
     },
     
-    // Business Scenarios (real-world examples)
     {
-      type: 'business-scenario',
-      name: 'E-commerce: Control (LogNormal)',
-      description: 'Heavy-tailed revenue with low conversion',
-      generator: (n?: number) => {
-        const sampleSize = n || 2000;
-        const data = businessScenarios.ecommerce({
-          baseConversionRate: 0.05,
-          conversionLift: 0,
-          revenueDistribution: 'lognormal',
-          revenueParams: { mean: 75, variance: 1500 },
-          revenueLift: 0,
-          sampleSize
-        });
-        return data.control;
-      }
+      name: 'Revenue (Normal)',
+      description: 'Normal(μ=100, σ=30) revenue distribution',
+      category: 'revenue',
+      noiseLevel: selectedNoiseLevel,
+      generator: (n, seed) => {
+        const gen = new DataGenerator(seed);
+        const baseData = gen.continuous('normal', { mean: 100, std: 30 }, n || 1000);
+        if (selectedNoiseLevel === 'clean') return baseData;
+        
+        const noisyData = gen.applyNoiseLevel(baseData.data, selectedNoiseLevel);
+        return {
+          ...baseData,
+          data: noisyData,
+          groundTruth: { ...baseData.groundTruth, noiseLevel: selectedNoiseLevel }
+        };
+      },
+      code: `const gen = new DataGenerator(seed);
+const baseData = gen.continuous('normal', { mean: 100, std: 30 }, 1000);
+${selectedNoiseLevel !== 'clean' ? `const noisyData = gen.applyNoiseLevel(baseData.data, '${selectedNoiseLevel}');
+return { ...baseData, data: noisyData, groundTruth: { ...baseData.groundTruth, noiseLevel: '${selectedNoiseLevel}' } };` : 'return baseData;'}`
     },
+    
     {
-      type: 'business-scenario',
-      name: 'E-commerce: Treatment (LogNormal)',
-      description: 'Treatment effect with conversion & revenue lift',
-      generator: (n?: number) => {
-        const sampleSize = n || 2000;
-        const data = businessScenarios.ecommerce({
-          baseConversionRate: 0.05,
-          conversionLift: 0.3,
-          revenueDistribution: 'lognormal',
-          revenueParams: { mean: 75, variance: 1500 },
-          revenueLift: 0.1,
-          sampleSize
-        });
-        return data.treatment;
-      }
+      name: 'Revenue (Gamma)',
+      description: 'Gamma(shape=2, scale=50) revenue distribution',
+      category: 'revenue',
+      noiseLevel: selectedNoiseLevel,
+      generator: (n, seed) => {
+        const gen = new DataGenerator(seed);
+        const baseData = gen.continuous('gamma', { shape: 2, scale: 50 }, n || 1000);
+        if (selectedNoiseLevel === 'clean') return baseData;
+        
+        const noisyData = gen.applyNoiseLevel(baseData.data, selectedNoiseLevel);
+        return {
+          ...baseData,
+          data: noisyData,
+          groundTruth: { ...baseData.groundTruth, noiseLevel: selectedNoiseLevel }
+        };
+      },
+      code: `const gen = new DataGenerator(seed);
+const baseData = gen.continuous('gamma', { shape: 2, scale: 50 }, 1000);
+${selectedNoiseLevel !== 'clean' ? `const noisyData = gen.applyNoiseLevel(baseData.data, '${selectedNoiseLevel}');
+return { ...baseData, data: noisyData, groundTruth: { ...baseData.groundTruth, noiseLevel: '${selectedNoiseLevel}' } };` : 'return baseData;'}`
+    },
+    
+    // Customer Segments (Revenue-level data)
+    {
+      name: 'Customer Segments',
+      description: '2 segments: Budget (70%) & Premium (30%)',
+      category: 'revenue',
+      noiseLevel: selectedNoiseLevel,
+      generator: (n, seed) => {
+        switch (selectedNoiseLevel) {
+          case 'clean': return DataGenerator.scenarios.segments.clean(n || 1000, seed);
+          case 'realistic': return DataGenerator.scenarios.segments.realistic(n || 1000, seed);
+          case 'noisy': return DataGenerator.scenarios.segments.noisy(n || 1000, seed);
+        }
+      },
+      code: `return DataGenerator.scenarios.segments.${selectedNoiseLevel}(1000, seed);`
+    },
+    
+    // Compound Models (User-level data)
+    {
+      name: 'E-commerce (Compound)',
+      description: '5% conversion, $75 AOV - user-level data',
+      category: 'compound',
+      noiseLevel: selectedNoiseLevel,
+      generator: (n, seed) => {
+        switch (selectedNoiseLevel) {
+          case 'clean': return DataGenerator.scenarios.ecommerce.clean(n || 2000, seed);
+          case 'realistic': return DataGenerator.scenarios.ecommerce.realistic(n || 2000, seed);
+          case 'noisy': return DataGenerator.scenarios.ecommerce.noisy(n || 2000, seed);
+        }
+      },
+      code: `return DataGenerator.scenarios.ecommerce.${selectedNoiseLevel}(2000, seed);`
+    },
+    
+    {
+      name: 'SaaS Subscriptions',
+      description: '3-tier SaaS with seed-controlled parameters',
+      category: 'compound',
+      noiseLevel: selectedNoiseLevel,
+      generator: (n, seed) => {
+        switch (selectedNoiseLevel) {
+          case 'clean': return DataGenerator.scenarios.saas.clean(n || 2000, seed);
+          case 'realistic': return DataGenerator.scenarios.saas.realistic(n || 2000, seed);
+          case 'noisy': return DataGenerator.scenarios.saas.noisy(n || 2000, seed);
+        }
+      },
+      code: `return DataGenerator.scenarios.saas.${selectedNoiseLevel}(2000, seed);`
+    },
+    
+    {
+      name: 'Marketplace',
+      description: '4-seller marketplace with variable pricing',
+      category: 'compound',
+      noiseLevel: selectedNoiseLevel,
+      generator: (n, seed) => {
+        switch (selectedNoiseLevel) {
+          case 'clean': return DataGenerator.scenarios.marketplace.clean(n || 2000, seed);
+          case 'realistic': return DataGenerator.scenarios.marketplace.realistic(n || 2000, seed);
+          case 'noisy': return DataGenerator.scenarios.marketplace.noisy(n || 2000, seed);
+        }
+      },
+      code: `return DataGenerator.scenarios.marketplace.${selectedNoiseLevel}(2000, seed);`
     }
-  ], [businessScenarios]);
+  ], [selectedNoiseLevel]);
   
   // Preset data sources - Curated selection with ground truth
   const presetDataSources: DataSource[] = useMemo(() => [
     {
-      type: 'preset',
       name: 'Four Segments (Stress Test)',
       description: '4-component Normal mixture with known parameters',
-      generator: (n?: number) => DataGenerator.presets.fourSegments(n || 1000, Date.now())
+      category: 'mixture',
+      noiseLevel: 'clean',
+      generator: (n?: number) => DataGenerator.presets.fourSegments(n || 1000, Date.now()),
+      code: 'DataGenerator.presets.fourSegments(n || 1000, Date.now())'
     },
     {
-      type: 'preset',
       name: 'E-commerce with Segments',
       description: 'Compound data with customer segment effects',
-      generator: (n?: number) => DataGenerator.presets.ecommerceSegments(n || 1000, Date.now())
+      category: 'compound',
+      noiseLevel: 'realistic',
+      generator: (n?: number) => DataGenerator.presets.ecommerceSegments(n || 1000, Date.now()),
+      code: 'DataGenerator.presets.ecommerceSegments(n || 1000, Date.now())'
     },
     {
-      type: 'preset',
       name: 'Beta-Binomial (Known Truth)',
       description: '5% conversion with ground truth for validation',
-      generator: (n?: number) => DataGenerator.presets.betaBinomial(0.05, n || 1000, Date.now())
+      category: 'conversion',
+      noiseLevel: 'clean',
+      generator: (n?: number) => DataGenerator.presets.betaBinomial(0.05, n || 1000, Date.now()),
+      code: 'DataGenerator.presets.betaBinomial(0.05, n || 1000, Date.now())'
     },
     {
-      type: 'preset',
       name: 'LogNormal (Known Truth)',
       description: 'LogNormal revenue with ground truth for validation',
-      generator: (n?: number) => DataGenerator.presets.lognormal(3.5, 0.5, n || 1000, Date.now())
+      category: 'revenue',
+      noiseLevel: 'clean',
+      generator: (n?: number) => DataGenerator.presets.lognormal(3.5, 0.5, n || 1000, Date.now()),
+      code: 'DataGenerator.presets.lognormal(3.5, 0.5, n || 1000, Date.now())'
     }
   ], []);
   
@@ -234,15 +315,15 @@ function InferenceExplorer() {
   const filteredDataSources = useMemo(() => {
     if (dataSourceType === 'custom') return [];
     // Combine all synthetic sources
-    return [...dataSources, ...presetDataSources];
-  }, [dataSourceType, dataSources, presetDataSources]);
+    return [...syntheticDataSources, ...presetDataSources];
+  }, [dataSourceType, syntheticDataSources, presetDataSources]);
   
   // Auto-select first source when type changes
   useEffect(() => {
     if (dataSourceType !== 'custom' && filteredDataSources.length > 0) {
       // Only change selection if current selection is not in the filtered list
       const currentInFiltered = filteredDataSources.find(ds => 
-        ds.name === selectedDataSource?.name && ds.type === selectedDataSource?.type
+        ds.name === selectedDataSource?.name
       );
       if (!currentInFiltered) {
         setSelectedDataSource(filteredDataSources[0]);
@@ -260,7 +341,8 @@ function InferenceExplorer() {
     
     try {
       const n = useCustomSampleSize ? sampleSize : undefined;
-      const result = selectedDataSource.generator(n);
+      const s = useSeed ? seed : undefined; // Only use seed if fixed seed is enabled
+      const result = selectedDataSource.generator(n, s);
       
       // Check if this is a GeneratedDataset (has groundTruth)
       if (result && typeof result === 'object' && 'groundTruth' in result && 'data' in result) {
@@ -277,7 +359,7 @@ function InferenceExplorer() {
       setGeneratedData(null);
       setGeneratedDataset(null);
     }
-  }, [selectedDataSource, useCustomSampleSize, sampleSize]);
+  }, [selectedDataSource, useCustomSampleSize, sampleSize, seed, useSeed]);
   
   // Parse custom data
   const parseCustomData = useCallback(() => {
@@ -470,7 +552,9 @@ function InferenceExplorer() {
               onChange={(e) => {
                 const idx = parseInt(e.target.value);
                 if (!isNaN(idx) && idx >= 0 && idx < filteredDataSources.length) {
-                  setSelectedDataSource(filteredDataSources[idx]);
+                  const selected = filteredDataSources[idx];
+                  setSelectedDataSource(selected);
+                  setSelectedSyntheticSource(selected);
                   setGeneratedData(null);
                 }
               }}
@@ -479,11 +563,11 @@ function InferenceExplorer() {
               <option value="" disabled>Select a dataset...</option>
               
               {/* Group by data format compatibility */}
-              <optgroup label="📊 Simple Data (Beta-Binomial & Revenue)">
+              <optgroup label="📊 Simple Data (Conversion & Revenue)">
                 {filteredDataSources
-                  .filter(ds => !ds.name.includes('Compound') && !ds.name.includes('E-commerce'))
+                  .filter(ds => ds.category === 'conversion' || ds.category === 'revenue')
                   .map((ds) => (
-                    <option key={`${ds.type}-${ds.name}`} value={filteredDataSources.indexOf(ds)}>
+                    <option key={ds.name} value={filteredDataSources.indexOf(ds)}>
                       {ds.name} - {ds.description}
                     </option>
                   ))}
@@ -491,9 +575,9 @@ function InferenceExplorer() {
               
               <optgroup label="🎯 Compound Data (User-level)">
                 {filteredDataSources
-                  .filter(ds => ds.name.includes('Compound') || ds.name.includes('E-commerce'))
+                  .filter(ds => ds.category === 'compound')
                   .map((ds) => (
-                    <option key={`${ds.type}-${ds.name}`} value={filteredDataSources.indexOf(ds)}>
+                    <option key={ds.name} value={filteredDataSources.indexOf(ds)}>
                       {ds.name} - {ds.description}
                     </option>
                   ))}
@@ -529,11 +613,40 @@ function InferenceExplorer() {
                   : generatedData.trials 
                     ? `Regenerate Data (${generatedData.successes}/${generatedData.trials})`
                     : 'Regenerate Data'}
+                {isCompound && Array.isArray(generatedData) && (
+                  <span className="text-xs opacity-75">
+                    {' '}({generatedData.filter(u => u.converted).length} converted)
+                  </span>
+                )}
               </>
             ) : (
               'Generate Data'
             )}
           </button>
+          
+          {/* Noise Level Selection - Smaller and below button */}
+          <div className="text-center">
+            <div className="inline-flex gap-3 text-xs">
+              {(['clean', 'realistic', 'noisy'] as const).map(level => (
+                <label key={level} className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="noise-level"
+                    value={level}
+                    checked={selectedNoiseLevel === level}
+                    onChange={(e) => setSelectedNoiseLevel(e.target.value as any)}
+                    className="w-3 h-3 text-purple-600 focus:ring-purple-500"
+                  />
+                  <span className="text-gray-600 capitalize">{level}</span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              {selectedNoiseLevel === 'clean' && 'No noise'}
+              {selectedNoiseLevel === 'realistic' && '5% error, 2% outliers'}
+              {selectedNoiseLevel === 'noisy' && '15% error, 5% outliers'}
+            </div>
+          </div>
           
           {/* Sample size controls */}
           {selectedDataSource && (
@@ -552,22 +665,51 @@ function InferenceExplorer() {
               </div>
               
               {useCustomSampleSize && (
-                <div className="pl-6">
-                  <label className="text-sm text-gray-600">
-                    Sample size: <span className="font-medium text-gray-900">{sampleSize.toLocaleString()}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="100"
-                    max="10000"
-                    step="100"
-                    value={sampleSize}
-                    onChange={(e) => setSampleSize(parseInt(e.target.value))}
-                    className="w-full mt-1"
-                  />
-                  <div className="flex justify-between text-xs text-gray-500 mt-1">
-                    <span>100</span>
-                    <span>10,000</span>
+                <div className="pl-6 space-y-3">
+                  <div>
+                    <label className="text-sm text-gray-600">
+                      Sample size: <span className="font-medium text-gray-900">{sampleSize.toLocaleString()}</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="100"
+                      max="10000"
+                      step="100"
+                      value={sampleSize}
+                      onChange={(e) => setSampleSize(parseInt(e.target.value))}
+                      className="w-full mt-1"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>100</span>
+                      <span>10,000</span>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="use-fixed-seed"
+                        checked={useSeed}
+                        onChange={(e) => setUseSeed(e.target.checked)}
+                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                      />
+                      <label htmlFor="use-fixed-seed" className="text-sm font-medium text-gray-700">
+                        Use fixed seed
+                      </label>
+                    </div>
+                    
+                    {useSeed && (
+                      <div className="mt-2">
+                        <input
+                          type="number"
+                          value={seed}
+                          onChange={(e) => setSeed(parseInt(e.target.value) || 0)}
+                          className="w-full px-3 py-1 text-sm border rounded"
+                          placeholder="Seed value"
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -577,52 +719,17 @@ function InferenceExplorer() {
       )}
       
       {dataSourceType === 'custom' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <select
-              value={customDataFormat}
-              onChange={(e) => setCustomDataFormat(e.target.value as any)}
-              className="w-full p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="array">Array of numbers</option>
-              <option value="binomial">Binomial (successes, trials)</option>
-              <option value="compound">Compound (converted, value)</option>
-            </select>
-            
-            <a 
-              href="https://github.com/trrad/tyche/blob/main/src/inference/Readme.md#api-and-data-formats" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="ml-3 text-sm text-purple-600 hover:text-purple-700 underline flex items-center gap-1"
-              title="View data format documentation"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-              Data Formats
-            </a>
-          </div>
-          
-          <textarea
-            value={customData}
-            onChange={(e) => setCustomData(e.target.value)}
-            placeholder={
-              customDataFormat === 'array' ? '10.5, 20.3, 15.8, ...' :
-              customDataFormat === 'binomial' ? '45, 1000' :
-              '1, 95.50\n0, 0\n1, 105.25\n...'
-            }
-            className="w-full h-40 p-3 border border-gray-200 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-          />
-          
-          <div className="text-sm text-gray-600">
-            {customDataFormat === 'array' && 'Enter comma-separated numbers'}
-            {customDataFormat === 'binomial' && 'Enter successes and trials (e.g., "45, 1000")'}
-            {customDataFormat === 'compound' && 'Each line: converted (0/1), revenue'}
-          </div>
-        </div>
+        <CustomDataEditor
+          onDataGenerated={(data, dataset) => {
+            setGeneratedData(data);
+            setGeneratedDataset(dataset || null);
+            setError(null);
+          }}
+          onError={setError}
+          seed={useSeed ? seed : undefined}
+          initialCode={selectedSyntheticSource?.code.replace('1000', sampleSize.toString()).replace('2000', sampleSize.toString())}
+        />
       )}
-      
-
     </div>
   );
   
