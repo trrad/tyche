@@ -41,8 +41,8 @@ interface FitProgress {
 interface DataSource {
   name: string;
   description: string;
-  category: 'conversion' | 'revenue' | 'mixture' | 'compound';
-  generator: (n?: number, seed?: number, noiseLevel?: NoiseLevel) => any;
+  category: 'conversion' | 'revenue' | 'mixture' | 'compound' | 'custom';
+  generator: ((n?: number, seed?: number, noiseLevel?: NoiseLevel) => any) | null;
   getCode: (noiseLevel: NoiseLevel) => string; // Function to generate code based on noise level
 }
 
@@ -64,9 +64,7 @@ function InferenceExplorer() {
   // PPC configuration
   const [showDiagnostics, setShowDiagnostics] = useState(true);
   
-  // Custom data input
-  const [customData, setCustomData] = useState('');
-  const [customDataFormat, setCustomDataFormat] = useState<'array' | 'binomial' | 'compound'>('array');
+  // Custom data input - now handled by CustomDataEditor
   
   // State for data source type selection - now simplified
   const [dataSourceType, setDataSourceType] = useState<'synthetic' | 'custom'>('synthetic');
@@ -80,6 +78,20 @@ function InferenceExplorer() {
   const [useSeed, setUseSeed] = useState(false);
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 100000));
   const [selectedNoiseLevel, setSelectedNoiseLevel] = useState<NoiseLevel>('realistic');
+  
+  // Add shared state for custom code
+  const [customCode, setCustomCode] = useState(`// Generate clean conversion rate data
+return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
+  
+  // Update custom code when selectedDataSource or sample size changes (but not for Custom)
+  useEffect(() => {
+    if (selectedDataSource && selectedDataSource.name !== 'Custom') {
+      const newCode = selectedDataSource.getCode(selectedNoiseLevel)
+        .replace(/1000/g, sampleSize.toString())
+        .replace(/2000/g, sampleSize.toString());
+      setCustomCode(newCode);
+    }
+  }, [selectedDataSource, selectedNoiseLevel, sampleSize]);
   
   // CRASH FIX: Clear results when data/model changes
   useEffect(() => {
@@ -317,9 +329,18 @@ return {
         if (noiseLevel === 'clean') return baseCode + '\nreturn base;';
         return baseCode + `
 const gen = new DataGenerator(seed);
+// For compound data, apply noise only to revenue values
+const noisyUsers = base.data.map((user) => {
+  if (user.converted && user.value > 0) {
+    const noisy = gen.applyNoiseLevel([user.value], '${noiseLevel}')[0];
+    return { ...user, value: noisy };
+  }
+  return user;
+});
+
 return {
   ...base,
-  data: gen.applyNoiseLevel(base.data, '${noiseLevel}'),
+  data: noisyUsers,
   groundTruth: { ...base.groundTruth, noiseLevel: '${noiseLevel}' }
 };`;
       }
@@ -383,24 +404,30 @@ return {
   // Filter data sources based on selected type
   const filteredDataSources = useMemo(() => {
     if (dataSourceType === 'custom') return [];
-    // Combine all synthetic sources
-    return [...syntheticDataSources, ...presetDataSources];
+    // Combine all synthetic sources and add Custom option
+    return [...syntheticDataSources, ...presetDataSources, {
+      name: 'Custom',
+      description: 'Use custom code from the Custom Data tab',
+      category: 'custom' as const,
+      generator: null, // Special handling - will use custom code
+      getCode: (noiseLevel: NoiseLevel) => '' // Code comes from custom tab
+    }];
   }, [dataSourceType, syntheticDataSources, presetDataSources]);
   
-  // Auto-select first source when type changes
+  // Auto-select first source when type changes - but preserve user selection
   useEffect(() => {
     if (dataSourceType !== 'custom' && filteredDataSources.length > 0) {
       // Only change selection if current selection is not in the filtered list
       const currentInFiltered = filteredDataSources.find(ds => 
         ds.name === selectedDataSource?.name
       );
-      if (!currentInFiltered) {
+      if (!currentInFiltered && !selectedDataSource) {
+        // Only auto-select if no selection exists at all
         setSelectedDataSource(filteredDataSources[0]);
-        setGeneratedData(null);
       }
+      // Never clear generated data when switching tabs
     } else if (dataSourceType === 'custom') {
-      setSelectedDataSource(null);
-      setGeneratedData(null);
+      // Never clear anything when switching to custom tab
     }
   }, [dataSourceType, filteredDataSources, selectedDataSource]);
   
@@ -409,10 +436,20 @@ return {
     if (!selectedDataSource) return;
     
     try {
+      // Special handling for Custom source
+      if (selectedDataSource.name === 'Custom') {
+        // The custom data should already be generated via CustomDataEditor
+        // Just ensure we're using the custom tab's data
+        if (!generatedData) {
+          setError('Please generate data in the Custom Data tab first');
+        }
+        return;
+      }
+      
       const n = useCustomSampleSize ? sampleSize : undefined;
       const s = useSeed ? seed : undefined; // Only use seed if fixed seed is enabled
       // Pass the selected noise level to the generator
-      const result = selectedDataSource.generator(n, s, selectedNoiseLevel);
+      const result = selectedDataSource.generator!(n, s, selectedNoiseLevel);
       
       // Check if this is a GeneratedDataset (has groundTruth)
       if (result && typeof result === 'object' && 'groundTruth' in result && 'data' in result) {
@@ -431,55 +468,12 @@ return {
     }
   }, [selectedDataSource, useCustomSampleSize, sampleSize, seed, useSeed, selectedNoiseLevel]); // Add selectedNoiseLevel
   
-  // Parse custom data
-  const parseCustomData = useCallback(() => {
-    try {
-      if (!customData.trim()) {
-        setError('Please enter some data');
-        return null;
-      }
-      
-      if (customDataFormat === 'array') {
-        const numbers = customData.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
-        if (numbers.length === 0) {
-          setError('No valid numbers found');
-          return null;
-        }
-        return numbers;
-      } else if (customDataFormat === 'binomial') {
-        const parts = customData.trim().split(',').map(s => parseInt(s.trim()));
-        if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
-          setError('Expected format: successes, trials');
-          return null;
-        }
-        return { successes: parts[0], trials: parts[1] };
-      } else if (customDataFormat === 'compound') {
-        const lines = customData.trim().split('\n');
-        const users = lines.map(line => {
-          const parts = line.trim().split(',');
-          if (parts.length !== 2) return null;
-          const converted = parseInt(parts[0].trim());
-          const value = parseFloat(parts[1].trim());
-          if (isNaN(converted) || isNaN(value)) return null;
-          return { converted: converted === 1, value };
-        }).filter(u => u !== null);
-        
-        if (users.length === 0) {
-          setError('No valid user data found');
-          return null;
-        }
-        return users;
-      }
-    } catch (err) {
-      setError(`Failed to parse data: ${err}`);
-      return null;
-    }
-  }, [customData, customDataFormat]);
+
   
   // Memoize data and posteriors to prevent unnecessary re-renders
   const visualizationData = useMemo(() => {
-    return generatedData || parseCustomData();
-  }, [generatedData, customData]);
+    return generatedData;
+  }, [generatedData]);
   
   // Format value based on model type
   const formatValue = useCallback((value: number) => {
@@ -546,7 +540,7 @@ return {
   
   // Run inference
   const runInference = useCallback(async () => {
-    const dataToAnalyze = selectedDataSource ? generatedData : parseCustomData();
+    const dataToAnalyze = generatedData;
     if (!dataToAnalyze) {
       setError('No data to analyze');
       return;
@@ -586,7 +580,7 @@ return {
       setInferenceResult(result);
       setModelType(result.diagnostics.modelType as ModelType || selectedModel);
     }
-  }, [selectedDataSource, generatedData, parseCustomData, selectedModel, runInferenceWorker, numComponents]);
+  }, [generatedData, selectedModel, runInferenceWorker, numComponents]);
   
   // UI Components
   const DataSourceSelector = () => (
@@ -599,9 +593,7 @@ return {
             key={type}
             onClick={() => {
               setDataSourceType(type);
-              setSelectedDataSource(null);
-              setGeneratedData(null);
-              setGeneratedDataset(null);
+              // Don't clear selection or data when switching tabs
             }}
             className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               dataSourceType === type
@@ -618,14 +610,14 @@ return {
         <div className="space-y-3">
           <div className="relative">
             <select
-              value={selectedDataSource ? filteredDataSources.indexOf(selectedDataSource) : ''}
+              value={selectedDataSource ? filteredDataSources.findIndex(ds => ds.name === selectedDataSource.name) : ''}
               onChange={(e) => {
                 const idx = parseInt(e.target.value);
                 if (!isNaN(idx) && idx >= 0 && idx < filteredDataSources.length) {
                   const selected = filteredDataSources[idx];
                   setSelectedDataSource(selected);
                   setSelectedSyntheticSource(selected);
-                  setGeneratedData(null);
+                  // Don't clear generated data when changing selection
                 }
               }}
               className="w-full p-3 pr-10 border border-gray-200 rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -646,6 +638,16 @@ return {
               <optgroup label="🎯 Compound Data (User-level)">
                 {filteredDataSources
                   .filter(ds => ds.category === 'compound')
+                  .map((ds) => (
+                    <option key={ds.name} value={filteredDataSources.indexOf(ds)}>
+                      {ds.name} - {ds.description}
+                    </option>
+                  ))}
+              </optgroup>
+              
+              <optgroup label="⚙️ Custom Data">
+                {filteredDataSources
+                  .filter(ds => ds.category === 'custom')
                   .map((ds) => (
                     <option key={ds.name} value={filteredDataSources.indexOf(ds)}>
                       {ds.name} - {ds.description}
@@ -683,11 +685,6 @@ return {
                   : generatedData.trials 
                     ? `Regenerate Data (${generatedData.successes}/${generatedData.trials})`
                     : 'Regenerate Data'}
-                {isCompound && Array.isArray(generatedData) && (
-                  <span className="text-xs opacity-75">
-                    {' '}({generatedData.filter(u => u.converted).length} converted)
-                  </span>
-                )}
               </>
             ) : (
               'Generate Data'
@@ -721,6 +718,21 @@ return {
           {/* Sample size controls */}
           {selectedDataSource && (
             <div className="mt-4 p-3 bg-gray-50 rounded-lg space-y-2">
+              
+              {/* Custom code usage indicator */}
+              {selectedDataSource?.name === 'Custom' && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm text-amber-800">
+                    Using custom code from the Custom Data tab.{' '}
+                    <button 
+                      onClick={() => setDataSourceType('custom')}
+                      className="text-amber-900 underline font-medium hover:text-amber-700"
+                    >
+                      Edit code →
+                    </button>
+                  </p>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -790,6 +802,10 @@ return {
       
       {dataSourceType === 'custom' && (
         <CustomDataEditor
+          key="custom-data-editor" // Stable key to prevent unnecessary re-renders
+          code={customCode}
+          onCodeChange={setCustomCode}
+          generatedData={generatedData}
           onDataGenerated={(data, dataset) => {
             setGeneratedData(data);
             setGeneratedDataset(dataset || null);
@@ -797,7 +813,7 @@ return {
           }}
           onError={setError}
           seed={useSeed ? seed : undefined}
-          initialCode={selectedSyntheticSource?.getCode(selectedNoiseLevel).replace('1000', sampleSize.toString()).replace('2000', sampleSize.toString())}
+
         />
       )}
     </div>
@@ -808,11 +824,11 @@ return {
     <div className="space-y-2">
       <button
         onClick={isAnalyzing ? cancelInference : runInference}
-        disabled={(!generatedData && !customData.trim()) && !isAnalyzing}
+        disabled={!generatedData && !isAnalyzing}
         className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center ${
           isAnalyzing
             ? 'bg-red-500 text-white hover:bg-red-600 shadow-sm' // Cancel button
-            : (!generatedData && !customData.trim())
+            : !generatedData
               ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
               : 'bg-purple-600 hover:bg-purple-700 text-white shadow-sm'
         }`}
@@ -852,7 +868,7 @@ return {
     const ModelSelectorComponent = () => {
     // Calculate data size for component recommendations
     const getDataSize = () => {
-      const data = selectedDataSource ? generatedData : parseCustomData();
+              const data = generatedData;
       if (!data) return undefined;
       
       if (Array.isArray(data)) {

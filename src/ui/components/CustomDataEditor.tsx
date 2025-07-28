@@ -6,26 +6,29 @@ interface CustomDataEditorProps {
   onError: (error: string) => void;
   seed?: number;
   initialCode?: string; // For auto-filling from selected scenario
+  code?: string; // Add - for controlled component
+  onCodeChange?: (code: string) => void; // Add - for controlled component
+  generatedData?: any; // Add - for CSV export
 }
 
 export const CustomDataEditor: React.FC<CustomDataEditorProps> = ({ 
   onDataGenerated, 
   onError, 
   seed,
-  initialCode 
+  initialCode,
+  code: controlledCode,
+  onCodeChange,
+  generatedData: propsGeneratedData
 }) => {
-  const [code, setCode] = useState(initialCode || `// Generate clean conversion rate data
+  const [internalCode, setInternalCode] = useState(`// Generate clean conversion rate data
 return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
+  const code = controlledCode ?? internalCode;
+  const setCode = onCodeChange ?? setInternalCode;
   
   const [isGenerating, setIsGenerating] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
-  // Update code when initialCode changes (from UI selection)
-  useEffect(() => {
-    if (initialCode) {
-      setCode(initialCode);
-    }
-  }, [initialCode]);
+
 
   // Example templates
   const examples = [
@@ -107,6 +110,34 @@ return {
     }
   };
 
+  const exportToCSV = () => {
+    if (!propsGeneratedData) {
+      onError('No data to export');
+      return;
+    }
+    
+    let csvContent = '';
+    const data = propsGeneratedData;
+    
+    if (Array.isArray(data) && typeof data[0] === 'number') {
+      // Simple array of numbers
+      csvContent = 'value\n' + data.join('\n');
+    } else if (data.successes !== undefined && data.trials !== undefined) {
+      // Binomial data
+      csvContent = `successes,trials\n${data.successes},${data.trials}`;
+    } else if (Array.isArray(data) && data[0]?.converted !== undefined) {
+      // Compound data (UserData)
+      csvContent = 'converted,value\n';
+      csvContent += data.map((u: any) => `${u.converted ? 1 : 0},${u.value}`).join('\n');
+    } else {
+      onError('Unknown data format for CSV export');
+      return;
+    }
+    
+    navigator.clipboard.writeText(csvContent);
+    // TODO: Add success toast notification
+  };
+
   // Auto-resize textarea
   useEffect(() => {
     if (editorRef.current) {
@@ -156,17 +187,31 @@ return {
           📖 DataGenerator Documentation
         </a>
         
-        <button
-          onClick={runCode}
-          disabled={isGenerating || !code.trim()}
-          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-            isGenerating || !code.trim()
-              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-              : 'bg-purple-600 text-white hover:bg-purple-700'
-          }`}
-        >
-          {isGenerating ? 'Generating...' : 'Generate Data'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={exportToCSV}
+            disabled={!propsGeneratedData}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              !propsGeneratedData
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : 'bg-green-600 text-white hover:bg-green-700'
+            }`}
+          >
+            📋 Copy as CSV
+          </button>
+          
+          <button
+            onClick={runCode}
+            disabled={isGenerating || !code.trim()}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+              isGenerating || !code.trim()
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                : 'bg-purple-600 text-white hover:bg-purple-700'
+            }`}
+          >
+            {isGenerating ? 'Generating...' : 'Generate Data'}
+          </button>
+        </div>
       </div>
 
       {/* API Quick Reference */}
