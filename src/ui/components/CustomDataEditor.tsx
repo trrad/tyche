@@ -1,87 +1,53 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { DataGenerator, GeneratedDataset } from '../../tests/utilities/synthetic/DataGenerator';
 
 interface CustomDataEditorProps {
   onDataGenerated: (data: any, dataset?: GeneratedDataset) => void;
   onError: (error: string) => void;
   seed?: number;
-  initialCode?: string; // For auto-filling from selected scenario
-  code?: string; // Add - for controlled component
-  onCodeChange?: (code: string) => void; // Add - for controlled component
-  generatedData?: any; // Add - for CSV export
+  generatedData?: any; // For CSV export
+  selectedScenario?: any;
+  sampleSize?: number;
+  noiseLevel?: any;
 }
 
-export const CustomDataEditor: React.FC<CustomDataEditorProps> = React.memo(({ 
+export const CustomDataEditor: React.FC<CustomDataEditorProps> = ({ 
   onDataGenerated, 
   onError, 
   seed,
-  initialCode,
-  code: controlledCode,
-  onCodeChange,
-  generatedData: propsGeneratedData
+  generatedData: propsGeneratedData,
+  selectedScenario,
+  sampleSize,
+  noiseLevel = 'realistic'
 }) => {
-  const [internalCode, setInternalCode] = useState(`// Generate clean conversion rate data
+  const [code, setCode] = useState(`// Generate clean conversion rate data
 return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
-  const code = controlledCode ?? internalCode;
-  const setCode = onCodeChange ?? setInternalCode;
   
   const [isGenerating, setIsGenerating] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
-
-
-  // Example templates
-  const examples = [
-    {
-      name: 'Simple Conversion',
-      code: `// Clean conversion rate data
-return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`
-    },
-    {
-      name: 'Noisy Revenue',
-      code: `// Revenue with outliers
-return DataGenerator.scenarios.revenue.noisy(3.5, 0.5, 1000, seed);`
-    },
-    {
-      name: 'Custom Mixture',
-      code: `// Create a 3-component mixture
-const gen = new DataGenerator(seed);
-return gen.mixture([
-  { distribution: 'lognormal', params: [2.5, 0.3], weight: 0.5 },
-  { distribution: 'lognormal', params: [3.8, 0.2], weight: 0.35 },
-  { distribution: 'lognormal', params: [5.0, 0.4], weight: 0.15 }
-], 1000);`
-    },
-    {
-      name: 'Custom Noise',
-      code: `// Generate base data and apply custom noise
-const gen = new DataGenerator(seed);
-const baseData = gen.generateFromDistribution('gamma', [2, 50], 1000);
-
-// Apply value-dependent noise
-const noisyData = baseData.map(value => {
-  const noiseFactor = Math.min(value / 100, 0.3);
-  const noise = gen.generator.generateFromDistribution(
-    'normal', [0, value * noiseFactor], 1
-  )[0];
-  return Math.max(0, value + noise);
-});
-
-return {
-  data: noisyData,
-  groundTruth: {
-    type: 'gamma',
-    parameters: { shape: 2, scale: 50 },
-    customNoise: 'value-dependent'
-  },
-  metadata: {
-    sampleSize: 1000,
-    seed: seed,
-    generatedAt: new Date()
-  }
-};`
+  // Copy from selected scenario
+  const copyFromScenario = useCallback(() => {
+    console.log('Copy clicked', { selectedScenario, noiseLevel, sampleSize });
+    
+    if (!selectedScenario || !selectedScenario.getCode) {
+      onError('No scenario selected in Synthetic Data tab');
+      return;
     }
-  ];
+    
+    let scenarioCode = selectedScenario.getCode(noiseLevel);
+    console.log('Original code:', scenarioCode);
+    
+    // Replace sample size if specified
+    if (sampleSize) {
+      scenarioCode = scenarioCode.replace(/\b1000\b/g, sampleSize.toString());
+      scenarioCode = scenarioCode.replace(/\b2000\b/g, sampleSize.toString());
+    }
+    
+    console.log('Final code:', scenarioCode);
+    setCode(scenarioCode);
+    onError(''); // Clear any errors
+  }, [selectedScenario, noiseLevel, sampleSize, onError]);
 
   const runCode = useCallback(() => {
     setIsGenerating(true);
@@ -135,11 +101,10 @@ return {
     }
     
     navigator.clipboard.writeText(csvContent);
-    // TODO: Add success toast notification
   }, [propsGeneratedData, onError]);
 
   // Auto-resize textarea
-  useEffect(() => {
+  React.useEffect(() => {
     if (editorRef.current) {
       editorRef.current.style.height = 'auto';
       editorRef.current.style.height = editorRef.current.scrollHeight + 'px';
@@ -148,23 +113,58 @@ return {
 
   return (
     <div className="space-y-4">
-      {/* Quick Examples */}
-      <div className="flex gap-2 flex-wrap">
-        {examples.map((ex, idx) => (
-          <button
-            key={idx}
-            onClick={() => setCode(ex.code)}
-            className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-full transition-colors"
-          >
-            {ex.name}
-          </button>
-        ))}
+      {/* Copy button */}
+      <div className="flex gap-2 flex-wrap items-center">
+        <button
+          onClick={copyFromScenario}
+          disabled={!selectedScenario}
+          className={`px-3 py-1 text-sm rounded-full transition-colors flex items-center gap-1 ${
+            selectedScenario
+              ? 'bg-purple-100 hover:bg-purple-200 text-purple-700'
+              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+          }`}
+          title={selectedScenario ? 
+            `Copy code from: ${selectedScenario.name}` : 
+            'Select a scenario in Synthetic Data tab first'
+          }
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+              d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+          </svg>
+          Copy from Synthetic
+        </button>
       </div>
+
+      {/* Show what will be copied */}
+      {selectedScenario && (
+        <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+          Will copy: <span className="font-medium">{selectedScenario.name}</span>
+          {sampleSize && ` (${sampleSize} samples)`}
+          {` with ${noiseLevel} noise`}
+        </div>
+      )}
 
       {/* Code Editor */}
       <div className="relative">
-        <div className="absolute top-2 right-2 text-xs text-gray-500 font-mono">
-          seed: {seed || 'random'}
+        <div className="absolute top-2 right-2 flex items-center gap-2">
+          <button
+            onClick={exportToCSV}
+            disabled={!propsGeneratedData}
+            className={`p-1 rounded transition-colors ${
+              !propsGeneratedData
+                ? 'text-gray-400 cursor-not-allowed'
+                : 'text-gray-500 hover:text-gray-300'
+            }`}
+            title="Copy data as CSV"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </button>
+          <div className="text-xs text-gray-500 font-mono">
+            seed: {seed || 'random'}
+          </div>
         </div>
         <textarea
           ref={editorRef}
@@ -187,31 +187,32 @@ return {
           📖 DataGenerator Documentation
         </a>
         
-        <div className="flex gap-2">
-          <button
-            onClick={exportToCSV}
-            disabled={!propsGeneratedData}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              !propsGeneratedData
-                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                : 'bg-green-600 text-white hover:bg-green-700'
-            }`}
-          >
-            📋 Copy as CSV
-          </button>
-          
-          <button
-            onClick={runCode}
-            disabled={isGenerating || !code.trim()}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              isGenerating || !code.trim()
-                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                : 'bg-purple-600 text-white hover:bg-purple-700'
-            }`}
-          >
-            {isGenerating ? 'Generating...' : 'Generate Data'}
-          </button>
-        </div>
+        <button
+          onClick={runCode}
+          disabled={isGenerating || !code.trim()}
+          className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
+            isGenerating || !code.trim()
+              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              : 'bg-purple-600 hover:bg-purple-700 text-white shadow-sm'
+          }`}
+        >
+          {isGenerating ? (
+            <>
+              <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              Generating...
+            </>
+          ) : (
+            <>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Generate Data
+            </>
+          )}
+        </button>
       </div>
 
       {/* API Quick Reference */}
@@ -232,4 +233,4 @@ new DataGenerator(seed).applyNoiseLevel(data, 'clean'|'realistic'|'noisy')`}
       </details>
     </div>
   );
-}); 
+}; 

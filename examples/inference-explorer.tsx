@@ -79,19 +79,7 @@ function InferenceExplorer() {
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 100000));
   const [selectedNoiseLevel, setSelectedNoiseLevel] = useState<NoiseLevel>('realistic');
   
-  // Add shared state for custom code
-  const [customCode, setCustomCode] = useState(`// Generate clean conversion rate data
-return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
-  
-  // Update custom code when selectedDataSource or sample size changes (but not for Custom)
-  useEffect(() => {
-    if (selectedDataSource && selectedDataSource.name !== 'Custom') {
-      const newCode = selectedDataSource.getCode(selectedNoiseLevel)
-        .replace(/1000/g, sampleSize.toString())
-        .replace(/2000/g, sampleSize.toString());
-      setCustomCode(newCode);
-    }
-  }, [selectedDataSource, selectedNoiseLevel, sampleSize]);
+
   
   // CRASH FIX: Clear results when data/model changes
   useEffect(() => {
@@ -404,14 +392,8 @@ return {
   // Filter data sources based on selected type
   const filteredDataSources = useMemo(() => {
     if (dataSourceType === 'custom') return [];
-    // Combine all synthetic sources and add Custom option
-    return [...syntheticDataSources, ...presetDataSources, {
-      name: 'Custom',
-      description: 'Use custom code from the Custom Data tab',
-      category: 'custom' as const,
-      generator: null, // Special handling - will use custom code
-      getCode: (noiseLevel: NoiseLevel) => '' // Code comes from custom tab
-    }];
+    // Combine all synthetic sources
+    return [...syntheticDataSources, ...presetDataSources];
   }, [dataSourceType, syntheticDataSources, presetDataSources]);
   
   // Auto-select first source when type changes - but preserve user selection
@@ -645,15 +627,7 @@ return {
                   ))}
               </optgroup>
               
-              <optgroup label="⚙️ Custom Data">
-                {filteredDataSources
-                  .filter(ds => ds.category === 'custom')
-                  .map((ds) => (
-                    <option key={ds.name} value={filteredDataSources.indexOf(ds)}>
-                      {ds.name} - {ds.description}
-                    </option>
-                  ))}
-              </optgroup>
+
             </select>
             
             {/* Custom dropdown arrow */}
@@ -719,20 +693,7 @@ return {
           {selectedDataSource && (
             <div className="mt-4 p-3 bg-gray-50 rounded-lg space-y-2">
               
-              {/* Custom code usage indicator */}
-              {selectedDataSource?.name === 'Custom' && (
-                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                  <p className="text-sm text-amber-800">
-                    Using custom code from the Custom Data tab.{' '}
-                    <button 
-                      onClick={() => setDataSourceType('custom')}
-                      className="text-amber-900 underline font-medium hover:text-amber-700"
-                    >
-                      Edit code →
-                    </button>
-                  </p>
-                </div>
-              )}
+
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -802,8 +763,6 @@ return {
       
       {dataSourceType === 'custom' && (
         <CustomDataEditor
-          code={customCode}
-          onCodeChange={setCustomCode}
           generatedData={generatedData}
           onDataGenerated={(data, dataset) => {
             setGeneratedData(data);
@@ -812,6 +771,9 @@ return {
           }}
           onError={setError}
           seed={useSeed ? seed : undefined}
+          selectedScenario={selectedDataSource}
+          sampleSize={useCustomSampleSize ? sampleSize : undefined}
+          noiseLevel={selectedNoiseLevel}
         />
       )}
     </div>
