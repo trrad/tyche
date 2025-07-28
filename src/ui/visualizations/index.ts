@@ -1,60 +1,35 @@
 // src/ui/visualizations/index.ts
 
-// NEW: Unified Distribution Visualization (RECOMMENDED)
+// PRIMARY: Unified Distribution Visualization System
 export * from './unified';
 
-// Core visualization components (DEPRECATED - use UnifiedDistributionViz)
-export { DistributionPlot } from './DistributionPlot';
-export type { DistributionPlotProps } from './DistributionPlot';
-
-export { UpliftGraph } from './UpliftGraph';
-export type { UpliftGraphProps } from './UpliftGraph';
-
-export { ComparisonPlot } from './ComparisonPlot';
-export type { ComparisonPlotProps } from './ComparisonPlot';
-
-// Safe wrappers with error handling (DEPRECATED)
-export { SafeDistributionPlot } from './SafeDistributionPlot';
-export { SafeUpliftGraph } from './SafeUpliftGraph';
-
-// Sync inference visualization components (DEPRECATED - use async versions)
-export { PPCVisualizer } from './PPCVisualizer';
-export { PPCDiagnostics } from './PPCDiagnostics';
-export { ParameterSpaceVisualizer } from './ParameterSpaceVisualizer';
-export { DiagnosticsPanel } from './DiagnosticsPanel';
-export { PosteriorSummary } from './PosteriorSummary';
-
-// Async visualization components
-// AsyncViolinPlot and AsyncPPCVisualizer are DEPRECATED - use UnifiedDistributionViz
-export { AsyncViolinPlot } from './AsyncViolinPlot';
-export { AsyncPPCVisualizer } from './AsyncPPCVisualizer';
-// These are still maintained:
-export { AsyncPPCDiagnostics } from './AsyncPPCDiagnostics';
+// CORE: Essential visualization components
 export { AsyncPosteriorSummary } from './AsyncPosteriorSummary';
+export { AsyncPPCDiagnostics } from './AsyncPPCDiagnostics';
+export { DiagnosticsPanel } from './DiagnosticsPanel';
 
-// Unified displays (DEPRECATED - use UnifiedDistributionViz directly)
-export { UnifiedPPCDisplay } from './UnifiedPPCDisplay';
-export { UnifiedParameterSpaceDisplay } from './UnifiedParameterSpaceDisplay';
-
-// Base visualization utilities
+// BASE: Foundation utilities and types
 export * from './base';
 export { useAsyncPosterior, usePosteriorStats } from './base/useAsyncPosterior';
 export type { AsyncPosteriorState, UseAsyncPosteriorOptions } from './base/useAsyncPosterior';
 export { AsyncBaseVisualization, withAsyncPosterior } from './base/AsyncBaseVisualization';
 export type { AsyncVisualizationProps } from './base/AsyncBaseVisualization';
 
-// Violin plot and utilities (DEPRECATED - use UnifiedDistributionViz with mode='ridge')
-export { ViolinPlot } from './ViolinPlot';
-export type { ViolinPlotProps, ViolinPlotSpec, ViolinData } from './ViolinPlot';
-export { SimpleViolinPlot } from './SimpleViolinExample';
-
-// Utility functions
+// UTILS: Statistical utilities
 export * from './utils/statistics';
 
-// Migration helpers - temporary aliases for easy migration
-export { 
-  UnifiedDistributionViz as RecommendedDistributionPlot,
-  UnifiedDistributionViz as RecommendedPPCVisualizer,
-  UnifiedDistributionViz as RecommendedComparisonPlot,
-  UnifiedDistributionViz as RecommendedViolinPlot
-} from './unified';
+// RECOMMENDED: Use UnifiedDistributionViz for all visualization needs
+// 
+// Examples:
+// - Distribution plots: <UnifiedDistributionViz distributions={[...]} />
+// - PPC visualizations: <UnifiedDistributionViz mode="mixed" />
+// - Comparison plots: <UnifiedDistributionViz comparison={{mode: 'overlay'}} />
+// - Ridge plots: <UnifiedDistributionViz mode="ridge" />
+//
+// The unified system handles:
+// - Async posterior sampling
+// - Multiple display modes (density, histogram, ridge, mixed, ecdf)
+// - Comparison analysis
+// - PPC diagnostics
+// - Interactive features (future)
+// - Error boundaries and loading states
