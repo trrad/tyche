@@ -26,11 +26,19 @@ export class ParameterRecoveryUtils {
     engine: InferenceEngine,
     modelType?: any
   ): Promise<RecoveryResult> {
+    // Map 'mixture' ground truth to specific mixture type
+    let actualModelType = modelType;
+    if (!modelType && dataset.groundTruth.type === 'mixture') {
+      const data = dataset.data as number[];
+      const allPositive = data.every(x => x > 0);
+      actualModelType = allPositive ? 'lognormal-mixture' : 'normal-mixture';
+    }
+    
     // Run inference
-    const result = await engine.fit(modelType || 'auto', { data: dataset.data });
+    const result = await engine.fit(actualModelType || modelType || 'auto', { data: dataset.data });
     
     // Extract recovered parameters using the same logic as the UI
-    const recovered = this.extractParameters(result.posterior, modelType || dataset.groundTruth.type);
+    const recovered = this.extractParameters(result.posterior, actualModelType || modelType || dataset.groundTruth.type);
     
     // Compare to ground truth
     const metrics = this.compareParameters(dataset.groundTruth, recovered, result.posterior);
@@ -102,38 +110,30 @@ export class ParameterRecoveryUtils {
       if (groundTruth.type === 'beta-binomial') {
         trueValue = groundTruth.parameters.probability;
         recoveredValue = recovered.frequency?.probability || recovered.mean;
-        credibleInterval = recovered.frequency?.ci || recovered.ci || [[0, 1]];
+        credibleInterval = recovered.frequency?.ci ? [recovered.frequency.ci] : [recovered.ci];
       } else if (groundTruth.type === 'lognormal') {
+        // Calculate true mean from lognormal parameters
+        const logMean = groundTruth.parameters.logMean;
+        const logStd = groundTruth.parameters.logStd;
+        trueValue = Math.exp(logMean + logStd * logStd / 2);
+        recoveredValue = recovered.mean;
+        credibleInterval = [recovered.ci];
+      } else if (groundTruth.type === 'normal' || groundTruth.type === 'gamma') {
         trueValue = groundTruth.parameters.mean;
         recoveredValue = recovered.mean;
-        credibleInterval = recovered.ci || [[0, 1]];
-      } else if (groundTruth.type === 'gamma') {
-        trueValue = groundTruth.parameters.mean;
-        recoveredValue = recovered.mean;
-        credibleInterval = recovered.ci || [[0, 1]];
-      } else if (groundTruth.type === 'normal-mixture' || groundTruth.type === 'lognormal-mixture') {
-        // For mixtures, check number of components and overall statistics
-        const numComponentsMatch = recovered.numComponents === groundTruth.parameters.components;
-        
-        // Compare overall mean (weighted average)
-        const trueMean = groundTruth.parameters.means.reduce((sum: number, mean: number, i: number) => 
-          sum + mean * groundTruth.parameters.weights[i], 0
+        credibleInterval = [recovered.ci];
+      } else if (groundTruth.type === 'mixture' || groundTruth.type.includes('mixture')) {
+        // For mixtures, use the posterior's overall mean
+        trueValue = groundTruth.components.reduce((sum: number, comp: any) => 
+          sum + comp.weight * comp.parameters.mean, 0
         );
-        const recoveredMean = recovered.components.reduce((sum: number, comp: any) => 
-          sum + comp.mean * comp.weight, 0
-        );
-        
-        trueValue = trueMean;
-        recoveredValue = recoveredMean;
-        
-        // For mixtures, use a simple coverage check based on overall mean
-        const margin = Math.abs(trueMean) * 0.2; // 20% margin
-        credibleInterval = [[recoveredMean - margin, recoveredMean + margin]];
-      } else if (groundTruth.type.startsWith('compound-')) {
+        recoveredValue = posterior.mean()[0]; // Use posterior's mean directly
+        credibleInterval = [posterior.credibleInterval(0.95)[0]];
+      } else if (groundTruth.type.includes('compound')) {
         // For compound models, check conversion rate
         trueValue = groundTruth.parameters.conversionRate;
         recoveredValue = recovered.frequency?.probability || NaN;
-        credibleInterval = recovered.frequency?.ci || [[0, 1]];
+        credibleInterval = recovered.frequency?.ci ? [recovered.frequency.ci] : [[0, 1]];
       } else {
         // Unknown type
         return { relativeError, absoluteError, coverageCheck, credibleInterval };
@@ -144,8 +144,9 @@ export class ParameterRecoveryUtils {
         absoluteError = Math.abs(recoveredValue - trueValue);
         relativeError = absoluteError / Math.abs(trueValue);
         
-        // Check coverage - simple and reliable
-        if (credibleInterval && credibleInterval[0] && !isNaN(credibleInterval[0][0])) {
+        // Check coverage
+        if (credibleInterval && credibleInterval[0] && 
+            !isNaN(credibleInterval[0][0]) && !isNaN(credibleInterval[0][1])) {
           coverageCheck = credibleInterval[0][0] <= trueValue && trueValue <= credibleInterval[0][1];
         }
       }
