@@ -1,187 +1,106 @@
-# Business-Level Models
+# Business Models
 
-High-level statistical models that compose distributions and inference methods for specific business use cases.
+High-level APIs that compose distributions and inference for specific business use cases.
 
-## Current State
+## Current Structure
 
-**What exists:**
-- `ConversionValueModel.ts` - Old computation graph approach (TO BE DELETED)
-- `ConversionValueModelVI.ts` - Working VI-based implementation
-- Mixed abstraction levels (low-level inference with business logic)
-
-**Problems:**
-- Old model uses deprecated computation graph
-- VI model works but could be cleaner with new architecture
-- No clear pattern for new business models
-
-## Desired State
-
-**Clean business model implementations:**
 ```
 models/
-├── base/
-│   └── BusinessModel.ts         # Common interface
-├── CompoundModel.ts            # Frequency × Severity composition
-├── ConversionValueModelVI.ts   # Current working model (refactored)
-├── RevenueModel.ts             # Future: pure revenue analysis
-└── SegmentedModel.ts           # Future: with user segments
+├── compound/
+│   ├── CompoundModel.ts        # Base class and implementations
+│   └── README.md              # Compound model details
+├── ConversionValueModelVI.ts   # Legacy VI-based implementation
+├── ConversionValueModel2.ts    # Current implementation using CompoundModel
+└── index.ts                   # Public exports
 ```
 
-## Design Philosophy
+## Active Models
 
-### Compound Model Architecture
+### ConversionValueModel2
 
-We use "compound models" (frequency × severity) instead of zero-inflated models for business clarity. The term comes from actuarial science where it's standard for modeling claim frequency × claim severity.
+The current implementation for analyzing experiments with conversion and revenue data. Built on top of the compound model architecture.
 
 ```typescript
-export class CompoundModel<
-  FrequencyDist extends Distribution,
-  SeverityDist extends Distribution
-> {
-  private frequency: FrequencyDist;  // "Did they convert?"
-  private severity: SeverityDist;    // "How much did they spend?"
-  
-  async analyze(data: VariantData[]): Promise<BusinessResults> {
-    // Part 1: Conversion analysis
-    const conversionResults = await this.analyzeConversion(data);
-    
-    // Part 2: Value analysis (converters only)
-    const valueResults = await this.analyzeValue(data);
-    
-    // Combine for business insights
-    return this.combineResults(conversionResults, valueResults);
-  }
-}
+const model = new ConversionValueModel2();
+model.addVariant({ name: 'control', users: controlData });
+model.addVariant({ name: 'treatment', users: treatmentData });
 
-// Supports mixtures for complex value distributions (1-4 components)
-type ValueDistribution = Gamma | LogNormal | NormalMixture | LogNormalMixture;
-const model = new CompoundModel<Beta, LogNormalMixture>();
+const results = await model.analyze();
+// Results include conversion rates, revenue per user, lift metrics, etc.
 ```
 
-### Why Compound Models
+### CompoundModel Base Classes
 
-**Business clarity**:
-- "Conversion increased 2%" - clear metric
-- "Revenue per converter increased $5" - actionable
-- "Overall effect: +$3.20 per user" - bottom line
+The `/compound/` subdirectory contains the actual compound model implementations:
 
-**Statistical benefits**:
-- Use best distribution for each part
-- Support mixtures for multimodal severity
-- Cleaner parameter interpretation  
-- Easier prior specification
+- `BetaGammaCompound` - Conversion × Gamma revenue
+- `BetaLogNormalCompound` - Conversion × LogNormal revenue  
+- `BetaLogNormalMixtureCompound` - Conversion × LogNormal mixture (multimodal revenue)
 
-**Computational benefits**:
-- Parallelize frequency and severity analysis
-- Use conjugate updates where possible
-- EM for mixtures, VI only when needed
-
-## Model Patterns
-
-### Current: ConversionValueModelVI
-
-Needs refactoring to:
-1. Use new distribution classes
-2. Delegate to inference engines
-3. Focus on business logic only
-4. Adopt compound model architecture internally
-
-### Future: Segmented Models
+These separate frequency (did they convert?) from severity (how much did they spend?).
 
 ```typescript
-export class SegmentedModel extends BusinessModel {
-  async analyze(data: SegmentedData): Promise<SegmentResults> {
-    // Detect segments using mixture models
-    const segments = await this.detectSegments(data);
-    
-    // Analyze each segment separately
-    const segmentResults = await Promise.all(
-      segments.map(s => this.analyzeSegment(s))
-    );
-    
-    // Aggregate for overall insights
-    return this.aggregateResults(segmentResults);
-  }
-}
+// Under the hood in ConversionValueModel2
+const compound = new BetaLogNormalCompound(inferenceEngine);
+const posterior = await compound.fit(userData);
+
+// Access components
+const conversionRate = posterior.frequency.mean()[0];
+const avgRevenue = posterior.severity.mean()[0];
+const revenuePerUser = posterior.expectedValuePerUser();
 ```
 
-## Business Metrics
+## Legacy Model
 
-Models should output interpretable business metrics:
+### ConversionValueModelVI
+
+Still present for backward compatibility but should not be used for new code. This was the transition implementation between the old computation graph approach and the current modular system.
+
+## Data Format
+
+All models expect user-level data:
 
 ```typescript
-interface BusinessResults {
-  // Point estimates
-  conversionRate: Map<string, number>;
-  revenuePerConverter: Map<string, number>;
-  revenuePerUser: Map<string, number>;
-  
-  // Uncertainty  
-  credibleIntervals: Map<string, [number, number]>;
-  probabilityOfImprovement: Map<string, number>;
-  
-  // Insights
-  effectDecomposition: EffectDrivers;
-  outlierInfluence: OutlierDiagnostic;
-  sampleSizeRecommendation?: number;
+interface UserData {
+  converted: boolean;  // Did this user convert?
+  value: number;      // Revenue/value (0 if not converted)
 }
+
+// Example data
+const data = [
+  { converted: true, value: 49.99 },
+  { converted: false, value: 0 },
+  { converted: true, value: 129.95 },
+  // ...
+];
+```
+
+## Why Compound Models?
+
+Instead of zero-inflated distributions, we decompose metrics into interpretable components:
+
+1. **Business clarity** - "2% more people converted AND they spent $5 more"
+2. **Statistical benefits** - Use the best distribution for each component
+3. **Computational efficiency** - Parallelize frequency and severity analysis
+
+See the [compound model README](compound/README.md) for more details.
+
+## Usage with Workers
+
+These models work seamlessly with the WebWorker infrastructure:
+
+```typescript
+const { runInference } = useInferenceWorker();
+
+// ConversionValueModel2 uses this internally
+const result = await runInference(
+  'compound-beta-lognormal',
+  { data: userData }
+);
 ```
 
 ## Future Models
 
-### Causal Trees for HTE Discovery (Phase 3.3)
-
-Hypothesis-driven heterogeneous treatment effect discovery:
-
-```typescript
-export class CausalTreeModel extends BusinessModel {
-  // Constrained for interpretability and stability
-  constraints = {
-    maxFeatures: 8,           // Increased from 3 - more realistic
-    maxDepth: 4,              // Still interpretable
-    minSegmentSize: 0.10,     // ≥10% of users
-    requiredStability: 0.80,  // Must appear in 80% of bootstraps
-  };
-  
-  async discoverSegments(
-    data: ExperimentData,
-    hypotheses: BusinessHypothesis[]
-  ): Promise<StableSegments> {
-    // Honest inference with train/estimate split
-    // Bootstrap for stability validation
-    // Return only actionable, stable segments
-  }
-}
-```
-
-### Decision Framework Integration (Phase 3.1)
-
-Incorporating loss functions and business costs:
-
-```typescript
-export class DecisionAwareModel extends BusinessModel {
-  async analyzeWithCosts(
-    data: VariantData[],
-    costs: BusinessCosts
-  ): Promise<DecisionRecommendation> {
-    // Standard analysis
-    const results = await this.analyze(data);
-    
-    // Integrate loss function over posteriors
-    const decision = this.computeOptimalDecision(results, costs);
-    
-    return {
-      recommendation: decision,
-      expectedValue: this.computeExpectedValue(decision, results),
-      riskAssessment: this.assessRisks(decision, results)
-    };
-  }
-}
-```
-
-## Testing Business Models
-
-1. **Synthetic data tests**: Known ground truth recovery
-2. **Business logic tests**: Metrics computed correctly
-3. **Edge case tests**: No conversions, single converter, etc.
-4. **Integration tests**: Full pipeline with real-like data
+- **MultiMetricModel** - Analyze multiple outcomes simultaneously
+- **SegmentedModel** - Built-in segment discovery
+- **TimeSeriesModel** - For temporal patterns
