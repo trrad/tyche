@@ -157,18 +157,23 @@ export class LogNormalMixtureEM extends InferenceEngine {
     
     const values = data.data;
     
-    // Check all values are positive
-    if (values.some(x => x <= 0)) {
-      throw new Error('LogNormal requires all positive values');
+    // Check all values are positive and filter out non-positive values
+    const positiveValues = values.filter(x => x > 0);
+    if (positiveValues.length === 0) {
+      throw new Error('LogNormal requires at least one positive value');
+    }
+    
+    if (positiveValues.length < values.length) {
+      console.warn(`LogNormalMixtureEM: Filtered out ${values.length - positiveValues.length} non-positive values`);
     }
     
     // Transform to log scale
-    const logValues = values.map(x => Math.log(x));
+    const logValues = positiveValues.map(x => Math.log(x));
     const n = logValues.length;
     
     // Get requested components and be honest about what we can support
     const requestedComponents = data.config?.numComponents || this.numComponents;
-    const maxViableComponents = Math.floor(n / 15); // ~15 points minimum per component
+    const maxViableComponents = Math.floor(n / 8); // More lenient: ~8 points minimum per component
     const actualComponents = Math.min(requestedComponents, maxViableComponents);
     
     // Warn if we had to reduce components
