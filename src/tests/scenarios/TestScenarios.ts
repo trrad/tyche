@@ -15,12 +15,14 @@ export const TestScenarios = {
       description: 'Typical e-commerce conversion rate',
       trueRate: 0.03,
       sampleSize: 10000,
-      generateData: () => {
+      generateData: (n?: number) => {
+        const trials = n || 10000;
         const generator = new SyntheticDataGenerator(Date.now());
-        const successes = Math.round(300 + (Math.random() - 0.5) * 40); // ~3% with variance
-        return { successes, trials: 10000 };
+        const successes = Math.round(trials * 0.03 + (Math.random() - 0.5) * Math.sqrt(trials * 0.03 * 0.97));
+        return { successes: Math.max(0, Math.min(trials, successes)), trials };
       },
-      generateFromBusiness: () => {
+      generateFromBusiness: (n?: number) => {
+        const sampleSize = n || 10000;
         const scenarios = new BusinessScenarios();
         const data = scenarios.ecommerce({
           baseConversionRate: 0.03,
@@ -28,7 +30,7 @@ export const TestScenarios = {
           revenueDistribution: 'lognormal',
           revenueParams: { mean: 50, variance: 400 },
           revenueLift: 0,
-          sampleSize: 10000
+          sampleSize
         });
         const conversions = data.control.filter(u => u.converted).length;
         return { successes: conversions, trials: data.control.length };
@@ -39,10 +41,13 @@ export const TestScenarios = {
       description: 'High conversion rate (e.g., email clicks)',
       trueRate: 0.25,
       sampleSize: 1000,
-      generateData: () => ({
-        successes: Math.round(250 + (Math.random() - 0.5) * 30),
-        trials: 1000
-      })
+      generateData: (n?: number) => {
+        const trials = n || 1000;
+        return {
+          successes: Math.round(trials * 0.25 + (Math.random() - 0.5) * Math.sqrt(trials * 0.25 * 0.75)),
+          trials
+        };
+      }
     },
     
     edgeCases: {
@@ -57,14 +62,16 @@ export const TestScenarios = {
   revenue: {
     ecommerce: {
       description: 'Typical e-commerce transaction values',
-      generateData: (n: number = 1000) => {
+      generateData: (n?: number) => {
+        const sampleSize = n || 1000;
         const generator = new SyntheticDataGenerator();
         // Mix of small and large purchases
-        const small = generator.generateFromDistribution('lognormal', [3.5, 0.5], Math.floor(n * 0.8));
-        const large = generator.generateFromDistribution('lognormal', [5, 0.3], Math.floor(n * 0.2));
+        const small = generator.generateFromDistribution('lognormal', [3.5, 0.5], Math.floor(sampleSize * 0.8));
+        const large = generator.generateFromDistribution('lognormal', [5, 0.3], Math.floor(sampleSize * 0.2));
         return [...small, ...large].sort(() => Math.random() - 0.5);
       },
-      generateFromBusiness: (n: number = 1000) => {
+      generateFromBusiness: (n?: number) => {
+        const sampleSize = n || 1000;
         const scenarios = new BusinessScenarios();
         const data = scenarios.ecommerce({
           baseConversionRate: 1.0, // All converted for revenue-only test
@@ -72,7 +79,7 @@ export const TestScenarios = {
           revenueDistribution: 'lognormal',
           revenueParams: { mean: 55, variance: 600 },
           revenueLift: 0,
-          sampleSize: n
+          sampleSize
         });
         return data.control.map(u => u.value).filter(v => v > 0);
       }
@@ -80,12 +87,13 @@ export const TestScenarios = {
     
     saas: {
       description: 'SaaS MRR distribution',
-      generateData: (n: number = 500) => {
+      generateData: (n?: number) => {
+        const sampleSize = n || 500;
         const generator = new SyntheticDataGenerator();
         // Three tiers: starter, pro, enterprise
-        const starter = generator.generateFromDistribution('lognormal', [2.3, 0.2], Math.floor(n * 0.6));
-        const pro = generator.generateFromDistribution('lognormal', [3.9, 0.2], Math.floor(n * 0.3));
-        const enterprise = generator.generateFromDistribution('lognormal', [5.3, 0.3], Math.floor(n * 0.1));
+        const starter = generator.generateFromDistribution('lognormal', [2.3, 0.2], Math.floor(sampleSize * 0.6));
+        const pro = generator.generateFromDistribution('lognormal', [3.9, 0.2], Math.floor(sampleSize * 0.3));
+        const enterprise = generator.generateFromDistribution('lognormal', [5.3, 0.3], Math.floor(sampleSize * 0.1));
         return [...starter, ...pro, ...enterprise].sort(() => Math.random() - 0.5);
       }
     }
@@ -97,7 +105,8 @@ export const TestScenarios = {
       description: 'Typical control in A/B test',
       conversionRate: 0.05,
       revenueParams: { logMean: 4, logStd: 0.8 }, // ~$55 average
-      generateUsers: (n: number = 2000) => {
+      generateUsers: (n?: number) => {
+        const sampleSize = n || 2000;
         const scenarios = new BusinessScenarios();
         const data = scenarios.ecommerce({
           baseConversionRate: 0.05,
@@ -105,7 +114,7 @@ export const TestScenarios = {
           revenueDistribution: 'lognormal',
           revenueParams: { mean: 55, variance: 1200 },
           revenueLift: 0,
-          sampleSize: n
+          sampleSize
         });
         return data.control;
       }
@@ -115,7 +124,8 @@ export const TestScenarios = {
       description: 'Treatment with improved conversion and AOV',
       conversionRate: 0.065, // 30% relative lift
       revenueParams: { logMean: 4.1, logStd: 0.8 }, // ~$60 average
-      generateUsers: (n: number = 2000) => {
+      generateUsers: (n?: number) => {
+        const sampleSize = n || 2000;
         const scenarios = new BusinessScenarios();
         const data = scenarios.ecommerce({
           baseConversionRate: 0.05,
@@ -123,18 +133,20 @@ export const TestScenarios = {
           revenueDistribution: 'lognormal',
           revenueParams: { mean: 55, variance: 1200 },
           revenueLift: 0.09, // ~9% AOV lift
-          sampleSize: n * 2 // We'll take treatment half
+          sampleSize: sampleSize * 2 // We'll take treatment half
         });
-        return data.treatment;
+        // Ensure we return exactly the requested sample size
+        return data.treatment.slice(0, sampleSize);
       }
     },
     
     multimodalRevenue: {
       description: 'E-commerce with budget and premium shoppers',
-      generateUsers: (n: number = 2000) => {
+      generateUsers: (n?: number) => {
+        const sampleSize = n || 2000;
         const users: UserData[] = [];
         
-        for (let i = 0; i < n; i++) {
+        for (let i = 0; i < sampleSize; i++) {
           const converted = Math.random() < 0.08; // 8% conversion
           let value = 0;
           
@@ -167,10 +179,11 @@ export const TestScenarios = {
         { mean: -5, std: 1, weight: 0.4 },
         { mean: 5, std: 1, weight: 0.6 }
       ],
-      generateData: (n: number = 1000) => {
+      generateData: (n?: number) => {
+        const sampleSize = n || 1000;
         const generator = new SyntheticDataGenerator();
-        const n1 = Math.floor(n * 0.4);
-        const n2 = n - n1;
+        const n1 = Math.floor(sampleSize * 0.4);
+        const n2 = sampleSize - n1;
         const comp1 = generator.generateFromDistribution('normal', [-5, 1], n1);
         const comp2 = generator.generateFromDistribution('normal', [5, 1], n2);
         return [...comp1, ...comp2].sort(() => Math.random() - 0.5);
@@ -179,7 +192,8 @@ export const TestScenarios = {
     
     revenueMixture: {
       description: 'Revenue with customer segments',
-      generateData: (n: number = 1000) => {
+      generateData: (n?: number) => {
+        const sampleSize = n || 1000;
         const scenarios = new BusinessScenarios();
         // Generate high-value and low-value customer segments
         const lowValue = scenarios.ecommerce({
@@ -188,7 +202,7 @@ export const TestScenarios = {
           revenueDistribution: 'lognormal',
           revenueParams: { mean: 20, variance: 100 },
           revenueLift: 0,
-          sampleSize: Math.floor(n * 0.7)
+          sampleSize: Math.floor(sampleSize * 0.7)
         });
         const highValue = scenarios.ecommerce({
           baseConversionRate: 1.0,
@@ -196,7 +210,7 @@ export const TestScenarios = {
           revenueDistribution: 'lognormal',
           revenueParams: { mean: 200, variance: 10000 },
           revenueLift: 0,
-          sampleSize: Math.floor(n * 0.3)
+          sampleSize: Math.floor(sampleSize * 0.3)
         });
         
         const allValues = [
@@ -204,7 +218,9 @@ export const TestScenarios = {
           ...highValue.control.map(u => u.value)
         ].filter(v => v > 0);
         
-        return allValues.sort(() => Math.random() - 0.5);
+        // Ensure we return exactly the requested sample size
+        const shuffled = allValues.sort(() => Math.random() - 0.5);
+        return shuffled.slice(0, sampleSize);
       }
     }
   },

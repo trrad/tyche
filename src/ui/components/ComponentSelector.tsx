@@ -7,6 +7,7 @@ interface ComponentSelectorProps {
   max?: number;
   disabled?: boolean;
   className?: string;
+  dataSize?: number; // NEW: for data-driven recommendations
 }
 
 /**
@@ -18,18 +19,36 @@ export const ComponentSelector: React.FC<ComponentSelectorProps> = ({
   min = 1,
   max = 4,
   disabled = false,
-  className = ''
+  className = '',
+  dataSize
 }) => {
   const isCompact = className.includes('compact');
+  
+  // Data-driven recommendations
+  const getDataRecommendation = (size?: number) => {
+    if (!size) return null;
+    if (size < 30) return { max: 1, message: "Too few data points for mixture", color: "text-red-600" };
+    if (size < 60) return { max: 2, message: "Limited to 2 components", color: "text-amber-600" };
+    if (size < 100) return { max: 3, message: "Limited to 3 components", color: "text-blue-600" };
+    return { max: 4, message: "Up to 4 components supported", color: "text-green-600" };
+  };
+  
+  const recommendation = getDataRecommendation(dataSize);
+  const effectiveMax = recommendation ? Math.min(max, recommendation.max) : max;
   
   return (
     <div className={`component-selector ${className}`}>
       <label className="block text-sm font-medium text-gray-700 mb-2">
         Number of Components
+        {dataSize && (
+          <span className="ml-2 text-xs text-gray-500">
+            ({dataSize} data points)
+          </span>
+        )}
       </label>
       <div className="flex items-center space-x-4">
         <div className="flex space-x-2">
-          {Array.from({ length: max - min + 1 }, (_, i) => i + min).map(num => (
+          {Array.from({ length: effectiveMax - min + 1 }, (_, i) => i + min).map(num => (
             <button
               key={num}
               onClick={() => onChange(num)}
@@ -56,10 +75,19 @@ export const ComponentSelector: React.FC<ComponentSelectorProps> = ({
           </div>
         )}
       </div>
-      {!isCompact && value > 2 && (
-        <p className="mt-2 text-xs text-amber-600">
-          ⚠️ More components require more data for reliable estimates
-        </p>
+      {!isCompact && (
+        <>
+          {recommendation && (
+            <p className={`mt-2 text-xs ${recommendation.color}`}>
+              💡 {recommendation.message}
+            </p>
+          )}
+          {value > 2 && !recommendation && (
+            <p className="mt-2 text-xs text-amber-600">
+              ⚠️ More components require more data for reliable estimates
+            </p>
+          )}
+        </>
       )}
     </div>
   );

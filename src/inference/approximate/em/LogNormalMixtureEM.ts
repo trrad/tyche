@@ -152,11 +152,25 @@ export class LogNormalMixtureEM extends InferenceEngine {
     const logValues = values.map(x => Math.log(x));
     const n = logValues.length;
     
-    // Get numComponents from config or use constructor default
-    const numComponents = data.config?.numComponents || this.numComponents;
+    // Get requested components and be honest about what we can support
+    const requestedComponents = data.config?.numComponents || this.numComponents;
+    const maxViableComponents = Math.floor(n / 15); // ~15 points minimum per component
+    const actualComponents = Math.min(requestedComponents, maxViableComponents);
     
-    // Initialize components
-    const components = await this.initializeComponents(logValues, options, numComponents);
+    // Warn if we had to reduce components
+    if (actualComponents < requestedComponents) {
+      console.warn(`LogNormalMixtureEM: Reduced components from ${requestedComponents} to ${actualComponents} due to data size (${n} points)`);
+    }
+    
+    // If we can't support multiple components, fallback to single LogNormal
+    if (actualComponents <= 1) {
+      console.warn(`LogNormalMixtureEM: Insufficient data for mixture (${n} points), falling back to single LogNormal`);
+      const singleComponent = new LogNormalBayesian();
+      return singleComponent.fit(data, options);
+    }
+    
+    // Initialize components with the honest count
+    const components = await this.initializeComponents(logValues, options, actualComponents);
     
     // EM algorithm
     let prevLogLik = -Infinity;

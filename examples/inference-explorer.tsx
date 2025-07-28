@@ -17,6 +17,9 @@ import { useInferenceWorker } from '../src/hooks/useInferenceWorker';
 import { TestScenarios } from '../src/tests/scenarios/TestScenarios';
 import { BusinessScenarios } from '../src/tests/utilities/synthetic/BusinessScenarios';
 
+// New data generation system
+import { DataGenerator, GeneratedDataset } from '../src/core/data-generation';
+
 // Visualization components - Updated to use unified system
 import { DiagnosticsPanel, AsyncPosteriorSummary, AsyncPPCDiagnostics } from '../src/ui/visualizations';
 import { UnifiedDistributionViz, BRAND_COLORS } from '../src/ui/visualizations/unified';
@@ -39,10 +42,10 @@ interface FitProgress {
 }
 
 interface DataSource {
-  type: 'test-scenario' | 'business-scenario' | 'generated' | 'custom';
+  type: 'test-scenario' | 'business-scenario' | 'generated' | 'custom' | 'preset';
   name: string;
   description: string;
-  generator: () => any;
+  generator: (n?: number) => any;
 }
 
 /**
@@ -53,6 +56,7 @@ function InferenceExplorer() {
   // State
   const [selectedDataSource, setSelectedDataSource] = useState<DataSource | null>(null);
   const [generatedData, setGeneratedData] = useState<any>(null);
+  const [generatedDataset, setGeneratedDataset] = useState<GeneratedDataset | null>(null);
   const [selectedModel, setSelectedModel] = useState<ModelType>('auto');
   const [numComponents, setNumComponents] = useState(2);
   const [inferenceResult, setInferenceResult] = useState<InferenceResult | null>(null);
@@ -67,13 +71,25 @@ function InferenceExplorer() {
   const [customDataFormat, setCustomDataFormat] = useState<'array' | 'binomial' | 'compound'>('array');
   
   // State for data source type selection
-  const [dataSourceType, setDataSourceType] = useState<'test-scenario' | 'business-scenario' | 'custom'>('test-scenario');
+  const [dataSourceType, setDataSourceType] = useState<'test-scenario' | 'business-scenario' | 'custom' | 'preset'>('test-scenario');
+  
+  // Sample size control
+  const [sampleSize, setSampleSize] = useState(1000);
+  const [useCustomSampleSize, setUseCustomSampleSize] = useState(false);
   
   // CRASH FIX: Clear results when data/model changes
   useEffect(() => {
     setInferenceResult(null);
     setError(null);
   }, [selectedDataSource, selectedModel, dataSourceType, numComponents]);
+  
+  // Clear results when data changes (but not when sample size changes)
+  useEffect(() => {
+    if (generatedData) {
+      setInferenceResult(null);
+      setError(null);
+    }
+  }, [generatedData]);
   
   // Debug: Log when inferenceResult changes
   useEffect(() => {
@@ -106,20 +122,21 @@ function InferenceExplorer() {
       type: 'test-scenario',
       name: 'Beta-Binomial: Typical',
       description: '3% conversion rate, n=10000',
-      generator: () => TestScenarios.betaBinomial.typical.generateData()
+      generator: (n?: number) => TestScenarios.betaBinomial.typical.generateData(n)
     },
     {
       type: 'business-scenario',
       name: 'E-commerce: Stable Revenue (Gamma)',
       description: 'Low variance revenue distribution',
-      generator: () => {
+      generator: (n?: number) => {
+        const sampleSize = n || 1000;
         const data = businessScenarios.ecommerce({
           baseConversionRate: 0.08,
           conversionLift: 0,
           revenueDistribution: 'gamma',
           revenueParams: { mean: 50, variance: 500 }, // CV = 0.45, suggests Gamma
           revenueLift: 0,
-          sampleSize: 1000
+          sampleSize
         });
         return data.control;
       }
@@ -128,49 +145,49 @@ function InferenceExplorer() {
       type: 'test-scenario',
       name: 'Beta-Binomial: High Conversion',
       description: '25% conversion rate, n=1000',
-      generator: () => TestScenarios.betaBinomial.highConversion.generateData()
+      generator: (n?: number) => TestScenarios.betaBinomial.highConversion.generateData(n)
     },
     {
       type: 'test-scenario',
       name: 'Revenue: E-commerce',
       description: 'LogNormal revenue distribution',
-      generator: () => TestScenarios.revenue.ecommerce.generateData(500)
+      generator: (n?: number) => TestScenarios.revenue.ecommerce.generateData(n || 500)
     },
     {
       type: 'test-scenario',
       name: 'Revenue: SaaS MRR',
       description: 'Three-tier pricing distribution',
-      generator: () => TestScenarios.revenue.saas.generateData(500)
+      generator: (n?: number) => TestScenarios.revenue.saas.generateData(n || 500)
     },
     {
       type: 'test-scenario',
       name: 'Mixture: Bimodal',
       description: 'Two clear components',
-      generator: () => TestScenarios.mixtures.bimodal.generateData(500)
+      generator: (n?: number) => TestScenarios.mixtures.bimodal.generateData(n || 500)
     },
     {
       type: 'test-scenario',
       name: 'Mixture: Revenue Segments',
       description: 'LogNormal mixture for customer tiers',
-      generator: () => TestScenarios.mixtures.revenueMixture.generateData(500)
+      generator: (n?: number) => TestScenarios.mixtures.revenueMixture.generateData(n || 500)
     },
     {
       type: 'test-scenario',
       name: 'Compound: Control (Gamma)',
       description: '5% conv, $55 AOV, low variance',
-      generator: () => TestScenarios.compound.controlVariant.generateUsers(1000)
+      generator: (n?: number) => TestScenarios.compound.controlVariant.generateUsers(n || 1000)
     },
     {
       type: 'test-scenario',
       name: 'Compound: Treatment (LogNormal)',
       description: '6.5% conv, $60 AOV, high variance',
-      generator: () => TestScenarios.compound.treatmentVariant.generateUsers(1000)
+      generator: (n?: number) => TestScenarios.compound.treatmentVariant.generateUsers(n || 1000)
     },
     {
       type: 'test-scenario',
       name: 'Compound: Multimodal Revenue',
       description: 'Budget vs premium customer segments',
-      generator: () => TestScenarios.compound.multimodalRevenue.generateUsers(1000)
+      generator: (n?: number) => TestScenarios.compound.multimodalRevenue.generateUsers(n || 1000)
     },
     
     // Business Scenarios
@@ -178,14 +195,15 @@ function InferenceExplorer() {
       type: 'business-scenario',
       name: 'E-commerce: Control (LogNormal)',
       description: 'Baseline with heavy-tailed revenue',
-      generator: () => {
+      generator: (n?: number) => {
+        const sampleSize = n || 2000;
         const data = businessScenarios.ecommerce({
           baseConversionRate: 0.05,
           conversionLift: 0,
           revenueDistribution: 'lognormal',
           revenueParams: { mean: 75, variance: 1500 },
           revenueLift: 0,
-          sampleSize: 2000
+          sampleSize
         });
         return data.control;
       }
@@ -194,49 +212,113 @@ function InferenceExplorer() {
       type: 'business-scenario',
       name: 'E-commerce: Treatment (LogNormal)',
       description: '30% conv lift, 10% AOV lift',
-      generator: () => {
+      generator: (n?: number) => {
+        const sampleSize = n || 2000;
         const data = businessScenarios.ecommerce({
           baseConversionRate: 0.05,
           conversionLift: 0.3,
           revenueDistribution: 'lognormal',
           revenueParams: { mean: 75, variance: 1500 },
           revenueLift: 0.1,
-          sampleSize: 2000
+          sampleSize
         });
         return data.treatment;
       }
     }
   ], [businessScenarios]);
   
+  // New preset data sources using DataGenerator
+  const presetDataSources: DataSource[] = useMemo(() => [
+    {
+      type: 'preset',
+      name: 'Clear Customer Segments',
+      description: 'Budget (70%) vs Premium (30%) customers',
+      generator: (n?: number) => DataGenerator.presets.clearSegments(n || 1000, Date.now())
+    },
+    {
+      type: 'preset',
+      name: 'SaaS Pricing Tiers',
+      description: 'Three-tier pricing model',
+      generator: (n?: number) => DataGenerator.presets.saasTiers(n || 1000, Date.now())
+    },
+    {
+      type: 'preset',
+      name: 'Four Segments (Stress Test)',
+      description: 'Tests 4-component mixture fitting',
+      generator: (n?: number) => DataGenerator.presets.fourSegments(n || 1000, Date.now())
+    },
+    {
+      type: 'preset',
+      name: 'E-commerce with Segments',
+      description: 'Compound model with customer tiers',
+      generator: (n?: number) => DataGenerator.presets.ecommerceSegments(n || 1000, Date.now())
+    },
+    {
+      type: 'preset',
+      name: 'Beta-Binomial (Known Truth)',
+      description: '5% conversion rate with ground truth',
+      generator: (n?: number) => DataGenerator.presets.betaBinomial(0.05, n || 1000, Date.now())
+    },
+    {
+      type: 'preset',
+      name: 'LogNormal (Known Truth)',
+      description: 'Revenue distribution with ground truth',
+      generator: (n?: number) => DataGenerator.presets.lognormal(3.5, 0.5, n || 1000, Date.now())
+    }
+  ], []);
+  
   // Filter data sources by type
-  const filteredDataSources = useMemo(() => 
-    dataSources.filter(ds => ds.type === dataSourceType),
-    [dataSources, dataSourceType]
-  );
+  const filteredDataSources = useMemo(() => {
+    if (dataSourceType === 'preset') {
+      return presetDataSources;
+    }
+    return dataSources.filter(ds => ds.type === dataSourceType);
+  }, [dataSources, presetDataSources, dataSourceType]);
   
   // Auto-select first source when type changes
   useEffect(() => {
     if (dataSourceType !== 'custom' && filteredDataSources.length > 0) {
-      setSelectedDataSource(filteredDataSources[0]);
-      setGeneratedData(null);
+      // Only change selection if current selection is not in the filtered list
+      const currentInFiltered = filteredDataSources.find(ds => 
+        ds.name === selectedDataSource?.name && ds.type === selectedDataSource?.type
+      );
+      if (!currentInFiltered) {
+        setSelectedDataSource(filteredDataSources[0]);
+        setGeneratedData(null);
+      }
     } else if (dataSourceType === 'custom') {
       setSelectedDataSource(null);
       setGeneratedData(null);
     }
-  }, [dataSourceType, filteredDataSources]);
+  }, [dataSourceType, filteredDataSources, selectedDataSource]);
   
   // Generate data when source selected
   const generateData = useCallback(() => {
     if (!selectedDataSource) return;
     
     try {
-      const data = selectedDataSource.generator();
-      setGeneratedData(data);
+      // Pass sample size if using custom sample size
+      const result = useCustomSampleSize && typeof selectedDataSource.generator === 'function'
+        ? selectedDataSource.generator(sampleSize)
+        : selectedDataSource.generator();
+      
+      // Handle GeneratedDataset vs regular data
+      if (result && typeof result === 'object' && 'data' in result && 'groundTruth' in result) {
+        // This is a GeneratedDataset
+        setGeneratedData(result.data);
+        // Store ground truth for later use
+        setGeneratedDataset(result);
+      } else {
+        // This is regular data
+        setGeneratedData(result);
+        setGeneratedDataset(null);
+      }
+      
       setError(null);
     } catch (err) {
       setError(`Failed to generate data: ${(err as Error).message}`);
     }
-  }, [selectedDataSource]);
+  }, [selectedDataSource, sampleSize, useCustomSampleSize]);
   
   // Parse custom data
   const parseCustomData = useCallback(() => {
@@ -388,8 +470,8 @@ function InferenceExplorer() {
     <div className="bg-white p-6 rounded-lg shadow">
       <h3 className="text-lg font-semibold mb-4">1. Select Data Source</h3>
       
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        {(['test-scenario', 'business-scenario', 'custom'] as const).map(type => (
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        {(['test-scenario', 'business-scenario', 'preset', 'custom'] as const).map(type => (
           <button
             key={type}
             onClick={() => setDataSourceType(type)}
@@ -401,6 +483,7 @@ function InferenceExplorer() {
           >
             {type === 'test-scenario' ? 'Test Scenarios' :
              type === 'business-scenario' ? 'Business' :
+             type === 'preset' ? 'Generated' :
              'Custom'}
           </button>
         ))}
@@ -409,18 +492,18 @@ function InferenceExplorer() {
       {dataSourceType !== 'custom' && (
         <div className="space-y-3">
           <select
-            value={selectedDataSource ? dataSources.indexOf(selectedDataSource) : ''}
+            value={selectedDataSource ? filteredDataSources.indexOf(selectedDataSource) : ''}
             onChange={(e) => {
               const idx = parseInt(e.target.value);
-              if (!isNaN(idx)) {
-                setSelectedDataSource(dataSources[idx]);
+              if (!isNaN(idx) && idx >= 0 && idx < filteredDataSources.length) {
+                setSelectedDataSource(filteredDataSources[idx]);
                 setGeneratedData(null);
               }
             }}
             className="w-full p-2 border rounded"
           >
-            {filteredDataSources.map((ds) => (
-              <option key={dataSources.indexOf(ds)} value={dataSources.indexOf(ds)}>
+            {filteredDataSources.map((ds, idx) => (
+              <option key={`${ds.type}-${ds.name}`} value={idx}>
                 {ds.name} - {ds.description}
               </option>
             ))}
@@ -437,6 +520,40 @@ function InferenceExplorer() {
           >
             Generate Data
           </button>
+          
+          {/* Sample size controls */}
+          {selectedDataSource && (dataSourceType === 'test-scenario' || dataSourceType === 'business-scenario' || dataSourceType === 'preset') && (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="custom-sample-size"
+                  checked={useCustomSampleSize}
+                  onChange={(e) => setUseCustomSampleSize(e.target.checked)}
+                />
+                <label htmlFor="custom-sample-size" className="text-sm">
+                  Custom sample size
+                </label>
+              </div>
+              
+              {useCustomSampleSize && (
+                <div>
+                  <label className="text-sm text-gray-600">
+                    Sample size: {sampleSize.toLocaleString()}
+                  </label>
+                  <input
+                    type="range"
+                    min="100"
+                    max="10000"
+                    step="100"
+                    value={sampleSize}
+                    onChange={(e) => setSampleSize(parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       
@@ -521,22 +638,47 @@ function InferenceExplorer() {
     </div>
   );
 
-  const ModelSelectorComponent = () => (
-    <div className="bg-white p-6 rounded-lg shadow">
-      <ModelSelector
-        value={selectedModel}
-        onChange={(model, components) => {
-          setSelectedModel(model);
-          if (components !== undefined) {
-            setNumComponents(components);
-          }
-        }}
-        disabled={isAnalyzing}
-      />
+  const ModelSelectorComponent = () => {
+    // Calculate data size for component recommendations
+    const getDataSize = () => {
+      const data = selectedDataSource ? generatedData : parseCustomData();
+      if (!data) return undefined;
       
-      <InferenceButton />
-    </div>
-  );
+      if (Array.isArray(data)) {
+        return data.length;
+      }
+      
+      // For compound data, count the number of users
+      if (data && Array.isArray(data.data)) {
+        return data.data.length;
+      }
+      
+      // For binomial data, use trials
+      if (data && typeof data === 'object' && 'trials' in data) {
+        return data.trials;
+      }
+      
+      return undefined;
+    };
+    
+    return (
+      <div className="bg-white p-6 rounded-lg shadow">
+        <ModelSelector
+          value={selectedModel}
+          onChange={(model, components) => {
+            setSelectedModel(model);
+            if (components !== undefined) {
+              setNumComponents(components);
+            }
+          }}
+          disabled={isAnalyzing}
+          dataSize={getDataSize()}
+        />
+        
+        <InferenceButton />
+      </div>
+    );
+  };
   
   // Add error boundary to visualizations
   const VisualizationErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -573,6 +715,28 @@ function InferenceExplorer() {
     
     return (
       <div className="space-y-6">
+        {/* Ground Truth Comparison */}
+        {generatedDataset?.groundTruth && (
+          <div className="bg-white p-6 rounded-lg shadow">
+            <h3 className="text-lg font-semibold mb-4">Parameter Recovery</h3>
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium text-gray-700">Ground Truth</h4>
+                <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto">
+                  {JSON.stringify(generatedDataset.groundTruth, null, 2)}
+                </pre>
+              </div>
+              
+              <div>
+                <h4 className="font-medium text-gray-700">Recovered Parameters</h4>
+                <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto">
+                  {JSON.stringify(inferenceResult.diagnostics.modelType, null, 2)}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
+        
         {/* Diagnostics */}
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Diagnostics</h3>

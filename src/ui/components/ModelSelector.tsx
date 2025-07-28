@@ -7,6 +7,7 @@ interface ModelSelectorProps {
   onChange: (model: ModelType, numComponents?: number) => void;
   disabled?: boolean;
   className?: string;
+  dataSize?: number; // NEW: for data-driven component recommendations
 }
 
 /**
@@ -16,7 +17,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   value,
   onChange,
   disabled = false,
-  className = ''
+  className = '',
+  dataSize
 }) => {
   const { numComponents, setNumComponents, showComponentSelector } = useComponentSelection(value);
   
@@ -57,6 +59,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             onChange={handleComponentChange}
             disabled={disabled}
             className="compact"
+            dataSize={dataSize}
           />
         </div>
       )}
