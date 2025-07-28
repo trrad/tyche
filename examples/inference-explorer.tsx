@@ -21,19 +21,15 @@ import { BusinessScenarios } from '../src/tests/utilities/synthetic/BusinessScen
 import { DiagnosticsPanel, AsyncPosteriorSummary, AsyncPPCDiagnostics } from '../src/ui/visualizations';
 import { UnifiedDistributionViz, BRAND_COLORS } from '../src/ui/visualizations/unified';
 
+// New components
+import { ModelSelector } from '../src/ui/components/ModelSelector';
+import { MODEL_DESCRIPTIONS } from '../src/inference/InferenceEngine';
+
 // Styles
 import './index.css';
 
 // Types
-type ModelType = 
-  | 'auto'                    // Auto-detect from data
-  | 'beta-binomial'           // Binary outcomes
-  | 'gamma'                   // Positive continuous
-  | 'lognormal'               // Heavy-tailed positive
-  | 'normal-mixture'          // Multimodal continuous
-  | 'lognormal-mixture'       // Multimodal heavy-tailed
-  | 'compound-beta-gamma'     // Conversion × Gamma revenue
-  | 'compound-beta-lognormal'; // Conversion × LogNormal revenue
+import type { ModelType } from '../src/inference/InferenceEngine';
 
 interface FitProgress {
   stage: string;
@@ -58,6 +54,7 @@ function InferenceExplorer() {
   const [selectedDataSource, setSelectedDataSource] = useState<DataSource | null>(null);
   const [generatedData, setGeneratedData] = useState<any>(null);
   const [selectedModel, setSelectedModel] = useState<ModelType>('auto');
+  const [numComponents, setNumComponents] = useState(2);
   const [inferenceResult, setInferenceResult] = useState<InferenceResult | null>(null);
   const [modelType, setModelType] = useState<ModelType | undefined>();
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +73,7 @@ function InferenceExplorer() {
   useEffect(() => {
     setInferenceResult(null);
     setError(null);
-  }, [selectedDataSource, selectedModel, dataSourceType]);
+  }, [selectedDataSource, selectedModel, dataSourceType, numComponents]);
   
   // Debug: Log when inferenceResult changes
   useEffect(() => {
@@ -369,6 +366,14 @@ function InferenceExplorer() {
       return;
     }
     
+    // Add numComponents to config if using a mixture model
+    if (selectedModel.includes('mixture') && numComponents > 1) {
+      dataInput.config = {
+        ...dataInput.config,
+        numComponents: numComponents
+      };
+    }
+    
     // Run inference with worker
     const result = await runInferenceWorker(selectedModel, dataInput);
     
@@ -376,7 +381,7 @@ function InferenceExplorer() {
       setInferenceResult(result);
       setModelType(result.diagnostics.modelType as ModelType || selectedModel);
     }
-  }, [selectedDataSource, generatedData, parseCustomData, selectedModel, runInferenceWorker]);
+  }, [selectedDataSource, generatedData, parseCustomData, selectedModel, runInferenceWorker, numComponents]);
   
   // UI Components
   const DataSourceSelector = () => (
@@ -516,26 +521,18 @@ function InferenceExplorer() {
     </div>
   );
 
-  const ModelSelector = () => (
+  const ModelSelectorComponent = () => (
     <div className="bg-white p-6 rounded-lg shadow">
-      <h3 className="text-lg font-semibold mb-4">2. Select Model</h3>
-      
-      <select
+      <ModelSelector
         value={selectedModel}
-        onChange={(e) => setSelectedModel(e.target.value as ModelType)}
-        className="w-full p-2 border rounded mb-4"
-        disabled={isAnalyzing} // Disable during inference
-      >
-        <option value="auto">Auto-detect</option>
-        <option value="beta-binomial">Beta-Binomial</option>
-        <option value="gamma">Gamma</option>
-        <option value="lognormal">LogNormal</option>
-        <option value="normal-mixture">Normal Mixture</option>
-        <option value="lognormal-mixture">LogNormal Mixture</option>
-        <option value="compound-beta-gamma">Compound (Beta × Gamma)</option>
-        <option value="compound-beta-lognormal">Compound (Beta × LogNormal)</option>
-        <option value="compound-beta-lognormalmixture">Compound (Beta × LogNormal Mixture)</option>
-      </select>
+        onChange={(model, components) => {
+          setSelectedModel(model);
+          if (components !== undefined) {
+            setNumComponents(components);
+          }
+        }}
+        disabled={isAnalyzing}
+      />
       
       <InferenceButton />
     </div>
@@ -813,7 +810,7 @@ function InferenceExplorer() {
           {/* Left Column: Configuration */}
           <div className="space-y-6">
             <DataSourceSelector />
-            <ModelSelector />
+            <ModelSelectorComponent />
           </div>
           
           {/* Right Column: Results */}

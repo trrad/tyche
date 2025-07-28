@@ -152,8 +152,11 @@ export class LogNormalMixtureEM extends InferenceEngine {
     const logValues = values.map(x => Math.log(x));
     const n = logValues.length;
     
+    // Get numComponents from config or use constructor default
+    const numComponents = data.config?.numComponents || this.numComponents;
+    
     // Initialize components
-    const components = await this.initializeComponents(logValues, options);
+    const components = await this.initializeComponents(logValues, options, numComponents);
     
     // EM algorithm
     let prevLogLik = -Infinity;
@@ -194,10 +197,12 @@ export class LogNormalMixtureEM extends InferenceEngine {
   
   private async initializeComponents(
     logValues: number[], 
-    options?: FitOptions
+    options?: FitOptions,
+    numComponents?: number
   ): Promise<LogNormalComponent[]> {
     // Use k-means++ initialization on log values
-    const centers = this.kMeansPlusPlus(logValues, this.numComponents);
+    const k = numComponents || this.numComponents;
+    const centers = this.kMeansPlusPlus(logValues, k);
     
     // Initialize components around these centers
     const components: LogNormalComponent[] = [];

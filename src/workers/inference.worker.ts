@@ -21,6 +21,7 @@ type WorkerRequest =
   | { id: string; type: 'mean'; payload: { posteriorId: string } }
   | { id: string; type: 'variance'; payload: { posteriorId: string } }
   | { id: string; type: 'credibleInterval'; payload: { posteriorId: string; level: number } }
+  | { id: string; type: 'getComponents'; payload: { posteriorId: string } }
   | { id: string; type: 'clear'; payload: { posteriorId: string } }
   | { id: string; type: 'clearAll'; payload?: never }
   | { id: string; type: 'getStats'; payload: { posteriorId: string } };
@@ -143,6 +144,27 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         break;
       }
       
+      case 'getComponents': {
+        const { posteriorId } = payload;
+        const stored = posteriorStore.get(posteriorId);
+        
+        if (!stored) {
+          throw new Error(`Posterior ${posteriorId} not found`);
+        }
+        
+        stored.lastAccessed = Date.now();
+        
+        // Check if posterior has getComponents method
+        if ('getComponents' in stored.posterior && typeof stored.posterior.getComponents === 'function') {
+          const components = stored.posterior.getComponents();
+          self.postMessage({ id, type: 'components', payload: components });
+        } else {
+          // Not a mixture posterior
+          self.postMessage({ id, type: 'components', payload: null });
+        }
+        break;
+      }
+      
       case 'getStats': {
         const { posteriorId } = payload;
         const stored = posteriorStore.get(posteriorId);
@@ -240,7 +262,7 @@ function computePosteriorSummary(posterior: any): any {
   }
   
   // Simple posterior
-  return {
+  const summary: any = {
     type: 'simple',
     mean: posterior.mean(),
     variance: posterior.variance ? posterior.variance() : null,
@@ -248,6 +270,14 @@ function computePosteriorSummary(posterior: any): any {
     ci90: posterior.credibleInterval(0.90),
     ci80: posterior.credibleInterval(0.80)
   };
+  
+  // NEW: Add components if available
+  if ('getComponents' in posterior && typeof posterior.getComponents === 'function') {
+    summary.components = posterior.getComponents();
+    summary.numComponents = summary.components.length;
+  }
+  
+  return summary;
 }
 
 function estimateVariance(posterior: any): number[] {

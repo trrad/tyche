@@ -9,6 +9,9 @@
 
 import { InferenceEngine } from '../../inference/InferenceEngine';
 import type { ModelType } from '../../inference/InferenceEngine';
+
+// Internal model types for compound models
+type InternalModelType = ModelType | 'gamma' | 'exponential' | 'compound-beta-gamma';
 import { 
   DataInput, 
   FitOptions, 
@@ -25,6 +28,25 @@ export interface UserData {
 }
 
 /**
+ * Extended interface for posteriors that have mixture components
+ */
+export interface MixturePosterior extends Posterior {
+  getComponents(): Array<{
+    mean: number;
+    variance: number;
+    weight: number;
+  }>;
+  getWeights?(): number[];
+}
+
+/**
+ * Check if a posterior has mixture components
+ */
+export function hasMixtureComponents(posterior: Posterior): posterior is MixturePosterior {
+  return 'getComponents' in posterior && typeof (posterior as any).getComponents === 'function';
+}
+
+/**
  * Compound model results with business metrics
  */
 export interface CompoundPosterior extends Posterior {
@@ -34,6 +56,12 @@ export interface CompoundPosterior extends Posterior {
   severity: Posterior;
   /** Get expected value per user */
   expectedValuePerUser(): number;
+  /** Get severity mixture components if available */
+  getSeverityComponents?(): Array<{
+    mean: number;
+    variance: number;
+    weight: number;
+  }> | null;
 }
 
 /**
@@ -47,6 +75,16 @@ class CompoundPosteriorImpl implements CompoundPosterior {
     public readonly frequency: Posterior,
     public readonly severity: Posterior
   ) {}
+  
+  /**
+   * Get severity mixture components if the severity posterior is a mixture
+   */
+  getSeverityComponents(): Array<{ mean: number; variance: number; weight: number }> | null {
+    if (hasMixtureComponents(this.severity)) {
+      return this.severity.getComponents();
+    }
+    return null;
+  }
   
   /**
    * Compute statistics via Monte Carlo to handle any correlation structure
@@ -167,8 +205,8 @@ class CompoundPosteriorImpl implements CompoundPosterior {
  * @template TSev - Type of severity model (e.g., 'gamma', 'lognormal')
  */
 export abstract class CompoundModel<
-  TFreq extends ModelType = ModelType,
-  TSev extends ModelType = ModelType
+  TFreq extends InternalModelType = InternalModelType,
+  TSev extends InternalModelType = InternalModelType
 > {
   constructor(
     protected readonly frequencyModel: TFreq,

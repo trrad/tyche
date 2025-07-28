@@ -9,6 +9,9 @@ export interface PosteriorSummary {
   frequency?: PosteriorSummary;
   severity?: PosteriorSummary;
   expectedValuePerUser?: number;
+  // NEW: For mixture posteriors
+  components?: Array<{ mean: number; variance: number; weight: number }>;
+  numComponents?: number;
 }
 
 export class PosteriorProxy {
@@ -132,6 +135,32 @@ export class PosteriorProxy {
   isDisposed(): boolean {
     return this.disposed;
   }
+  
+  // NEW: Add getComponents method for mixture models
+  async getComponents(): Promise<Array<{ mean: number; variance: number; weight: number }> | null> {
+    // First check if components are cached in summary
+    if (this.summary.components) {
+      return this.summary.components;
+    }
+    
+    // Otherwise request from worker
+    try {
+      return await this.request<Array<{ mean: number; variance: number; weight: number }>>('getComponents');
+    } catch (error) {
+      console.warn('getComponents not supported for this posterior type');
+      return null;
+    }
+  }
+  
+  // Sync version that checks cache only
+  getComponentsSync(): Array<{ mean: number; variance: number; weight: number }> | null {
+    return this.summary.components || null;
+  }
+  
+  // Getter for summary (needed by CompoundPosteriorProxy)
+  getSummary(): PosteriorSummary {
+    return this.summary;
+  }
 }
 
 // Compound posterior proxy
@@ -160,7 +189,27 @@ export class CompoundPosteriorProxy {
     return true;
   }
   
-
+  // NEW: Add getSeverityComponents method
+  async getSeverityComponents(): Promise<Array<{ mean: number; variance: number; weight: number }> | null> {
+    // Check if severity has components
+    const severitySummary = this.severity.getSummary();
+    if (severitySummary.components) {
+      return severitySummary.components;
+    }
+    
+    // Try to get from severity proxy
+    if ('getComponents' in this.severity) {
+      return await this.severity.getComponents();
+    }
+    
+    return null;
+  }
+  
+  // Sync version
+  getSeverityComponentsSync(): Array<{ mean: number; variance: number; weight: number }> | null {
+    const severitySummary = this.severity.getSummary();
+    return severitySummary.components || null;
+  }
   
   async dispose(): Promise<void> {
     await Promise.all([

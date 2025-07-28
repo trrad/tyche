@@ -20,16 +20,69 @@ import {
 
 export type ModelType = 
   | 'auto'                           // Auto-detect from data
-  | 'beta-binomial'                  // Binary outcomes
-  | 'gamma'                          // Positive continuous
-  | 'exponential'                    // Waiting times (with Gamma prior)
-  | 'lognormal'                      // Heavy-tailed positive
-  | 'normal-mixture'                 // Multimodal continuous
-  | 'lognormal-mixture'              // Multimodal heavy-tailed
-  | 'compound-beta-gamma'            // Conversion × Gamma revenue
-  | 'compound-beta-lognormal'        // Conversion × LogNormal revenue
-  | 'compound-beta-lognormalmixture' // Conversion × LogNormal mixture (multimodal revenue)
-  | 'compound-beta-exponential';     // Conversion × Exponential (waiting times)
+  | 'beta-binomial'                  // Binary outcomes (conversion rates)
+  | 'lognormal'                      // Heavy-tailed positive values
+  | 'normal-mixture'                 // Multimodal continuous data
+  | 'lognormal-mixture'              // Multimodal heavy-tailed (e.g., revenue segments)
+  | 'compound-beta-lognormal'        // Conversion × Revenue
+  | 'compound-beta-lognormalmixture'; // Conversion × Revenue (with customer segments)
+
+// Internal model types (not exposed to UI)
+type InternalModelType = ModelType | 'gamma' | 'exponential' | 'compound-beta-gamma';
+
+// Model descriptions for UI
+export const MODEL_DESCRIPTIONS: Record<ModelType, { name: string; description: string; dataType: string }> = {
+  'auto': {
+    name: 'Auto-detect',
+    description: 'Automatically choose the best model based on your data',
+    dataType: 'Any'
+  },
+  'beta-binomial': {
+    name: 'Conversion Rate',
+    description: 'For binary outcomes like conversions, clicks, or signups',
+    dataType: 'Binary (0/1) or success/trial counts'
+  },
+  'lognormal': {
+    name: 'Revenue (Simple)',
+    description: 'For positive values with heavy tails like revenue or time',
+    dataType: 'Positive continuous values'
+  },
+  'normal-mixture': {
+    name: 'Multimodal Data',
+    description: 'For data with multiple peaks or distinct groups',
+    dataType: 'Any continuous values'
+  },
+  'lognormal-mixture': {
+    name: 'Revenue (Segments)',
+    description: 'For revenue data with customer segments (e.g., low/high spenders)',
+    dataType: 'Positive values with multiple groups'
+  },
+  'compound-beta-lognormal': {
+    name: 'Conversion + Revenue',
+    description: 'Analyzes both whether users convert AND how much they spend',
+    dataType: 'User data with conversion status and values'
+  },
+  'compound-beta-lognormalmixture': {
+    name: 'Conversion + Revenue (Segments)',
+    description: 'Like above but identifies revenue segments (budget vs premium customers)',
+    dataType: 'User data with conversion status and values'
+  }
+};
+
+// Helper to get user-friendly model name
+export function getModelDisplayName(modelType: ModelType): string {
+  return MODEL_DESCRIPTIONS[modelType]?.name || modelType;
+}
+
+// Helper to check if model supports mixture components
+export function isModelMixture(modelType: ModelType): boolean {
+  return modelType.includes('mixture');
+}
+
+// Helper to check if model is compound
+export function isModelCompound(modelType: ModelType): boolean {
+  return modelType.startsWith('compound-');
+}
 
 /**
  npm* Main entry point for all inference in Tyche
@@ -52,17 +105,17 @@ export class InferenceEngine {
    * @param options Fitting options
    * @returns Inference result with posterior and diagnostics
    */
-  async fit<T extends ModelType>(
+  async fit<T extends InternalModelType>(
     modelType: T,
     data: T extends 'auto' 
       ? DataInput | CompoundDataInput
-      : T extends 'compound-beta-gamma' | 'compound-beta-lognormal' 
+      : T extends 'compound-beta-gamma' | 'compound-beta-lognormal' | 'compound-beta-lognormalmixture'
         ? CompoundDataInput 
         : DataInput,
     options?: FitOptions
   ): Promise<T extends 'auto'
     ? InferenceResult | { posterior: CompoundPosterior; diagnostics: any }
-    : T extends 'compound-beta-gamma' | 'compound-beta-lognormal'
+    : T extends 'compound-beta-gamma' | 'compound-beta-lognormal' | 'compound-beta-lognormalmixture'
       ? { posterior: CompoundPosterior; diagnostics: any }
       : InferenceResult> {
     // Auto-detect model type if needed
@@ -104,7 +157,7 @@ export class InferenceEngine {
   /**
    * Automatically detect the best model type for the data
    */
-  private detectModelType(data: DataInput | CompoundDataInput): ModelType {
+  private detectModelType(data: DataInput | CompoundDataInput): InternalModelType {
     // Check if this is compound data
     if ('data' in data && Array.isArray(data.data) && data.data.length > 0) {
       const firstItem = data.data[0];
@@ -216,8 +269,9 @@ export class InferenceEngine {
     
     // Create appropriate compound model
     const { createCompoundModel } = await import('../models/compound/CompoundModel');
+    const numComponents = data.config?.numComponents || 2; // READ FROM CONFIG!
     const compoundModel = createCompoundModel('beta-binomial', severityType, this, {
-      numComponents: 2 // Default to 2 components for LogNormal mixture
+      numComponents: numComponents  // PASS IT THROUGH!
     });
     
     // Fit the compound model
