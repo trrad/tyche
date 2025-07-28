@@ -94,18 +94,24 @@ export const ComponentSelector: React.FC<ComponentSelectorProps> = ({
 };
 
 // Helper hook for managing component selection with model type
-export function useComponentSelection(modelType: string) {
-  const [numComponents, setNumComponents] = React.useState(2);
+export function useComponentSelection(modelType: string, externalValue?: number) {
+  const [internalNumComponents, setInternalNumComponents] = React.useState(2);
+  
+  // Use external value if provided, otherwise use internal state
+  const numComponents = externalValue !== undefined ? externalValue : internalNumComponents;
+  const setNumComponents = (value: number) => {
+    setInternalNumComponents(value);
+  };
   
   // Only show selector for mixture models
   const showComponentSelector = modelType.includes('mixture');
   
-  // Reset to 2 when switching to a mixture model
+  // Reset to 2 when switching to a mixture model (only if using internal state)
   React.useEffect(() => {
-    if (showComponentSelector && numComponents === 1) {
-      setNumComponents(2);
+    if (showComponentSelector && numComponents === 1 && externalValue === undefined) {
+      setInternalNumComponents(2);
     }
-  }, [showComponentSelector, numComponents]);
+  }, [showComponentSelector, numComponents, externalValue]);
   
   return {
     numComponents,

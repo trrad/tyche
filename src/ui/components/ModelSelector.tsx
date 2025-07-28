@@ -8,6 +8,7 @@ interface ModelSelectorProps {
   disabled?: boolean;
   className?: string;
   dataSize?: number; // NEW: for data-driven component recommendations
+  numComponents?: number; // NEW: external component count
 }
 
 /**
@@ -18,9 +19,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   onChange,
   disabled = false,
   className = '',
-  dataSize
+  dataSize,
+  numComponents: externalNumComponents
 }) => {
-  const { numComponents, setNumComponents, showComponentSelector } = useComponentSelection(value);
+  const { numComponents, setNumComponents, showComponentSelector } = useComponentSelection(value, externalNumComponents);
   
   const handleModelChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newModel = e.target.value as ModelType;

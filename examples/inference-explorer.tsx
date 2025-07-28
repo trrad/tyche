@@ -81,7 +81,7 @@ function InferenceExplorer() {
   useEffect(() => {
     setInferenceResult(null);
     setError(null);
-  }, [selectedDataSource, selectedModel, dataSourceType, numComponents]);
+  }, [selectedDataSource, selectedModel, dataSourceType]);
   
   // Clear results when data changes (but not when sample size changes)
   useEffect(() => {
@@ -673,6 +673,7 @@ function InferenceExplorer() {
           }}
           disabled={isAnalyzing}
           dataSize={getDataSize()}
+          numComponents={numComponents}
         />
         
         <InferenceButton />
