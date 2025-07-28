@@ -19,6 +19,7 @@ coverage/
 *.swo
 *~
 .DS_Store
+claude.md
 
 # Environment files
 .env
