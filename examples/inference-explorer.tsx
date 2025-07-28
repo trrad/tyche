@@ -802,7 +802,6 @@ return {
       
       {dataSourceType === 'custom' && (
         <CustomDataEditor
-          key="custom-data-editor" // Stable key to prevent unnecessary re-renders
           code={customCode}
           onCodeChange={setCustomCode}
           generatedData={generatedData}
@@ -813,7 +812,6 @@ return {
           }}
           onError={setError}
           seed={useSeed ? seed : undefined}
-
         />
       )}
     </div>

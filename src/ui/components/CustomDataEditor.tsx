@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DataGenerator, GeneratedDataset } from '../../tests/utilities/synthetic/DataGenerator';
 
 interface CustomDataEditorProps {
@@ -11,7 +11,7 @@ interface CustomDataEditorProps {
   generatedData?: any; // Add - for CSV export
 }
 
-export const CustomDataEditor: React.FC<CustomDataEditorProps> = ({ 
+export const CustomDataEditor: React.FC<CustomDataEditorProps> = React.memo(({ 
   onDataGenerated, 
   onError, 
   seed,
@@ -83,7 +83,7 @@ return {
     }
   ];
 
-  const runCode = () => {
+  const runCode = useCallback(() => {
     setIsGenerating(true);
     onError('');
     
@@ -108,9 +108,9 @@ return {
     } finally {
       setIsGenerating(false);
     }
-  };
+  }, [code, seed, onDataGenerated, onError]);
 
-  const exportToCSV = () => {
+  const exportToCSV = useCallback(() => {
     if (!propsGeneratedData) {
       onError('No data to export');
       return;
@@ -136,7 +136,7 @@ return {
     
     navigator.clipboard.writeText(csvContent);
     // TODO: Add success toast notification
-  };
+  }, [propsGeneratedData, onError]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -232,4 +232,4 @@ new DataGenerator(seed).applyNoiseLevel(data, 'clean'|'realistic'|'noisy')`}
       </details>
     </div>
   );
-}; 
+}); 
