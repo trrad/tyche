@@ -36,8 +36,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   
   return (
     <div className={`model-selector ${className}`}>
-      <h3 className="text-lg font-semibold mb-4">2. Select Model</h3>
-      
       <select
         value={value}
         onChange={handleModelChange}

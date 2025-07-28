@@ -70,8 +70,8 @@ function InferenceExplorer() {
   const [customData, setCustomData] = useState('');
   const [customDataFormat, setCustomDataFormat] = useState<'array' | 'binomial' | 'compound'>('array');
   
-  // State for data source type selection
-  const [dataSourceType, setDataSourceType] = useState<'test-scenario' | 'business-scenario' | 'custom' | 'preset'>('test-scenario');
+  // State for data source type selection - now simplified
+  const [dataSourceType, setDataSourceType] = useState<'synthetic' | 'custom'>('synthetic');
   
   // Sample size control
   const [sampleSize, setSampleSize] = useState(1000);
@@ -115,86 +115,61 @@ function InferenceExplorer() {
     }
   }, [inferenceError]);
   
-  // Available data sources
+  // Available data sources - Simplified and curated selection
   const dataSources: DataSource[] = useMemo(() => [
-    // Test Scenarios
+    // Basic Models (minimal selection)
     {
       type: 'test-scenario',
       name: 'Beta-Binomial: Typical',
-      description: '3% conversion rate, n=10000',
+      description: 'Low conversion rate (3%) with high sample size',
       generator: (n?: number) => TestScenarios.betaBinomial.typical.generateData(n)
-    },
-    {
-      type: 'business-scenario',
-      name: 'E-commerce: Stable Revenue (Gamma)',
-      description: 'Low variance revenue distribution',
-      generator: (n?: number) => {
-        const sampleSize = n || 1000;
-        const data = businessScenarios.ecommerce({
-          baseConversionRate: 0.08,
-          conversionLift: 0,
-          revenueDistribution: 'gamma',
-          revenueParams: { mean: 50, variance: 500 }, // CV = 0.45, suggests Gamma
-          revenueLift: 0,
-          sampleSize
-        });
-        return data.control;
-      }
-    },
-    {
-      type: 'test-scenario',
-      name: 'Beta-Binomial: High Conversion',
-      description: '25% conversion rate, n=1000',
-      generator: (n?: number) => TestScenarios.betaBinomial.highConversion.generateData(n)
     },
     {
       type: 'test-scenario',
       name: 'Revenue: E-commerce',
-      description: 'LogNormal revenue distribution',
+      description: 'Heavy-tailed LogNormal with high variance',
       generator: (n?: number) => TestScenarios.revenue.ecommerce.generateData(n || 500)
     },
-    {
-      type: 'test-scenario',
-      name: 'Revenue: SaaS MRR',
-      description: 'Three-tier pricing distribution',
-      generator: (n?: number) => TestScenarios.revenue.saas.generateData(n || 500)
-    },
+    
+    // Mixture Models (more variety)
     {
       type: 'test-scenario',
       name: 'Mixture: Bimodal',
-      description: 'Two clear components',
+      description: 'Two distinct Normal components',
       generator: (n?: number) => TestScenarios.mixtures.bimodal.generateData(n || 500)
     },
     {
       type: 'test-scenario',
       name: 'Mixture: Revenue Segments',
-      description: 'LogNormal mixture for customer tiers',
+      description: 'LogNormal mixture with customer tiers',
       generator: (n?: number) => TestScenarios.mixtures.revenueMixture.generateData(n || 500)
     },
+    
+    // Compound Models (most variety - real-world complexity)
     {
       type: 'test-scenario',
       name: 'Compound: Control (Gamma)',
-      description: '5% conv, $55 AOV, low variance',
+      description: 'Low variance Gamma with moderate conversion',
       generator: (n?: number) => TestScenarios.compound.controlVariant.generateUsers(n || 1000)
     },
     {
       type: 'test-scenario',
       name: 'Compound: Treatment (LogNormal)',
-      description: '6.5% conv, $60 AOV, high variance',
+      description: 'High variance LogNormal with conversion lift',
       generator: (n?: number) => TestScenarios.compound.treatmentVariant.generateUsers(n || 1000)
     },
     {
       type: 'test-scenario',
       name: 'Compound: Multimodal Revenue',
-      description: 'Budget vs premium customer segments',
+      description: 'Bimodal revenue with customer segments',
       generator: (n?: number) => TestScenarios.compound.multimodalRevenue.generateUsers(n || 1000)
     },
     
-    // Business Scenarios
+    // Business Scenarios (real-world examples)
     {
       type: 'business-scenario',
       name: 'E-commerce: Control (LogNormal)',
-      description: 'Baseline with heavy-tailed revenue',
+      description: 'Heavy-tailed revenue with low conversion',
       generator: (n?: number) => {
         const sampleSize = n || 2000;
         const data = businessScenarios.ecommerce({
@@ -211,7 +186,7 @@ function InferenceExplorer() {
     {
       type: 'business-scenario',
       name: 'E-commerce: Treatment (LogNormal)',
-      description: '30% conv lift, 10% AOV lift',
+      description: 'Treatment effect with conversion & revenue lift',
       generator: (n?: number) => {
         const sampleSize = n || 2000;
         const data = businessScenarios.ecommerce({
@@ -227,53 +202,40 @@ function InferenceExplorer() {
     }
   ], [businessScenarios]);
   
-  // New preset data sources using DataGenerator
+  // Preset data sources - Curated selection with ground truth
   const presetDataSources: DataSource[] = useMemo(() => [
     {
       type: 'preset',
-      name: 'Clear Customer Segments',
-      description: 'Budget (70%) vs Premium (30%) customers',
-      generator: (n?: number) => DataGenerator.presets.clearSegments(n || 1000, Date.now())
-    },
-    {
-      type: 'preset',
-      name: 'SaaS Pricing Tiers',
-      description: 'Three-tier pricing model',
-      generator: (n?: number) => DataGenerator.presets.saasTiers(n || 1000, Date.now())
-    },
-    {
-      type: 'preset',
       name: 'Four Segments (Stress Test)',
-      description: 'Tests 4-component mixture fitting',
+      description: '4-component Normal mixture with known parameters',
       generator: (n?: number) => DataGenerator.presets.fourSegments(n || 1000, Date.now())
     },
     {
       type: 'preset',
       name: 'E-commerce with Segments',
-      description: 'Compound model with customer tiers',
+      description: 'Compound data with customer segment effects',
       generator: (n?: number) => DataGenerator.presets.ecommerceSegments(n || 1000, Date.now())
     },
     {
       type: 'preset',
       name: 'Beta-Binomial (Known Truth)',
-      description: '5% conversion rate with ground truth',
+      description: '5% conversion with ground truth for validation',
       generator: (n?: number) => DataGenerator.presets.betaBinomial(0.05, n || 1000, Date.now())
     },
     {
       type: 'preset',
       name: 'LogNormal (Known Truth)',
-      description: 'Revenue distribution with ground truth',
+      description: 'LogNormal revenue with ground truth for validation',
       generator: (n?: number) => DataGenerator.presets.lognormal(3.5, 0.5, n || 1000, Date.now())
     }
   ], []);
   
-  // Filter data sources by type
+  // Filter data sources based on selected type
   const filteredDataSources = useMemo(() => {
-    if (dataSourceType === 'preset') {
-      return presetDataSources;
-    }
-    return dataSources.filter(ds => ds.type === dataSourceType);
-  }, [dataSources, presetDataSources, dataSourceType]);
+    if (dataSourceType === 'custom') return [];
+    // Combine all synthetic sources
+    return [...dataSources, ...presetDataSources];
+  }, [dataSourceType, dataSources, presetDataSources]);
   
   // Auto-select first source when type changes
   useEffect(() => {
@@ -292,63 +254,72 @@ function InferenceExplorer() {
     }
   }, [dataSourceType, filteredDataSources, selectedDataSource]);
   
-  // Generate data when source selected
+  // Generate data
   const generateData = useCallback(() => {
     if (!selectedDataSource) return;
     
     try {
-      // Pass sample size if using custom sample size
-      const result = useCustomSampleSize && typeof selectedDataSource.generator === 'function'
-        ? selectedDataSource.generator(sampleSize)
-        : selectedDataSource.generator();
+      const n = useCustomSampleSize ? sampleSize : undefined;
+      const result = selectedDataSource.generator(n);
       
-      // Handle GeneratedDataset vs regular data
-      if (result && typeof result === 'object' && 'data' in result && 'groundTruth' in result) {
-        // This is a GeneratedDataset
-        setGeneratedData(result.data);
-        // Store ground truth for later use
+      // Check if this is a GeneratedDataset (has groundTruth)
+      if (result && typeof result === 'object' && 'groundTruth' in result && 'data' in result) {
         setGeneratedDataset(result);
+        setGeneratedData(result.data);
       } else {
-        // This is regular data
         setGeneratedData(result);
         setGeneratedDataset(null);
       }
       
       setError(null);
     } catch (err) {
-      setError(`Failed to generate data: ${(err as Error).message}`);
+      setError(`Failed to generate data: ${err}`);
+      setGeneratedData(null);
+      setGeneratedDataset(null);
     }
-  }, [selectedDataSource, sampleSize, useCustomSampleSize]);
+  }, [selectedDataSource, useCustomSampleSize, sampleSize]);
   
   // Parse custom data
   const parseCustomData = useCallback(() => {
-    if (!customData.trim()) return null;
-    
     try {
-      switch (customDataFormat) {
-        case 'array':
-          return customData.split(/[\n,\s]+/)
-            .map(x => parseFloat(x))
-            .filter(x => !isNaN(x));
-            
-        case 'binomial':
-          const [successes, trials] = customData.split(',').map(x => parseInt(x.trim()));
-          return { successes, trials };
-          
-        case 'compound':
-          return customData.split('\n').map(line => {
-            const [converted, value] = line.split(',').map(x => x.trim());
-            return {
-              converted: converted === '1' || converted.toLowerCase() === 'true',
-              value: parseFloat(value) || 0
-            };
-          });
-          
-        default:
-          throw new Error('Unknown data format');
+      if (!customData.trim()) {
+        setError('Please enter some data');
+        return null;
+      }
+      
+      if (customDataFormat === 'array') {
+        const numbers = customData.split(',').map(s => parseFloat(s.trim())).filter(n => !isNaN(n));
+        if (numbers.length === 0) {
+          setError('No valid numbers found');
+          return null;
+        }
+        return numbers;
+      } else if (customDataFormat === 'binomial') {
+        const parts = customData.trim().split(',').map(s => parseInt(s.trim()));
+        if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
+          setError('Expected format: successes, trials');
+          return null;
+        }
+        return { successes: parts[0], trials: parts[1] };
+      } else if (customDataFormat === 'compound') {
+        const lines = customData.trim().split('\n');
+        const users = lines.map(line => {
+          const parts = line.trim().split(',');
+          if (parts.length !== 2) return null;
+          const converted = parseInt(parts[0].trim());
+          const value = parseFloat(parts[1].trim());
+          if (isNaN(converted) || isNaN(value)) return null;
+          return { converted: converted === 1, value };
+        }).filter(u => u !== null);
+        
+        if (users.length === 0) {
+          setError('No valid user data found');
+          return null;
+        }
+        return users;
       }
     } catch (err) {
-      setError(`Failed to parse custom data: ${(err as Error).message}`);
+      setError(`Failed to parse data: ${err}`);
       return null;
     }
   }, [customData, customDataFormat]);
@@ -470,76 +441,120 @@ function InferenceExplorer() {
     <div className="bg-white p-6 rounded-lg shadow">
       <h3 className="text-lg font-semibold mb-4">1. Select Data Source</h3>
       
-      <div className="grid grid-cols-4 gap-2 mb-4">
-        {(['test-scenario', 'business-scenario', 'preset', 'custom'] as const).map(type => (
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        {(['synthetic', 'custom'] as const).map(type => (
           <button
             key={type}
-            onClick={() => setDataSourceType(type)}
-            className={`px-4 py-2 rounded ${
+            onClick={() => {
+              setDataSourceType(type);
+              setSelectedDataSource(null);
+              setGeneratedData(null);
+              setGeneratedDataset(null);
+            }}
+            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
               dataSourceType === type
-                ? 'bg-purple-600 text-white' // Zenith Data lilac
-                : 'bg-gray-200 hover:bg-gray-300'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
             }`}
           >
-            {type === 'test-scenario' ? 'Test Scenarios' :
-             type === 'business-scenario' ? 'Business' :
-             type === 'preset' ? 'Generated' :
-             'Custom'}
+            {type === 'synthetic' ? '🎲 Synthetic Data' : '📊 Custom Data'}
           </button>
         ))}
       </div>
       
-      {dataSourceType !== 'custom' && (
+      {dataSourceType === 'synthetic' && (
         <div className="space-y-3">
-          <select
-            value={selectedDataSource ? filteredDataSources.indexOf(selectedDataSource) : ''}
-            onChange={(e) => {
-              const idx = parseInt(e.target.value);
-              if (!isNaN(idx) && idx >= 0 && idx < filteredDataSources.length) {
-                setSelectedDataSource(filteredDataSources[idx]);
-                setGeneratedData(null);
-              }
-            }}
-            className="w-full p-2 border rounded"
-          >
-            {filteredDataSources.map((ds, idx) => (
-              <option key={`${ds.type}-${ds.name}`} value={idx}>
-                {ds.name} - {ds.description}
-              </option>
-            ))}
-          </select>
+          <div className="relative">
+            <select
+              value={selectedDataSource ? filteredDataSources.indexOf(selectedDataSource) : ''}
+              onChange={(e) => {
+                const idx = parseInt(e.target.value);
+                if (!isNaN(idx) && idx >= 0 && idx < filteredDataSources.length) {
+                  setSelectedDataSource(filteredDataSources[idx]);
+                  setGeneratedData(null);
+                }
+              }}
+              className="w-full p-3 pr-10 border border-gray-200 rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            >
+              <option value="" disabled>Select a dataset...</option>
+              
+              {/* Group by data format compatibility */}
+              <optgroup label="📊 Simple Data (Beta-Binomial & Revenue)">
+                {filteredDataSources
+                  .filter(ds => !ds.name.includes('Compound') && !ds.name.includes('E-commerce'))
+                  .map((ds) => (
+                    <option key={`${ds.type}-${ds.name}`} value={filteredDataSources.indexOf(ds)}>
+                      {ds.name} - {ds.description}
+                    </option>
+                  ))}
+              </optgroup>
+              
+              <optgroup label="🎯 Compound Data (User-level)">
+                {filteredDataSources
+                  .filter(ds => ds.name.includes('Compound') || ds.name.includes('E-commerce'))
+                  .map((ds) => (
+                    <option key={`${ds.type}-${ds.name}`} value={filteredDataSources.indexOf(ds)}>
+                      {ds.name} - {ds.description}
+                    </option>
+                  ))}
+              </optgroup>
+            </select>
+            
+            {/* Custom dropdown arrow */}
+            <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+              <svg className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </div>
+          </div>
           
           <button
             onClick={generateData}
             disabled={!selectedDataSource}
-            className={`px-4 py-2 rounded ${
+            className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
               selectedDataSource 
-                ? 'bg-red-500 text-white hover:bg-red-600' // Zenith Data coral
-                : 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                ? generatedData
+                  ? 'bg-green-500 text-white hover:bg-green-600 shadow-sm'
+                  : 'bg-red-500 text-white hover:bg-red-600 shadow-sm'
+                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}
           >
-            Generate Data
+            {generatedData ? (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {Array.isArray(generatedData) 
+                  ? `Regenerate Data (${generatedData.length} samples)`
+                  : generatedData.trials 
+                    ? `Regenerate Data (${generatedData.successes}/${generatedData.trials})`
+                    : 'Regenerate Data'}
+              </>
+            ) : (
+              'Generate Data'
+            )}
           </button>
           
           {/* Sample size controls */}
-          {selectedDataSource && (dataSourceType === 'test-scenario' || dataSourceType === 'business-scenario' || dataSourceType === 'preset') && (
-            <div className="mt-4 space-y-2">
+          {selectedDataSource && (
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg space-y-2">
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   id="custom-sample-size"
                   checked={useCustomSampleSize}
                   onChange={(e) => setUseCustomSampleSize(e.target.checked)}
+                  className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
                 />
-                <label htmlFor="custom-sample-size" className="text-sm">
+                <label htmlFor="custom-sample-size" className="text-sm font-medium text-gray-700">
                   Custom sample size
                 </label>
               </div>
               
               {useCustomSampleSize && (
-                <div>
+                <div className="pl-6">
                   <label className="text-sm text-gray-600">
-                    Sample size: {sampleSize.toLocaleString()}
+                    Sample size: <span className="font-medium text-gray-900">{sampleSize.toLocaleString()}</span>
                   </label>
                   <input
                     type="range"
@@ -548,8 +563,12 @@ function InferenceExplorer() {
                     step="100"
                     value={sampleSize}
                     onChange={(e) => setSampleSize(parseInt(e.target.value))}
-                    className="w-full"
+                    className="w-full mt-1"
                   />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>100</span>
+                    <span>10,000</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -558,16 +577,31 @@ function InferenceExplorer() {
       )}
       
       {dataSourceType === 'custom' && (
-        <div className="space-y-3">
-          <select
-            value={customDataFormat}
-            onChange={(e) => setCustomDataFormat(e.target.value as any)}
-            className="w-full p-2 border rounded"
-          >
-            <option value="array">Array of numbers</option>
-            <option value="binomial">Binomial (successes, trials)</option>
-            <option value="compound">Compound (converted, value)</option>
-          </select>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <select
+              value={customDataFormat}
+              onChange={(e) => setCustomDataFormat(e.target.value as any)}
+              className="w-full p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            >
+              <option value="array">Array of numbers</option>
+              <option value="binomial">Binomial (successes, trials)</option>
+              <option value="compound">Compound (converted, value)</option>
+            </select>
+            
+            <a 
+              href="https://github.com/trrad/tyche/blob/main/src/inference/Readme.md#api-and-data-formats" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="ml-3 text-sm text-purple-600 hover:text-purple-700 underline flex items-center gap-1"
+              title="View data format documentation"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              Data Formats
+            </a>
+          </div>
           
           <textarea
             value={customData}
@@ -577,21 +611,18 @@ function InferenceExplorer() {
               customDataFormat === 'binomial' ? '45, 1000' :
               '1, 95.50\n0, 0\n1, 105.25\n...'
             }
-            className="w-full h-32 p-2 border rounded font-mono text-sm"
+            className="w-full h-40 p-3 border border-gray-200 rounded-lg font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
           />
+          
+          <div className="text-sm text-gray-600">
+            {customDataFormat === 'array' && 'Enter comma-separated numbers'}
+            {customDataFormat === 'binomial' && 'Enter successes and trials (e.g., "45, 1000")'}
+            {customDataFormat === 'compound' && 'Each line: converted (0/1), revenue'}
+          </div>
         </div>
       )}
       
-      {generatedData && (
-        <div className="mt-4 p-3 bg-gray-50 rounded text-sm">
-          <strong>Data Generated:</strong> 
-          {Array.isArray(generatedData) 
-            ? ` ${generatedData.length} samples`
-            : generatedData.trials 
-              ? ` ${generatedData.successes}/${generatedData.trials} successes`
-              : ' Unknown format'}
-        </div>
-      )}
+
     </div>
   );
   
@@ -601,18 +632,21 @@ function InferenceExplorer() {
       <button
         onClick={isAnalyzing ? cancelInference : runInference}
         disabled={(!generatedData && !customData.trim()) && !isAnalyzing}
-        className={`w-full px-4 py-2 rounded flex items-center justify-center ${
+        className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center ${
           isAnalyzing
-            ? 'bg-red-500 text-white hover:bg-red-600' // Cancel button
+            ? 'bg-red-500 text-white hover:bg-red-600 shadow-sm' // Cancel button
             : (!generatedData && !customData.trim())
-              ? 'bg-gray-400 cursor-not-allowed'
-              : 'bg-purple-600 hover:bg-purple-700 text-white'
+              ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              : 'bg-purple-600 hover:bg-purple-700 text-white shadow-sm'
         }`}
       >
         {isAnalyzing ? (
           <>
-            <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-            Cancel Inference
+            <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            Running Inference...
           </>
         ) : (
           'Run Inference'
@@ -638,7 +672,7 @@ function InferenceExplorer() {
     </div>
   );
 
-  const ModelSelectorComponent = () => {
+    const ModelSelectorComponent = () => {
     // Calculate data size for component recommendations
     const getDataSize = () => {
       const data = selectedDataSource ? generatedData : parseCustomData();
@@ -663,20 +697,24 @@ function InferenceExplorer() {
     
     return (
       <div className="bg-white p-6 rounded-lg shadow">
-        <ModelSelector
-          value={selectedModel}
-          onChange={(model, components) => {
-            setSelectedModel(model);
-            if (components !== undefined) {
-              setNumComponents(components);
-            }
-          }}
-          disabled={isAnalyzing}
-          dataSize={getDataSize()}
-          numComponents={numComponents}
-        />
+        <h3 className="text-lg font-semibold mb-4">2. Select Model</h3>
         
-        <InferenceButton />
+        <div className="space-y-3">
+          <ModelSelector
+            value={selectedModel}
+            onChange={(model, components) => {
+              setSelectedModel(model);
+              if (components !== undefined) {
+                setNumComponents(components);
+              }
+            }}
+            disabled={isAnalyzing}
+            dataSize={getDataSize()}
+            numComponents={numComponents}
+          />
+          
+          <InferenceButton />
+        </div>
       </div>
     );
   };
@@ -714,38 +752,102 @@ function InferenceExplorer() {
   const ResultsDisplay = () => {
     if (!inferenceResult) return null;
     
+    // Determine headline for PPC
+    let ppcHeadline = '';
+    if (isCompound) {
+      ppcHeadline = 'Beliefs about revenue per user';
+    } else {
+      ppcHeadline = `Beliefs about ${getParameterLabel(modelType || selectedModel).toLowerCase()}`;
+    }
+
     return (
       <div className="space-y-6">
-        {/* Ground Truth Comparison */}
-        {generatedDataset?.groundTruth && (
+        {/* PPC Visualization - HEADLINE */}
+        {visualizationData && Array.isArray(visualizationData) && (
           <div className="bg-white p-6 rounded-lg shadow">
-            <h3 className="text-lg font-semibold mb-4">Parameter Recovery</h3>
-            <div className="space-y-4">
-              <div>
-                <h4 className="font-medium text-gray-700">Ground Truth</h4>
-                <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto">
-                  {JSON.stringify(generatedDataset.groundTruth, null, 2)}
-                </pre>
-              </div>
-              
-              <div>
-                <h4 className="font-medium text-gray-700">Recovered Parameters</h4>
-                <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto">
-                  {JSON.stringify(inferenceResult.diagnostics.modelType, null, 2)}
-                </pre>
-              </div>
+            <h3 className="text-lg font-semibold mb-4">{ppcHeadline}</h3>
+            <VisualizationErrorBoundary>
+              <UnifiedDistributionViz
+                distributions={[
+                  {
+                    id: 'observed',
+                    label: 'Observed Data',
+                    samples: (() => {
+                      // For compound models, extract revenue values from converted users
+                      if (isCompound && typeof visualizationData[0] === 'object') {
+                        return (visualizationData as any[])
+                          .filter(u => u.converted && u.value > 0)
+                          .map(u => u.value);
+                      }
+                      // For simple models, use data as-is
+                      return visualizationData as number[];
+                    })(),
+                    color: BRAND_COLORS.observed,
+                    metadata: { isObserved: true }
+                  },
+                  {
+                    id: 'predictive',
+                    label: 'Posterior Predictive',
+                    posterior: (() => {
+                      // For compound models, use severity posterior for value predictions
+                      if (isCompound && inferenceResult?.posterior) {
+                        const compoundPosterior = inferenceResult.posterior as any;
+                        return compoundPosterior.severity;
+                      }
+                      // For simple models, use the posterior directly
+                      return inferenceResult.posterior;
+                    })(),
+                    color: BRAND_COLORS.predicted
+                  }
+                ]}
+                display={{
+                  mode: 'mixed',  // Use mixed mode for PPC
+                  showCI: true,
+                  ciLevels: [0.8, 0.95],
+                  showGrid: true,
+                  binCount: (() => {
+                    // Adjust bin count based on data type
+                    const obsData = isCompound && typeof visualizationData[0] === 'object'
+                      ? (visualizationData as any[]).filter(u => u.converted && u.value > 0)
+                      : visualizationData as number[];
+                    return Math.min(50, Math.max(15, Math.ceil(obsData.length / 3)));
+                  })()
+                }}
+                width={700}
+                height={400}
+                margin={{ top: 40, right: 150, bottom: 60, left: 60 }}
+                formatValue={isCompound ? (v => `$${v.toFixed(0)}`) : formatValue}
+                xLabel={isCompound ? 'Value (Converted Users)' : getParameterLabel(modelType || selectedModel)}
+                title=""  // Clean look, no title
+              />
+            </VisualizationErrorBoundary>
+            {/* PPC Diagnostics */}
+            <div className="mt-4 border-t pt-4">
+              <VisualizationErrorBoundary>
+                <AsyncPPCDiagnostics
+                  observedData={(() => {
+                    // Same logic for observed data extraction
+                    if (isCompound && typeof visualizationData[0] === 'object') {
+                      return (visualizationData as any[])
+                        .filter(u => u.converted && u.value > 0)
+                        .map(u => u.value);
+                    }
+                    return visualizationData as number[];
+                  })()}
+                  posterior={(() => {
+                    // Same logic for posterior selection
+                    if (isCompound && inferenceResult?.posterior) {
+                      const compoundPosterior = inferenceResult.posterior as any;
+                      return compoundPosterior.severity;
+                    }
+                    return inferenceResult.posterior;
+                  })()}
+                />
+              </VisualizationErrorBoundary>
             </div>
           </div>
         )}
-        
-        {/* Diagnostics */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold mb-4">Diagnostics</h3>
-          <VisualizationErrorBoundary>
-            <DiagnosticsPanel diagnostics={inferenceResult.diagnostics} />
-          </VisualizationErrorBoundary>
-        </div>
-        
+
         {/* Posterior Summary */}
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-4">Posterior Summary</h3>
@@ -862,89 +964,32 @@ function InferenceExplorer() {
           </>
         )}
         
-        {/* PPC Visualization - Replaces UnifiedPPCDisplay */}
-        {visualizationData && Array.isArray(visualizationData) && (
+        {/* Diagnostics */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-4">Diagnostics</h3>
+          <VisualizationErrorBoundary>
+            <DiagnosticsPanel diagnostics={inferenceResult.diagnostics} />
+          </VisualizationErrorBoundary>
+        </div>
+        
+        {/* Ground Truth Comparison */}
+        {generatedDataset?.groundTruth && (
           <div className="bg-white p-6 rounded-lg shadow">
-            <h3 className="text-lg font-semibold mb-4">Posterior Predictive Check</h3>
-            <VisualizationErrorBoundary>
-              <UnifiedDistributionViz
-                distributions={[
-                  {
-                    id: 'observed',
-                    label: 'Observed Data',
-                    samples: (() => {
-                      // For compound models, extract revenue values from converted users
-                      if (isCompound && typeof visualizationData[0] === 'object') {
-                        return (visualizationData as any[])
-                          .filter(u => u.converted && u.value > 0)
-                          .map(u => u.value);
-                      }
-                      // For simple models, use data as-is
-                      return visualizationData as number[];
-                    })(),
-                    color: BRAND_COLORS.observed,
-                    metadata: { isObserved: true }
-                  },
-                  {
-                    id: 'predictive',
-                    label: 'Posterior Predictive',
-                    posterior: (() => {
-                      // For compound models, use severity posterior for value predictions
-                      if (isCompound && inferenceResult?.posterior) {
-                        const compoundPosterior = inferenceResult.posterior as any;
-                        return compoundPosterior.severity;
-                      }
-                      // For simple models, use the posterior directly
-                      return inferenceResult.posterior;
-                    })(),
-                    color: BRAND_COLORS.predicted
-                  }
-                ]}
-                display={{
-                  mode: 'mixed',  // Use mixed mode for PPC
-                  showCI: true,
-                  ciLevels: [0.8, 0.95],
-                  showGrid: true,
-                  binCount: (() => {
-                    // Adjust bin count based on data type
-                    const obsData = isCompound && typeof visualizationData[0] === 'object'
-                      ? (visualizationData as any[]).filter(u => u.converted && u.value > 0)
-                      : visualizationData as number[];
-                    return Math.min(50, Math.max(15, Math.ceil(obsData.length / 3)));
-                  })()
-                }}
-                width={700}
-                height={400}
-                margin={{ top: 40, right: 150, bottom: 60, left: 60 }}
-                formatValue={isCompound ? (v => `$${v.toFixed(0)}`) : formatValue}
-                xLabel={isCompound ? 'Value (Converted Users)' : getParameterLabel(modelType || selectedModel)}
-                title=""  // Clean look, no title
-              />
-            </VisualizationErrorBoundary>
-            
-            {/* PPC Diagnostics */}
-            <div className="mt-4 border-t pt-4">
-              <VisualizationErrorBoundary>
-                <AsyncPPCDiagnostics
-                  observedData={(() => {
-                    // Same logic for observed data extraction
-                    if (isCompound && typeof visualizationData[0] === 'object') {
-                      return (visualizationData as any[])
-                        .filter(u => u.converted && u.value > 0)
-                        .map(u => u.value);
-                    }
-                    return visualizationData as number[];
-                  })()}
-                  posterior={(() => {
-                    // Same logic for posterior selection
-                    if (isCompound && inferenceResult?.posterior) {
-                      const compoundPosterior = inferenceResult.posterior as any;
-                      return compoundPosterior.severity;
-                    }
-                    return inferenceResult.posterior;
-                  })()}
-                />
-              </VisualizationErrorBoundary>
+            <h3 className="text-lg font-semibold mb-4">Parameter Recovery</h3>
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium text-gray-700">Ground Truth</h4>
+                <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto">
+                  {JSON.stringify(generatedDataset.groundTruth, null, 2)}
+                </pre>
+              </div>
+              
+              <div>
+                <h4 className="font-medium text-gray-700">Recovered Parameters</h4>
+                <pre className="mt-2 p-3 bg-gray-50 rounded text-xs overflow-auto">
+                  {JSON.stringify(inferenceResult.diagnostics.modelType, null, 2)}
+                </pre>
+              </div>
             </div>
           </div>
         )}
@@ -957,15 +1002,15 @@ function InferenceExplorer() {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Tyche Inference Explorer</h1>
+          <h1 className="text-3xl font-bold text-purple-900">TycheJS</h1>
           <p className="text-gray-600 mt-2">
-            Test and visualize Bayesian inference across different models and data scenarios
-          </p>
+            An opinionated browser-based Bayesian inference engine for solving real-world problems.
+            </p>
         </div>
         
         {/* Error Display */}
         {error && (
-          <div className="mb-6 p-4 bg-orange-100 text-orange-700 rounded-lg"> // Zenith Data coral theme
+          <div className="mb-6 p-4 bg-orange-100 text-orange-700 rounded-lg">
             <strong>Error:</strong> {error}
           </div>
         )}
