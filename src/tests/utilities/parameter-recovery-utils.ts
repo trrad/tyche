@@ -4,7 +4,7 @@
  */
 
 import { InferenceEngine } from '../../inference/InferenceEngine';
-import { GeneratedDataset } from '../../core/data-generation';
+import { GeneratedDataset } from '../utilities/synthetic/DataGenerator';
 
 export interface RecoveryResult {
   groundTruth: any;

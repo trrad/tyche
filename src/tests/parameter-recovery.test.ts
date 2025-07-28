@@ -1,7 +1,7 @@
 // src/tests/parameter-recovery.test.ts
 
 import { describe, test, expect } from 'vitest';
-import { DataGenerator } from '../core/data-generation';
+import { DataGenerator } from './utilities/synthetic/DataGenerator';
 import { InferenceEngine } from '../inference/InferenceEngine';
 import { ParameterRecoveryUtils } from './utilities/parameter-recovery-utils';
 

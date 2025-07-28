@@ -1,12 +1,10 @@
 // src/tests/scenarios/test-scenarios.ts
-import jStat from 'jstat';
-import { SyntheticDataGenerator } from '../utilities/synthetic/DataGenerator';
-import { BusinessScenarios } from '../utilities/synthetic/BusinessScenarios';
+import { DataGenerator } from '../utilities/synthetic/DataGenerator';
 import { UserData } from '../../inference/base/types';
 
 /**
  * Centralized test scenarios for consistent validation across the test suite
- * Leverages existing test utilities
+ * Uses the unified DataGenerator API
  */
 export const TestScenarios = {
   // Beta-Binomial scenarios (conversion rates)
@@ -16,24 +14,10 @@ export const TestScenarios = {
       trueRate: 0.03,
       sampleSize: 10000,
       generateData: (n?: number) => {
-        const trials = n || 10000;
-        const generator = new SyntheticDataGenerator(Date.now());
-        const successes = Math.round(trials * 0.03 + (Math.random() - 0.5) * Math.sqrt(trials * 0.03 * 0.97));
-        return { successes: Math.max(0, Math.min(trials, successes)), trials };
+        return DataGenerator.scenarios.betaBinomial.realistic(0.03, n || 10000, 12345).data;
       },
-      generateFromBusiness: (n?: number) => {
-        const sampleSize = n || 10000;
-        const scenarios = new BusinessScenarios();
-        const data = scenarios.ecommerce({
-          baseConversionRate: 0.03,
-          conversionLift: 0,
-          revenueDistribution: 'lognormal',
-          revenueParams: { mean: 50, variance: 400 },
-          revenueLift: 0,
-          sampleSize
-        });
-        const conversions = data.control.filter(u => u.converted).length;
-        return { successes: conversions, trials: data.control.length };
+      generateDataset: (n?: number) => {
+        return DataGenerator.scenarios.betaBinomial.realistic(0.03, n || 10000, 12345);
       }
     },
     
@@ -42,11 +26,10 @@ export const TestScenarios = {
       trueRate: 0.25,
       sampleSize: 1000,
       generateData: (n?: number) => {
-        const trials = n || 1000;
-        return {
-          successes: Math.round(trials * 0.25 + (Math.random() - 0.5) * Math.sqrt(trials * 0.25 * 0.75)),
-          trials
-        };
+        return DataGenerator.scenarios.betaBinomial.realistic(0.25, n || 1000, 12345).data;
+      },
+      generateDataset: (n?: number) => {
+        return DataGenerator.scenarios.betaBinomial.realistic(0.25, n || 1000, 12345);
       }
     },
     
@@ -63,108 +46,94 @@ export const TestScenarios = {
     ecommerce: {
       description: 'Typical e-commerce transaction values',
       generateData: (n?: number) => {
-        const sampleSize = n || 1000;
-        const generator = new SyntheticDataGenerator();
-        // Mix of small and large purchases
-        const small = generator.generateFromDistribution('lognormal', [3.5, 0.5], Math.floor(sampleSize * 0.8));
-        const large = generator.generateFromDistribution('lognormal', [5, 0.3], Math.floor(sampleSize * 0.2));
-        return [...small, ...large].sort(() => Math.random() - 0.5);
+        return DataGenerator.scenarios.revenue.realistic(3.5, 0.5, n || 1000, 12345).data;
       },
-      generateFromBusiness: (n?: number) => {
-        const sampleSize = n || 1000;
-        const scenarios = new BusinessScenarios();
-        const data = scenarios.ecommerce({
-          baseConversionRate: 1.0, // All converted for revenue-only test
-          conversionLift: 0,
-          revenueDistribution: 'lognormal',
-          revenueParams: { mean: 55, variance: 600 },
-          revenueLift: 0,
-          sampleSize
-        });
-        return data.control.map(u => u.value).filter(v => v > 0);
+      generateDataset: (n?: number) => {
+        return DataGenerator.scenarios.revenue.realistic(3.5, 0.5, n || 1000, 12345);
       }
     },
     
     saas: {
       description: 'SaaS MRR distribution',
       generateData: (n?: number) => {
-        const sampleSize = n || 500;
-        const generator = new SyntheticDataGenerator();
-        // Three tiers: starter, pro, enterprise
-        const starter = generator.generateFromDistribution('lognormal', [2.3, 0.2], Math.floor(sampleSize * 0.6));
-        const pro = generator.generateFromDistribution('lognormal', [3.9, 0.2], Math.floor(sampleSize * 0.3));
-        const enterprise = generator.generateFromDistribution('lognormal', [5.3, 0.3], Math.floor(sampleSize * 0.1));
-        return [...starter, ...pro, ...enterprise].sort(() => Math.random() - 0.5);
+        // Extract just the revenue values from the compound model
+        const dataset = DataGenerator.scenarios.saas.clean(n || 500, 12345);
+        return dataset.data.filter((u: any) => u.converted).map((u: any) => u.value);
+      },
+      generateDataset: (n?: number) => {
+        return DataGenerator.scenarios.saas.clean(n || 500, 12345);
+      }
+    },
+    
+    withOutliers: {
+      description: 'Revenue with whale customers',
+      generateData: (n?: number) => {
+        return DataGenerator.scenarios.revenue.noisy(3.5, 0.5, n || 1000, 12345).data;
+      },
+      generateDataset: (n?: number) => {
+        return DataGenerator.scenarios.revenue.noisy(3.5, 0.5, n || 1000, 12345);
       }
     }
   },
 
-  // Compound model scenarios (conversion + revenue)
+  // Compound scenarios
   compound: {
     controlVariant: {
-      description: 'Typical control in A/B test',
-      conversionRate: 0.05,
-      revenueParams: { logMean: 4, logStd: 0.8 }, // ~$55 average
+      description: '5% conversion, $55 AOV',
       generateUsers: (n?: number) => {
-        const sampleSize = n || 2000;
-        const scenarios = new BusinessScenarios();
-        const data = scenarios.ecommerce({
-          baseConversionRate: 0.05,
-          conversionLift: 0,
-          revenueDistribution: 'lognormal',
-          revenueParams: { mean: 55, variance: 1200 },
-          revenueLift: 0,
-          sampleSize
-        });
-        return data.control;
+        return DataGenerator.scenarios.ecommerce.clean(n || 1000, 12345).data;
+      },
+      generateDataset: (n?: number) => {
+        return DataGenerator.scenarios.ecommerce.clean(n || 1000, 12345);
       }
     },
     
     treatmentVariant: {
-      description: 'Treatment with improved conversion and AOV',
-      conversionRate: 0.065, // 30% relative lift
-      revenueParams: { logMean: 4.1, logStd: 0.8 }, // ~$60 average
+      description: '6.5% conversion, $60 AOV',
       generateUsers: (n?: number) => {
-        const sampleSize = n || 2000;
-        const scenarios = new BusinessScenarios();
-        const data = scenarios.ecommerce({
-          baseConversionRate: 0.05,
-          conversionLift: 0.3,
-          revenueDistribution: 'lognormal',
-          revenueParams: { mean: 55, variance: 1200 },
-          revenueLift: 0.09, // ~9% AOV lift
-          sampleSize: sampleSize * 2 // We'll take treatment half
-        });
-        // Ensure we return exactly the requested sample size
-        return data.treatment.slice(0, sampleSize);
-      }
-    },
-    
-    multimodalRevenue: {
-      description: 'E-commerce with budget and premium shoppers',
-      generateUsers: (n?: number) => {
-        const sampleSize = n || 2000;
-        const users: UserData[] = [];
+        // Create a modified version with higher conversion and revenue
+        const gen = new DataGenerator(12346);
+        const users: any[] = [];
+        const convRate = 0.065;
         
-        for (let i = 0; i < sampleSize; i++) {
-          const converted = Math.random() < 0.08; // 8% conversion
+        for (let i = 0; i < (n || 1000); i++) {
+          const converted = Math.random() < convRate;
           let value = 0;
           
           if (converted) {
-            // 70% budget shoppers, 30% premium
-            if (Math.random() < 0.7) {
-              // Budget: LogNormal(3.2, 0.4) ~ $20-30
-              const logValue = 3.2 + (Math.random() - 0.5) * 2 * 0.4;
-              value = Math.exp(logValue);
-            } else {
-              // Premium: LogNormal(4.6, 0.3) ~ $80-120  
-              const logValue = 4.6 + (Math.random() - 0.5) * 2 * 0.3;
-              value = Math.exp(logValue);
-            }
+            // LogNormal with mean ~$60
+            const logMean = 4.1;
+            const logStd = 0.8;
+            value = Math.exp(gen.continuous('normal', { mean: logMean, std: logStd }, 1).data[0]);
           }
           
           users.push({ converted, value });
         }
+        
+        return users;
+      }
+    },
+    
+    multimodalRevenue: {
+      description: 'Budget vs premium customer segments',
+      generateUsers: (n?: number) => {
+        // This uses the segments scenario but returns as compound data
+        const gen = new DataGenerator(12345);
+        const convRate = 0.08;
+        const users: any[] = [];
+        
+        // Generate segment revenues
+        const segmentData = DataGenerator.scenarios.segments.realistic(n || 2000, 12345);
+        const revenues = segmentData.data as number[];
+        
+        // Convert to compound format
+        revenues.forEach(revenue => {
+          if (Math.random() < convRate) {
+            users.push({ converted: true, value: revenue });
+          } else {
+            users.push({ converted: false, value: 0 });
+          }
+        });
         
         return users;
       }
@@ -174,53 +143,23 @@ export const TestScenarios = {
   // Mixture scenarios
   mixtures: {
     bimodal: {
-      description: 'Clear two-component mixture',
-      components: [
-        { mean: -5, std: 1, weight: 0.4 },
-        { mean: 5, std: 1, weight: 0.6 }
-      ],
+      description: 'Two clear normal components',
       generateData: (n?: number) => {
-        const sampleSize = n || 1000;
-        const generator = new SyntheticDataGenerator();
-        const n1 = Math.floor(sampleSize * 0.4);
-        const n2 = sampleSize - n1;
-        const comp1 = generator.generateFromDistribution('normal', [-5, 1], n1);
-        const comp2 = generator.generateFromDistribution('normal', [5, 1], n2);
-        return [...comp1, ...comp2].sort(() => Math.random() - 0.5);
+        const gen = new DataGenerator(12345);
+        return gen.mixture([
+          { distribution: 'normal', params: [10, 2], weight: 0.6 },
+          { distribution: 'normal', params: [25, 3], weight: 0.4 }
+        ], n || 500).data;
       }
     },
     
     revenueMixture: {
-      description: 'Revenue with customer segments',
+      description: 'LogNormal mixture for customer tiers',
       generateData: (n?: number) => {
-        const sampleSize = n || 1000;
-        const scenarios = new BusinessScenarios();
-        // Generate high-value and low-value customer segments
-        const lowValue = scenarios.ecommerce({
-          baseConversionRate: 1.0,
-          conversionLift: 0,
-          revenueDistribution: 'lognormal',
-          revenueParams: { mean: 20, variance: 100 },
-          revenueLift: 0,
-          sampleSize: Math.floor(sampleSize * 0.7)
-        });
-        const highValue = scenarios.ecommerce({
-          baseConversionRate: 1.0,
-          conversionLift: 0,
-          revenueDistribution: 'lognormal',
-          revenueParams: { mean: 200, variance: 10000 },
-          revenueLift: 0,
-          sampleSize: Math.floor(sampleSize * 0.3)
-        });
-        
-        const allValues = [
-          ...lowValue.control.map(u => u.value),
-          ...highValue.control.map(u => u.value)
-        ].filter(v => v > 0);
-        
-        // Ensure we return exactly the requested sample size
-        const shuffled = allValues.sort(() => Math.random() - 0.5);
-        return shuffled.slice(0, sampleSize);
+        return DataGenerator.scenarios.segments.realistic(n || 500, 12345).data;
+      },
+      generateDataset: (n?: number) => {
+        return DataGenerator.scenarios.segments.realistic(n || 500, 12345);
       }
     }
   },

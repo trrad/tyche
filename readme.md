@@ -53,6 +53,7 @@ const samples = await result.posterior.frequency.sample(10000);
 ## Learn More
 
 - **[Roadmap](Tyche%20Roadmap%202.4)** - Project vision and upcoming features
+- **[DataGenerator README](src/tests/utilities/synthetic/Readme.md)** - Synthetic data generation for testing
 - **[Workers README](src/workers/README.md)** - WebWorker architecture and proxy pattern
 - **[Inference README](src/inference/README.md)** - Available algorithms and how they work
 - **[Visualizations README](src/ui/visualizations/README.md)** - Plotting distributions and results

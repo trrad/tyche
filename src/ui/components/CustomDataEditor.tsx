@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { DataGenerator, GeneratedDataset } from '../../core/data-generation';
+import { DataGenerator, GeneratedDataset } from '../../tests/utilities/synthetic/DataGenerator';
 
 interface CustomDataEditorProps {
   onDataGenerated: (data: any, dataset?: GeneratedDataset) => void;
@@ -148,12 +148,12 @@ return {
       {/* Run Button */}
       <div className="flex justify-between items-center">
         <a
-          href="https://github.com/your-repo/wiki/DataGenerator-API"
+          href="../../tests/utilities/synthetic/Readme.md"
           target="_blank"
           rel="noopener noreferrer"
           className="text-sm text-purple-600 hover:text-purple-700 underline"
         >
-          📖 API Documentation
+          📖 DataGenerator Documentation
         </a>
         
         <button
