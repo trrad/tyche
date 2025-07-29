@@ -90,20 +90,26 @@ export class LogNormalPosterior implements Posterior {
     return [[samples[lowerIdx], samples[upperIdx]]];
   }
   
-  sample(): number[] {
-    // Sample from posterior predictive distribution
-    // 1. Sample σ² from Inverse-Gamma(α, β)
-    const sigma2 = this.sampleInverseGamma(this.params.alpha, this.params.beta);
+  sample(n: number = 1): number[] {
+    const samples: number[] = [];
     
-    // 2. Sample μ from Normal(μ₀, σ²/λ)
-    const mu = jStat.normal.sample(
-      this.params.mu0, 
-      Math.sqrt(sigma2 / this.params.lambda)
-    );
+    for (let i = 0; i < n; i++) {
+      // Sample from posterior predictive distribution
+      // 1. Sample σ² from Inverse-Gamma(α, β)
+      const sigma2 = this.sampleInverseGamma(this.params.alpha, this.params.beta);
+      
+      // 2. Sample μ from Normal(μ₀, σ²/λ)
+      const mu = jStat.normal.sample(
+        this.params.mu0, 
+        Math.sqrt(sigma2 / this.params.lambda)
+      );
+      
+      // 3. Sample from LogNormal(μ, σ²)
+      const z = jStat.normal.sample(0, 1);
+      samples.push(Math.exp(mu + Math.sqrt(sigma2) * z));
+    }
     
-    // 3. Sample from LogNormal(μ, σ²)
-    const z = jStat.normal.sample(0, 1);
-    return [Math.exp(mu + Math.sqrt(sigma2) * z)];
+    return samples;
   }
   
   private sampleInverseGamma(alpha: number, beta: number): number {
@@ -130,7 +136,9 @@ export class LogNormalPosterior implements Posterior {
 
   logPdf(data: number): number {
     // LogNormal PDF: log(f(x)) = -log(x) - 0.5*log(2π) - log(σ) - 0.5*((log(x) - μ)/σ)²
-    if (data <= 0) return -Infinity;
+    if (data <= 0) {
+      return -Infinity;
+    }
     
     const logData = Math.log(data);
     const mu = this.params.mu0;
@@ -138,7 +146,21 @@ export class LogNormalPosterior implements Posterior {
     const sigma = Math.sqrt(sigma2);
     
     const z = (logData - mu) / sigma;
-    return -logData - 0.5 * Math.log(2 * Math.PI) - Math.log(sigma) - 0.5 * z * z;
+    const result = -logData - 0.5 * Math.log(2 * Math.PI) - Math.log(sigma) - 0.5 * z * z;
+    
+    if (isNaN(result) || !isFinite(result)) {
+      console.error('🔍 [LogNormalPosterior Debug] ERROR: Invalid result:', result);
+      console.error('🔍 [LogNormalPosterior Debug] Parameters that caused issue:', {
+        data,
+        logData,
+        mu,
+        sigma2,
+        sigma,
+        z
+      });
+    }
+    
+    return result;
   }
   
   // The following methods are now redundant as they rely on MC samples

@@ -148,7 +148,7 @@ export class ModelRouter {
         reasoning.push('Using WAIC to select optimal model and components');
         
         // Define candidate models based on data characteristics
-        const candidates = await this.generateAndFitCandidates(values, options, options.engine);
+        const candidates = await this.generateAndFitCandidates(values, 'normal-mixture', options);
         
         // Compare models using WAIC
         const { ModelSelectionCriteria } = await import('./ModelSelectionCriteriaSimple');
@@ -166,7 +166,7 @@ export class ModelRouter {
           modelParams: {
             numComponents: modelInfo.components,
             waicComparison: comparison.map(c => ({
-              model: c.name,
+              name: c.name,
               waic: c.waic,
               deltaWAIC: c.deltaWAIC,
               weight: c.weight
@@ -196,15 +196,37 @@ export class ModelRouter {
    */
   private static async generateAndFitCandidates(
     values: number[],
-    options: any,
-    engine: any
+    modelType: ModelType,
+    options: any
   ): Promise<Array<{ name: string; posterior: any; modelType: string }>> {
+    console.log('🔍 [ModelRouter Debug] generateAndFitCandidates called');
+    console.log('🔍 [ModelRouter Debug] Model type:', modelType);
+    console.log('🔍 [ModelRouter Debug] Data length:', values.length);
+    console.log('🔍 [ModelRouter Debug] Data sample:', values.slice(0, 10));
+    console.log('🔍 [ModelRouter Debug] Data stats:', {
+      min: Math.min(...values),
+      max: Math.max(...values),
+      mean: values.reduce((a, b) => a + b, 0) / values.length,
+      hasNaN: values.some(x => isNaN(x)),
+      hasInf: values.some(x => !isFinite(x)),
+      hasNegative: values.some(x => x < 0)
+    });
+
     const candidates: Array<{ name: string; posterior: any; modelType: string }> = [];
     const maxComponents = options?.maxComponents || 4;
     const businessContext = options?.businessContext;
     
-    // Always include simple models
-    candidates.push({ name: 'LogNormal', posterior: null, modelType: 'lognormal' });
+    // Check if data has negative values - if so, avoid LogNormal models
+    const hasNegativeValues = values.some(v => v < 0);
+    
+    if (hasNegativeValues) {
+      console.log('ModelRouter: Detected negative values in data, excluding LogNormal models');
+    }
+    
+    // Only include LogNormal models if data is all positive
+    if (!hasNegativeValues) {
+      candidates.push({ name: 'LogNormal', posterior: null, modelType: 'lognormal' });
+    }
     
     // Check if data might be multimodal before adding mixture models
     const stats = this.computeDataStatistics(values);
@@ -219,8 +241,8 @@ export class ModelRouter {
           modelType: 'normal-mixture' 
         });
         
-        // Add LogNormal mixtures for business data
-        if (businessContext === 'revenue' || businessContext === 'other') {
+        // Add LogNormal mixtures only if data is all positive
+        if (!hasNegativeValues && (businessContext === 'revenue' || businessContext === 'other')) {
           candidates.push({ 
             name: `LogNormal Mixture (${k})`, 
             posterior: null, 
@@ -242,7 +264,7 @@ export class ModelRouter {
           }
         }
         
-        const result = await engine.fit(candidate.modelType, dataInput, { useWAIC: false });
+        const result = await options.engine.fit(candidate.modelType, dataInput, { useWAIC: false });
         fittedCandidates.push({
           ...candidate,
           posterior: result.posterior
@@ -396,7 +418,7 @@ export class ModelRouter {
           modelParams: {
             numComponents: modelInfo.components,
             waicComparison: comparison.map(c => ({
-              model: c.name,
+              name: c.name,
               waic: c.waic,
               deltaWAIC: c.deltaWAIC,
               weight: c.weight
@@ -428,6 +450,10 @@ export class ModelRouter {
     userData: UserData[],
     options: any
   ): Promise<Array<{ name: string; posterior: any; modelType: string }>> {
+    console.log('🔍 [ModelRouter Debug] generateCompoundCandidates called');
+    console.log('🔍 [ModelRouter Debug] User data length:', userData.length);
+    console.log('🔍 [ModelRouter Debug] User data sample:', userData.slice(0, 3));
+    
     const candidates: Array<{ name: string; posterior: any; modelType: string }> = [];
     const maxComponents = options?.maxComponents || 4;
     const engine = options?.engine;
@@ -444,9 +470,23 @@ export class ModelRouter {
       .filter(u => u.converted && u.value > 0)
       .map(u => u.value);
     
+    console.log('🔍 [ModelRouter Debug] Revenue values length:', revenueValues.length);
+    console.log('🔍 [ModelRouter Debug] Revenue values sample:', revenueValues.slice(0, 5));
+    console.log('🔍 [ModelRouter Debug] Revenue stats:', {
+      min: Math.min(...revenueValues),
+      max: Math.max(...revenueValues),
+      mean: revenueValues.reduce((a, b) => a + b, 0) / revenueValues.length,
+      hasNaN: revenueValues.some(x => isNaN(x)),
+      hasInf: revenueValues.some(x => !isFinite(x)),
+      hasNegative: revenueValues.some(x => x < 0)
+    });
+    
     if (revenueValues.length > 0) {
       const stats = this.computeDataStatistics(revenueValues);
       const isLikelyMultimodal = this.isLikelyMultimodal(revenueValues, stats);
+      
+      console.log('🔍 [ModelRouter Debug] Is likely multimodal:', isLikelyMultimodal);
+      console.log('🔍 [ModelRouter Debug] Revenue values length > 50:', revenueValues.length > 50);
       
       if (isLikelyMultimodal || revenueValues.length > 50) {
         // Add mixture compound models
@@ -460,29 +500,36 @@ export class ModelRouter {
       }
     }
     
+    console.log('🔍 [ModelRouter Debug] Generated candidates:', candidates.length);
+    console.log('🔍 [ModelRouter Debug] Candidates:', candidates.map(c => ({ name: c.name, modelType: c.modelType })));
+    
     // Fit all candidates
     const fittedCandidates = [];
     for (const candidate of candidates) {
       try {
+        console.log(`🔍 [ModelRouter Debug] Fitting candidate: ${candidate.name}`);
         const dataInput: any = { data: userData };
         if (candidate.modelType.includes('mixture')) {
           const components = candidate.name.match(/\((\d+)\)/)?.[1];
           if (components) {
             dataInput.config = { numComponents: parseInt(components) };
+            console.log(`🔍 [ModelRouter Debug] Mixture config:`, dataInput.config);
           }
         }
         
         const result = await engine.fit(candidate.modelType, dataInput, { useWAIC: false });
+        console.log(`🔍 [ModelRouter Debug] Fit successful for ${candidate.name}`);
         fittedCandidates.push({
           ...candidate,
           posterior: result.posterior
         });
       } catch (e) {
-        console.warn(`Failed to fit ${candidate.name}:`, e);
+        console.error(`🔍 [ModelRouter Debug] Failed to fit ${candidate.name}:`, e);
         // Skip failed models
       }
     }
     
+    console.log('🔍 [ModelRouter Debug] Fitted candidates:', fittedCandidates.length);
     return fittedCandidates;
   }
 

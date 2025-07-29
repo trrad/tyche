@@ -10,6 +10,8 @@ import {
   FitOptions 
 } from '../src/inference/base/types';
 
+
+
 // Worker hook
 import { useInferenceWorker } from '../src/hooks/useInferenceWorker';
 
@@ -23,6 +25,8 @@ import { UnifiedDistributionViz, BRAND_COLORS } from '../src/ui/visualizations/u
 // New components
 import { ModelSelector } from '../src/ui/components/ModelSelector';
 import { SimpleCustomCodeEditor } from '../src/ui/components/SimpleCustomCodeEditor';
+import { ModelQualityIndicator } from '../src/ui/components/ModelQualityIndicator';
+import { ModelComparisonView } from '../src/ui/components/ModelComparisonView';
 
 import { MODEL_DESCRIPTIONS } from '../src/inference/InferenceEngine';
 
@@ -59,6 +63,8 @@ function InferenceExplorer() {
   const [selectedModel, setSelectedModel] = useState<ModelType>('auto');
   const [numComponents, setNumComponents] = useState(2);
   const [inferenceResult, setInferenceResult] = useState<InferenceResult | null>(null);
+  const [waicInfo, setWaicInfo] = useState<any>(null);
+  const [routeInfo, setRouteInfo] = useState<any>(null);
   const [modelType, setModelType] = useState<ModelType | undefined>();
   const [error, setError] = useState<string | null>(null);
   
@@ -76,6 +82,11 @@ function InferenceExplorer() {
   const [useSeed, setUseSeed] = useState(false);
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 100000));
   const [selectedNoiseLevel, setSelectedNoiseLevel] = useState<NoiseLevel>('realistic');
+  
+  // Model quality display state
+  const [showModelQuality, setShowModelQuality] = useState(true);
+  const [comparisonModels, setComparisonModels] = useState<any[]>([]);
+  const [showComparison, setShowComparison] = useState(false);
   
   // Use the worker hook
   const { 
@@ -375,11 +386,46 @@ return { ...base, data: new DataGenerator(seed).applyNoiseLevel(base.data, '${no
     }
     
     // Run inference with worker
-    const result = await runInferenceWorker(selectedModel, dataInput);
+    const result = await runInferenceWorker(selectedModel, dataInput, {
+      useWAIC: true,
+      returnRouteInfo: true
+    });
     
     if (result) {
+      console.log('Inference result:', result);
+      
+      // Get WAIC information - check if it's already in the result first
+      if ((result as any).waicInfo || (result as any).routeInfo) {
+        console.log('WAIC info already in result:', (result as any).waicInfo);
+        console.log('Route info already in result:', (result as any).routeInfo);
+        setWaicInfo((result as any).waicInfo);
+        setRouteInfo((result as any).routeInfo);
+      } else if (result.posterior && 'getWaicInfo' in (result.posterior as any)) {
+        try {
+          const waicData = await (result.posterior as any).getWaicInfo();
+          console.log('WAIC info from proxy:', waicData);
+          setWaicInfo(waicData.waicInfo);
+          setRouteInfo(waicData.routeInfo);
+          
+          // Debug: Log the actual data we're setting
+          console.log('Setting WAIC info:', waicData.waicInfo);
+          console.log('Setting route info:', waicData.routeInfo);
+        } catch (error) {
+          console.warn('Failed to get WAIC info from proxy:', error);
+          setWaicInfo(null);
+          setRouteInfo(null);
+        }
+      } else {
+        setWaicInfo(null);
+        setRouteInfo(null);
+      }
+      
       setInferenceResult(result);
       setModelType(result.diagnostics.modelType as ModelType || selectedModel);
+      
+      // Reset comparison state when new inference is run
+      setShowComparison(false);
+      setComparisonModels([]);
     }
   }, [generatedData, selectedModel, runInferenceWorker, numComponents]);
   
@@ -951,6 +997,60 @@ return { ...base, data: new DataGenerator(seed).applyNoiseLevel(base.data, '${no
               </VisualizationErrorBoundary>
             </div>
           </>
+        )}
+        
+        {/* Model Quality Section */}
+        {(() => {
+          console.log('🔍 [UI Debug] waicInfo:', waicInfo);
+          console.log('🔍 [UI Debug] routeInfo:', routeInfo);
+          console.log('🔍 [UI Debug] showModelQuality:', showModelQuality);
+          return (waicInfo || routeInfo) && showModelQuality;
+        })() && (
+          <div className="bg-white p-6 rounded-lg shadow">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Model Quality</h3>
+              <button
+                onClick={() => setShowModelQuality(!showModelQuality)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                {showModelQuality ? '−' : '+'}
+              </button>
+            </div>
+            
+            <ModelQualityIndicator
+              waicInfo={waicInfo}
+              routeInfo={routeInfo}
+            />
+            
+            {/* Add comparison button for auto mode */}
+            {selectedModel === 'auto' && routeInfo?.modelParams?.waicComparison && (
+              <button
+                onClick={() => setShowComparison(!showComparison)}
+                className="mt-3 text-sm text-gray-500 hover:text-gray-700 underline"
+              >
+                {showComparison ? 'Hide' : 'Show'} alternative models
+              </button>
+            )}
+          </div>
+        )}
+        
+        {/* Model Comparison Section */}
+        {showComparison && routeInfo?.modelParams?.waicComparison && (
+          <div className="bg-white p-6 rounded-lg shadow">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Model Comparison</h3>
+              <button
+                onClick={() => setShowComparison(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ×
+              </button>
+            </div>
+            
+            <ModelComparisonView
+              waicComparison={routeInfo.modelParams.waicComparison}
+            />
+          </div>
         )}
         
         {/* Diagnostics */}

@@ -26,26 +26,56 @@ export class ModelSelectionCriteria {
     // Extract data array
     const dataArray = Array.isArray(data) ? data : data.data;
     const n = dataArray.length;
+    
+    console.log('🔍 [WAIC Debug] Starting WAIC computation');
+    console.log('🔍 [WAIC Debug] Data length:', n);
+    console.log('🔍 [WAIC Debug] Data sample:', dataArray.slice(0, 5));
+    console.log('🔍 [WAIC Debug] Data stats:', {
+      min: Math.min(...dataArray),
+      max: Math.max(...dataArray),
+      mean: dataArray.reduce((a, b) => a + b, 0) / dataArray.length,
+      hasNaN: dataArray.some(x => isNaN(x)),
+      hasInf: dataArray.some(x => !isFinite(x))
+    });
 
     // Generate posterior samples
     const samples: any[] = [];
 
     if (posterior instanceof CompoundPosteriorProxy) {
+      console.log('🔍 [WAIC Debug] Processing compound posterior proxy');
       // For compound models, we need samples from both components
       for (let s = 0; s < this.WAIC_SAMPLES; s++) {
         const freqSample = await posterior.frequency.sample(1);
         const sevSample = await posterior.severity.sample(1);
         samples.push({ frequency: freqSample[0], severity: sevSample[0] });
       }
+      console.log('🔍 [WAIC Debug] Compound samples generated:', samples.length);
     } else {
+      console.log('🔍 [WAIC Debug] Processing regular posterior');
       // Regular posterior - batch sample for efficiency
       const allSamples = await this.sampleFromPosterior(posterior, this.WAIC_SAMPLES);
-      samples.push(...allSamples.map(s => [s]));
+      samples.push(...allSamples);
+      console.log('🔍 [WAIC Debug] Regular samples generated:', samples.length);
     }
+
+    console.log('🔍 [WAIC Debug] Sample stats:', {
+      min: Math.min(...samples.map(s => typeof s === 'number' ? s : s.severity || s.frequency || 0)),
+      max: Math.max(...samples.map(s => typeof s === 'number' ? s : s.severity || s.frequency || 0)),
+      hasNaN: samples.some(s => {
+        const val = typeof s === 'number' ? s : s.severity || s.frequency || 0;
+        return isNaN(val);
+      }),
+      hasInf: samples.some(s => {
+        const val = typeof s === 'number' ? s : s.severity || s.frequency || 0;
+        return !isFinite(val);
+      })
+    });
 
     // Compute log likelihood matrix
     const logLikMatrix: number[][] = [];
 
+    console.log('🔍 [WAIC Debug] Computing log-likelihood matrix...');
+    
     for (let i = 0; i < n; i++) {
       const logLiksForDataPoint: number[] = [];
 
@@ -58,18 +88,34 @@ export class ModelSelectionCriteria {
             sample
           );
           logLiksForDataPoint.push(logLik);
+          
+          if (isNaN(logLik) || !isFinite(logLik)) {
+            console.error(`🔍 [WAIC Debug] ERROR: Invalid logLik at data point ${i}, sample:`, logLik);
+            console.error(`🔍 [WAIC Debug] Data point:`, dataArray[i], 'Sample:', sample);
+          }
         }
       } else {
         // Regular model - can batch compute
         const logProbs = await this.computeLogPdfBatch(posterior, dataArray[i], samples.length);
         logLiksForDataPoint.push(...logProbs);
+        
+        const invalidCount = logProbs.filter(p => isNaN(p) || !isFinite(p)).length;
+        if (invalidCount > 0) {
+          console.error(`🔍 [WAIC Debug] ERROR: ${invalidCount} invalid log-probs for data point ${i}`);
+        }
       }
 
       logLikMatrix.push(logLiksForDataPoint);
     }
+    
+    console.log('🔍 [WAIC Debug] Log-likelihood matrix computed');
+    console.log('🔍 [WAIC Debug] Matrix dimensions:', logLikMatrix.length, 'x', logLikMatrix[0]?.length);
 
     // Compute WAIC from log likelihood matrix
-    return this.computeWAICFromMatrix(logLikMatrix);
+    const result = this.computeWAICFromMatrix(logLikMatrix);
+    console.log('🔍 [WAIC Debug] WAIC computation result:', result);
+    
+    return result;
   }
 
   /**
@@ -130,30 +176,65 @@ export class ModelSelectionCriteria {
    * Standard WAIC computation from log likelihood matrix
    */
   private static computeWAICFromMatrix(logLikMatrix: number[][]): WAICResult {
+    console.log('🔍 [WAIC Debug] computeWAICFromMatrix called');
+    console.log('🔍 [WAIC Debug] Matrix dimensions:', logLikMatrix.length, 'x', logLikMatrix[0]?.length);
+    
     const n = logLikMatrix.length;
     const S = logLikMatrix[0].length;
+    
+    console.log('🔍 [WAIC Debug] n (data points):', n, 'S (samples):', S);
+    
+    if (S < 2) {
+      console.error('🔍 [WAIC Debug] ERROR: Not enough samples for variance calculation (S < 2)');
+      return { waic: NaN, elpd: NaN, pWaic: NaN, logLikelihood: NaN };
+    }
 
     let lppd = 0;
     const pWaicTerms: number[] = [];
 
+    console.log('🔍 [WAIC Debug] Computing WAIC components...');
+
     for (let i = 0; i < n; i++) {
       const logLiks = logLikMatrix[i];
+      
+      // Check for invalid values
+      const validLogLiks = logLiks.filter(x => !isNaN(x) && isFinite(x));
+      if (validLogLiks.length === 0) {
+        console.error(`🔍 [WAIC Debug] ERROR: No valid log-likelihoods for data point ${i}`);
+        return { waic: NaN, elpd: NaN, pWaic: NaN, logLikelihood: NaN };
+      }
 
       // Log of average likelihood (log-sum-exp trick)
-      const maxLogLik = Math.max(...logLiks);
-      const sumExp = logLiks.reduce((sum, ll) => sum + Math.exp(ll - maxLogLik), 0);
+      const maxLogLik = Math.max(...validLogLiks);
+      const sumExp = validLogLiks.reduce((sum, ll) => sum + Math.exp(ll - maxLogLik), 0);
       const lppdI = maxLogLik + Math.log(sumExp / S);
       lppd += lppdI;
 
       // Effective number of parameters
-      const meanLogLik = logLiks.reduce((sum, ll) => sum + ll, 0) / S;
-      const varLogLik = logLiks.reduce((sum, ll) => 
-        sum + Math.pow(ll - meanLogLik, 2), 0) / (S - 1);
+      const meanLogLik = validLogLiks.reduce((sum, ll) => sum + ll, 0) / validLogLiks.length;
+      const varLogLik = validLogLiks.reduce((sum, ll) => 
+        sum + Math.pow(ll - meanLogLik, 2), 0) / (validLogLiks.length - 1);
       pWaicTerms.push(varLogLik);
+      
+      if (isNaN(lppdI) || !isFinite(lppdI)) {
+        console.error(`🔍 [WAIC Debug] ERROR: Invalid lppd for data point ${i}:`, lppdI);
+      }
+      if (isNaN(varLogLik) || !isFinite(varLogLik)) {
+        console.error(`🔍 [WAIC Debug] ERROR: Invalid variance for data point ${i}:`, varLogLik);
+      }
     }
 
     const pWaic = pWaicTerms.reduce((sum, v) => sum + v, 0);
     const waic = -2 * (lppd - pWaic);
+    
+    console.log('🔍 [WAIC Debug] Final WAIC computation:');
+    console.log('🔍 [WAIC Debug] lppd:', lppd);
+    console.log('🔍 [WAIC Debug] pWaic:', pWaic);
+    console.log('🔍 [WAIC Debug] waic:', waic);
+    
+    if (isNaN(waic) || !isFinite(waic)) {
+      console.error('🔍 [WAIC Debug] ERROR: Final WAIC is invalid:', waic);
+    }
 
     return {
       waic,
@@ -181,10 +262,15 @@ export class ModelSelectionCriteria {
   }>> {
     // Compute WAIC for each model
     const results = await Promise.all(
-      models.map(async m => ({
-        name: m.name,
-        waic: await this.computeWAIC(m.posterior, data, m.modelType)
-      }))
+      models.map(async m => {
+        try {
+          const waic = await this.computeWAIC(m.posterior, data, m.modelType);
+          return { name: m.name, waic };
+        } catch (error) {
+          console.error(`WAIC computation failed for ${m.name}:`, error);
+          return { name: m.name, waic: { waic: NaN, elpd: NaN, pWaic: NaN, logLikelihood: NaN } };
+        }
+      })
     );
 
     // Apply complexity penalty to WAIC scores

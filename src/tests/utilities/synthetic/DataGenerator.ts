@@ -157,7 +157,10 @@ export class DataGenerator {
   /**
    * Apply noise based on predefined noise level
    */
-  applyNoiseLevel(data: number[], level: NoiseLevel): number[] {
+  applyNoiseLevel(data: number[], level: NoiseLevel, options?: { 
+    preservePositive?: boolean; 
+    distribution?: 'normal' | 'lognormal' | 'gamma' | 'beta';
+  }): number[] {
     if (level === 'clean') return data;
     
     let noisyData = [...data];
@@ -167,11 +170,21 @@ export class DataGenerator {
     const outlierRate = level === 'realistic' ? 0.02 : 0.05;
     const outlierMagnitude = level === 'realistic' ? 5 : 20;
     
+    // Determine if we should preserve positive values
+    const preservePositive = options?.preservePositive ?? (options?.distribution === 'lognormal');
+    
     // Apply measurement noise
     noisyData = noisyData.map(value => {
       const noise = this.generator.generateFromDistribution('normal', 
         [0, Math.abs(value) * noiseStd], 1)[0];
-      return Math.max(0, value + noise);
+      const noisyValue = value + noise;
+      
+      // For LogNormal data, ensure values stay positive
+      if (preservePositive) {
+        return Math.max(0.001, noisyValue); // Small positive minimum
+      }
+      
+      return Math.max(0, noisyValue); // General non-negative constraint
     });
     
     // Apply outliers
@@ -185,7 +198,9 @@ export class DataGenerator {
       const q75 = sorted[Math.floor(sorted.length * 0.75)];
       
       indices.forEach(idx => {
-        noisyData[idx] = q75 * outlierMagnitude * (0.8 + Math.random() * 0.4);
+        const outlierValue = q75 * outlierMagnitude * (0.8 + Math.random() * 0.4);
+        // Ensure outliers also respect positive constraint for LogNormal
+        noisyData[idx] = preservePositive ? Math.max(0.001, outlierValue) : outlierValue;
       });
     }
     
@@ -623,7 +638,7 @@ export class DataGenerator {
         const gen = new DataGenerator(seed);
         return {
           ...base,
-          data: gen.applyNoiseLevel(base.data, 'realistic'),
+          data: gen.applyNoiseLevel(base.data, 'realistic', { distribution: 'lognormal' }),
           groundTruth: { ...base.groundTruth, noiseLevel: 'realistic' }
         };
       },
@@ -633,7 +648,7 @@ export class DataGenerator {
         const gen = new DataGenerator(seed);
         return {
           ...base,
-          data: gen.applyNoiseLevel(base.data, 'noisy'),
+          data: gen.applyNoiseLevel(base.data, 'noisy', { distribution: 'lognormal' }),
           groundTruth: { ...base.groundTruth, noiseLevel: 'noisy' }
         };
       }
@@ -673,7 +688,7 @@ export class DataGenerator {
         const gen = new DataGenerator(seed);
         return {
           ...base,
-          data: gen.applyNoiseLevel(base.data, 'realistic'),
+          data: gen.applyNoiseLevel(base.data, 'realistic', { distribution: 'lognormal' }),
           groundTruth: { ...base.groundTruth, noiseLevel: 'realistic' }
         };
       },
@@ -683,7 +698,7 @@ export class DataGenerator {
         const gen = new DataGenerator(seed);
         return {
           ...base,
-          data: gen.applyNoiseLevel(base.data, 'noisy'),
+          data: gen.applyNoiseLevel(base.data, 'noisy', { distribution: 'lognormal' }),
           groundTruth: { ...base.groundTruth, noiseLevel: 'noisy' }
         };
       }
@@ -733,7 +748,7 @@ export class DataGenerator {
         
         const noisyUsers = base.data.map((user: UserData) => {
           if (user.converted && user.value > 0) {
-            const noisy = gen.applyNoiseLevel([user.value], 'realistic')[0];
+            const noisy = gen.applyNoiseLevel([user.value], 'realistic', { distribution: 'lognormal' })[0];
             return { ...user, value: noisy };
           }
           return user;

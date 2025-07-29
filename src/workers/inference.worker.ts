@@ -22,11 +22,32 @@ type WorkerRequest =
   | { id: string; type: 'variance'; payload: { posteriorId: string } }
   | { id: string; type: 'credibleInterval'; payload: { posteriorId: string; level: number } }
   | { id: string; type: 'getComponents'; payload: { posteriorId: string } }
+  | { id: string; type: 'getWaicInfo'; payload: { posteriorId: string } }
   | { id: string; type: 'clear'; payload: { posteriorId: string } }
   | { id: string; type: 'clearAll'; payload?: never }
   | { id: string; type: 'getStats'; payload: { posteriorId: string } }
   | { id: string; type: 'logPdf'; payload: { posteriorId: string; data: any } }
   | { id: string; type: 'logPdfBatch'; payload: { posteriorId: string; dataArray: any[] } };
+
+type WorkerResponse = 
+  | { id: string; type: 'result'; payload: { 
+      posteriorIds: any; 
+      diagnostics: any; 
+      summary: any;
+      waicInfo?: any;
+      routeInfo?: any;
+    } }
+  | { id: string; type: 'progress'; payload: any }
+  | { id: string; type: 'samples'; payload: number[] }
+  | { id: string; type: 'mean'; payload: number[] }
+  | { id: string; type: 'variance'; payload: number[] }
+  | { id: string; type: 'credibleInterval'; payload: Array<[number, number]> }
+  | { id: string; type: 'components'; payload: any }
+  | { id: string; type: 'waicInfo'; payload: any }
+  | { id: string; type: 'stats'; payload: any }
+  | { id: string; type: 'logPdf'; payload: number }
+  | { id: string; type: 'logPdfBatch'; payload: number[] }
+  | { id: string; type: 'error'; payload: string };
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   console.log('🟡 [A] Worker received message');
@@ -46,11 +67,32 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           }
         });
         
-        // Store the posterior(s)
+        console.log('🟡 Worker result:', result);
+        console.log('🟡 Worker result keys:', Object.keys(result));
+        console.log('🟡 Worker result waicInfo:', (result as any).waicInfo);
+        console.log('🟡 Worker result routeInfo:', (result as any).routeInfo);
+        console.log('🟡 Worker result type:', typeof result);
+        console.log('🟡 Worker result constructor:', result.constructor?.name);
+        
+        // Store the posterior(s) and WAIC information
         const posteriorIds = storePosteriorResult(id, result.posterior);
         
         // Compute summary statistics for immediate use
         const summary = computePosteriorSummary(result.posterior);
+        
+        // Store WAIC information in the worker for later access
+        const waicInfo = (result as any).waicInfo;
+        const routeInfo = (result as any).routeInfo;
+        
+        if (waicInfo || routeInfo) {
+          // Store WAIC info with the posterior for later access
+          const storedPosterior = posteriorStore.get(posteriorIds.id || posteriorIds.frequency);
+          if (storedPosterior) {
+            (storedPosterior as any).waicInfo = waicInfo;
+            (storedPosterior as any).routeInfo = routeInfo;
+          }
+        }
+        
         console.log('🟡 [C] Inference complete');
         console.log('🟡 [D] About to send result');
         self.postMessage({ 
@@ -59,7 +101,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           payload: {
             posteriorIds,
             diagnostics: result.diagnostics,
-            summary
+            summary,
+            waicInfo,
+            routeInfo
           }
         });
         break;
@@ -164,6 +208,27 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           // Not a mixture posterior
           self.postMessage({ id, type: 'components', payload: null });
         }
+        break;
+      }
+      
+      case 'getWaicInfo': {
+        const { posteriorId } = payload;
+        const stored = posteriorStore.get(posteriorId);
+        
+        if (!stored) {
+          throw new Error(`Posterior ${posteriorId} not found`);
+        }
+        
+        stored.lastAccessed = Date.now();
+        
+        const waicInfo = (stored as any).waicInfo;
+        const routeInfo = (stored as any).routeInfo;
+        
+        self.postMessage({ 
+          id, 
+          type: 'waicInfo', 
+          payload: { waicInfo, routeInfo } 
+        });
         break;
       }
       

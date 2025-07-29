@@ -210,17 +210,32 @@ class CompoundPosteriorImpl implements CompoundPosterior {
       // P(converted) * P(value | converted)
       const pConv = this.frequency.mean()[0];
       const logPConv = Math.log(pConv);
+      
       // Check if severity posterior has logPdf
       if ('logPdf' in this.severity) {
         const logPValue = (this.severity as any).logPdf(data.value);
-        return logPConv + logPValue;
+        const result = logPConv + logPValue;
+        
+        if (isNaN(result) || !isFinite(result)) {
+          console.error('🔍 [CompoundPosterior Debug] ERROR: Invalid result:', result);
+          console.error('🔍 [CompoundPosterior Debug] logPConv:', logPConv, 'logPValue:', logPValue);
+        }
+        
+        return result;
       } else {
+        console.error('🔍 [CompoundPosterior Debug] ERROR: Severity posterior missing logPdf method');
         throw new Error('Severity posterior must implement logPdf for WAIC');
       }
     } else {
       // P(not converted)
       const pConv = this.frequency.mean()[0];
-      return Math.log(1 - pConv);
+      const result = Math.log(1 - pConv);
+      
+      if (isNaN(result) || !isFinite(result)) {
+        console.error('🔍 [CompoundPosterior Debug] ERROR: Invalid result for non-converted:', result);
+      }
+      
+      return result;
     }
   }
 }

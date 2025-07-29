@@ -1,57 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { ModelSelectionCriteria } from '../../inference/ModelSelectionCriteriaSimple';
-import type { ModelType } from '../../inference/InferenceEngine';
-import type { InferenceResult } from '../../inference/base/types';
+import React from 'react';
+import { getModelDisplayName } from '../../inference/InferenceEngine';
 
 interface ModelComparisonProps {
-  models: Array<{
+  waicComparison?: Array<{
     name: string;
-    modelType: ModelType;
-    result: InferenceResult;
+    waic: number;
+    deltaWAIC: number;
+    weight: number;
   }>;
-  data: any[];
 }
 
 export const ModelComparisonView: React.FC<ModelComparisonProps> = ({
-  models,
-  data
+  waicComparison
 }) => {
-  const [comparison, setComparison] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  
-  useEffect(() => {
-    const compare = async () => {
-      setLoading(true);
-      try {
-        const results = await ModelSelectionCriteria.compareModels(
-          models.map(m => ({
-            name: m.name,
-            posterior: m.result.posterior,
-            modelType: m.modelType
-          })),
-          data
-        );
-        setComparison(results);
-      } catch (e) {
-        console.error('Model comparison failed:', e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    compare();
-  }, [models, data]);
-  
-  if (loading) return <div>Comparing models...</div>;
+  if (!waicComparison || waicComparison.length === 0) {
+    return null;
+  }
   
   return (
-    <div className="model-comparison p-4 bg-white rounded-lg shadow">
-      <h3 className="text-lg font-semibold mb-4">Model Comparison</h3>
+    <div className="model-comparison">
+      <h3 className="text-lg font-semibold mb-4">Alternative Models</h3>
       
       <div className="space-y-3">
-        {comparison.map((model, i) => (
+        {waicComparison.map((model, i) => (
           <div 
-            key={model.name}
+            key={i}
             className={`p-3 rounded border ${
               model.deltaWAIC === 0 ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
             }`}

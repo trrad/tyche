@@ -52,8 +52,14 @@ export function useInferenceWorker() {
   const runInference = useCallback(async (
     modelType: ModelType,
     data: DataInput | CompoundDataInput,
-    options?: FitOptions
-  ): Promise<InferenceResult | null> => {
+    options?: FitOptions & {
+      useWAIC?: boolean;
+      returnRouteInfo?: boolean;
+      businessContext?: 'revenue' | 'conversion' | 'engagement' | 'other';
+      maxComponents?: number;
+      preferSimple?: boolean;
+    }
+  ): Promise<(InferenceResult & { waicInfo?: any; routeInfo?: any }) | null> => {
     console.log('🔵 [1] runInference started');
     setIsRunning(true);
     setProgress(null);
@@ -65,7 +71,7 @@ export function useInferenceWorker() {
     try {
       if (workerRef.current) {
         console.log('🔵 [2] About to post message to worker');
-        const result = await new Promise<InferenceResult>((resolve, reject) => {
+        const result = await new Promise<InferenceResult & { waicInfo?: any; routeInfo?: any }>((resolve, reject) => {
           let timeoutId: number;
           
           const handleMessage = (event: MessageEvent) => {
@@ -81,7 +87,7 @@ export function useInferenceWorker() {
                 clearTimeout(timeoutId);
                 workerRef.current?.removeEventListener('message', handleMessage);
                 
-                const { posteriorIds, diagnostics, summary } = event.data.payload;
+                const { posteriorIds, diagnostics, summary, waicInfo, routeInfo } = event.data.payload;
                 
                 // Create appropriate proxy based on posterior type
                 let posterior: PosteriorProxy | CompoundPosteriorProxy;
@@ -112,7 +118,12 @@ export function useInferenceWorker() {
                   posterior = proxy;
                 }
                 console.log('🔵 [6] About to resolve promise');
-                resolve({ posterior: posterior as any, diagnostics });
+                resolve({ 
+                  posterior: posterior as any, 
+                  diagnostics,
+                  waicInfo,
+                  routeInfo
+                });
                 break;
               }
               

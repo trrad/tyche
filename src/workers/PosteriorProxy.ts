@@ -157,6 +157,15 @@ export class PosteriorProxy {
     return this.summary.components || null;
   }
   
+  // NEW: Add getWaicInfo method for WAIC information
+  async getWaicInfo(): Promise<{ waicInfo?: any; routeInfo?: any }> {
+    if (this.disposed) {
+      throw new Error('Posterior proxy has been disposed');
+    }
+    
+    return this.request<any>('getWaicInfo');
+  }
+  
   // Getter for summary (needed by CompoundPosteriorProxy)
   getSummary(): PosteriorSummary {
     return this.summary;
