@@ -1,72 +1,67 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { DataGenerator, GeneratedDataset } from '../../tests/utilities/synthetic/DataGenerator';
 
 interface CustomDataEditorProps {
   onDataGenerated: (data: any, dataset?: GeneratedDataset) => void;
   onError: (error: string) => void;
-  seed?: number;
-  generatedData?: any; // For CSV export
-  selectedScenario?: any;
+  // Minimal props - only what's absolutely needed
+  scenarioName?: string;
+  getScenarioCode?: (noiseLevel: any) => string;
   sampleSize?: number;
-  noiseLevel?: any;
+  noiseLevel?: string;
 }
 
 export const CustomDataEditor: React.FC<CustomDataEditorProps> = ({ 
   onDataGenerated, 
   onError, 
-  seed,
-  generatedData: propsGeneratedData,
-  selectedScenario,
+  scenarioName,
+  getScenarioCode,
   sampleSize,
   noiseLevel = 'realistic'
 }) => {
-  const [code, setCode] = useState(`// Generate clean conversion rate data
-return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
-  
+  const [code, setCode] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const [generatedData, setGeneratedData] = useState<any>(null);
 
-  // Copy from selected scenario
   const copyFromScenario = useCallback(() => {
-    console.log('Copy clicked', { selectedScenario, noiseLevel, sampleSize });
-    
-    if (!selectedScenario || !selectedScenario.getCode) {
+    if (!getScenarioCode) {
       onError('No scenario selected in Synthetic Data tab');
       return;
     }
     
-    let scenarioCode = selectedScenario.getCode(noiseLevel);
-    console.log('Original code:', scenarioCode);
+    let scenarioCode = getScenarioCode(noiseLevel);
     
-    // Replace sample size if specified
     if (sampleSize) {
       scenarioCode = scenarioCode.replace(/\b1000\b/g, sampleSize.toString());
       scenarioCode = scenarioCode.replace(/\b2000\b/g, sampleSize.toString());
     }
     
-    console.log('Final code:', scenarioCode);
     setCode(scenarioCode);
-    onError(''); // Clear any errors
-  }, [selectedScenario, noiseLevel, sampleSize, onError]);
+    onError('');
+  }, [getScenarioCode, noiseLevel, sampleSize, onError]);
 
   const runCode = useCallback(() => {
+    if (!code.trim()) {
+      onError('Please enter some code to run');
+      return;
+    }
+    
     setIsGenerating(true);
     onError('');
     
     try {
-      // Create a function with DataGenerator and seed in scope
       const func = new Function('DataGenerator', 'seed', code);
-      const result = func(DataGenerator, seed || Date.now());
+      const result = func(DataGenerator, Date.now());
       
       if (!result || typeof result !== 'object') {
         throw new Error('Code must return a data object or GeneratedDataset');
       }
       
-      // Check if it's a GeneratedDataset
       if ('data' in result && 'groundTruth' in result && 'metadata' in result) {
+        setGeneratedData(result.data);
         onDataGenerated(result.data, result);
       } else {
-        // Just data
+        setGeneratedData(result);
         onDataGenerated(result, undefined);
       }
     } catch (err: any) {
@@ -74,25 +69,22 @@ return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
     } finally {
       setIsGenerating(false);
     }
-  }, [code, seed, onDataGenerated, onError]);
+  }, [code, onDataGenerated, onError]);
 
   const exportToCSV = useCallback(() => {
-    if (!propsGeneratedData) {
+    if (!generatedData) {
       onError('No data to export');
       return;
     }
     
     let csvContent = '';
-    const data = propsGeneratedData;
+    const data = generatedData;
     
     if (Array.isArray(data) && typeof data[0] === 'number') {
-      // Simple array of numbers
       csvContent = 'value\n' + data.join('\n');
     } else if (data.successes !== undefined && data.trials !== undefined) {
-      // Binomial data
       csvContent = `successes,trials\n${data.successes},${data.trials}`;
     } else if (Array.isArray(data) && data[0]?.converted !== undefined) {
-      // Compound data (UserData)
       csvContent = 'converted,value\n';
       csvContent += data.map((u: any) => `${u.converted ? 1 : 0},${u.value}`).join('\n');
     } else {
@@ -101,15 +93,7 @@ return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
     }
     
     navigator.clipboard.writeText(csvContent);
-  }, [propsGeneratedData, onError]);
-
-  // Auto-resize textarea
-  React.useEffect(() => {
-    if (editorRef.current) {
-      editorRef.current.style.height = 'auto';
-      editorRef.current.style.height = editorRef.current.scrollHeight + 'px';
-    }
-  }, [code]);
+  }, [generatedData, onError]);
 
   return (
     <div className="space-y-4">
@@ -117,14 +101,14 @@ return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
       <div className="flex gap-2 flex-wrap items-center">
         <button
           onClick={copyFromScenario}
-          disabled={!selectedScenario}
+          disabled={!getScenarioCode}
           className={`px-3 py-1 text-sm rounded-full transition-colors flex items-center gap-1 ${
-            selectedScenario
+            getScenarioCode
               ? 'bg-purple-100 hover:bg-purple-200 text-purple-700'
               : 'bg-gray-100 text-gray-400 cursor-not-allowed'
           }`}
-          title={selectedScenario ? 
-            `Copy code from: ${selectedScenario.name}` : 
+          title={getScenarioCode ? 
+            `Copy code from: ${scenarioName || 'selected scenario'}` : 
             'Select a scenario in Synthetic Data tab first'
           }
         >
@@ -137,9 +121,9 @@ return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
       </div>
 
       {/* Show what will be copied */}
-      {selectedScenario && (
+      {scenarioName && (
         <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-          Will copy: <span className="font-medium">{selectedScenario.name}</span>
+          Will copy: <span className="font-medium">{scenarioName}</span>
           {sampleSize && ` (${sampleSize} samples)`}
           {` with ${noiseLevel} noise`}
         </div>
@@ -150,9 +134,9 @@ return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
         <div className="absolute top-2 right-2 flex items-center gap-2">
           <button
             onClick={exportToCSV}
-            disabled={!propsGeneratedData}
+            disabled={!generatedData}
             className={`p-1 rounded transition-colors ${
-              !propsGeneratedData
+              !generatedData
                 ? 'text-gray-400 cursor-not-allowed'
                 : 'text-gray-500 hover:text-gray-300'
             }`}
@@ -163,16 +147,16 @@ return DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);`);
             </svg>
           </button>
           <div className="text-xs text-gray-500 font-mono">
-            seed: {seed || 'random'}
+            seed: random
           </div>
         </div>
         <textarea
-          ref={editorRef}
           value={code}
           onChange={(e) => setCode(e.target.value)}
           className="w-full p-4 font-mono text-sm bg-gray-900 text-gray-100 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
           style={{ minHeight: '200px' }}
           spellCheck={false}
+          placeholder="// Enter your data generation code here..."
         />
       </div>
 

@@ -73,32 +73,18 @@ function InferenceExplorer() {
   const [sampleSize, setSampleSize] = useState(1000);
   const [useCustomSampleSize, setUseCustomSampleSize] = useState(false);
   
-  // State for tracking selected synthetic source (for code auto-fill)
-  const [selectedSyntheticSource, setSelectedSyntheticSource] = useState<DataSource | null>(null);
+
   const [useSeed, setUseSeed] = useState(false);
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 100000));
   const [selectedNoiseLevel, setSelectedNoiseLevel] = useState<NoiseLevel>('realistic');
   
 
   
-  // CRASH FIX: Clear results when data/model changes
-  useEffect(() => {
-    setInferenceResult(null);
-    setError(null);
-  }, [selectedDataSource, selectedModel, dataSourceType]);
+
   
-  // Clear results when data changes (but not when sample size changes)
-  useEffect(() => {
-    if (generatedData) {
-      setInferenceResult(null);
-      setError(null);
-    }
-  }, [generatedData]);
+
   
-  // Debug: Log when inferenceResult changes
-  useEffect(() => {
-    console.log('📍 InferenceResult changed');
-  }, [inferenceResult]);
+
   
   // Use the worker hook
   const { 
@@ -396,22 +382,7 @@ return {
     return [...syntheticDataSources, ...presetDataSources];
   }, [dataSourceType, syntheticDataSources, presetDataSources]);
   
-  // Auto-select first source when type changes - but preserve user selection
-  useEffect(() => {
-    if (dataSourceType !== 'custom' && filteredDataSources.length > 0) {
-      // Only change selection if current selection is not in the filtered list
-      const currentInFiltered = filteredDataSources.find(ds => 
-        ds.name === selectedDataSource?.name
-      );
-      if (!currentInFiltered && !selectedDataSource) {
-        // Only auto-select if no selection exists at all
-        setSelectedDataSource(filteredDataSources[0]);
-      }
-      // Never clear generated data when switching tabs
-    } else if (dataSourceType === 'custom') {
-      // Never clear anything when switching to custom tab
-    }
-  }, [dataSourceType, filteredDataSources, selectedDataSource]);
+
   
   // Generate data
   const generateData = useCallback(() => {
@@ -588,7 +559,8 @@ return {
         ))}
       </div>
       
-      {dataSourceType === 'synthetic' && (
+      {/* Always render both, but only show the active one */}
+      <div className={dataSourceType === 'synthetic' ? 'block' : 'hidden'}>
         <div className="space-y-3">
           <div className="relative">
             <select
@@ -598,7 +570,6 @@ return {
                 if (!isNaN(idx) && idx >= 0 && idx < filteredDataSources.length) {
                   const selected = filteredDataSources[idx];
                   setSelectedDataSource(selected);
-                  setSelectedSyntheticSource(selected);
                   // Don't clear generated data when changing selection
                 }
               }}
@@ -759,23 +730,22 @@ return {
             </div>
           )}
         </div>
-      )}
+      </div>
       
-      {dataSourceType === 'custom' && (
+      <div className={dataSourceType === 'custom' ? 'block' : 'hidden'}>
         <CustomDataEditor
-          generatedData={generatedData}
           onDataGenerated={(data, dataset) => {
             setGeneratedData(data);
             setGeneratedDataset(dataset || null);
             setError(null);
           }}
           onError={setError}
-          seed={useSeed ? seed : undefined}
-          selectedScenario={selectedDataSource}
+          scenarioName={selectedDataSource?.name}
+          getScenarioCode={selectedDataSource?.getCode}
           sampleSize={useCustomSampleSize ? sampleSize : undefined}
           noiseLevel={selectedNoiseLevel}
         />
-      )}
+      </div>
     </div>
   );
   
