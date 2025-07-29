@@ -4,32 +4,36 @@ import { UserData } from '../../inference/base/types';
 
 /**
  * Centralized test scenarios for consistent validation across the test suite
- * Uses the unified DataGenerator API
+ * Uses the unified DataGenerator API with random parameters
  */
 export const TestScenarios = {
   // Beta-Binomial scenarios (conversion rates)
   betaBinomial: {
     typical: {
       description: 'Typical e-commerce conversion rate',
-      trueRate: 0.03,
-      sampleSize: 10000,
-      generateData: (n?: number) => {
-        return DataGenerator.scenarios.betaBinomial.realistic(0.03, n || 10000, 12345).data;
+      generateData: (n?: number, seed?: number) => {
+        const gen = new DataGenerator(seed || 12345);
+        const p = 0.01 + Math.random() * 0.14; // Random rate 1-15%
+        return DataGenerator.scenarios.betaBinomial.realistic(p, n || 10000, seed || 12345).data;
       },
-      generateDataset: (n?: number) => {
-        return DataGenerator.scenarios.betaBinomial.realistic(0.03, n || 10000, 12345);
+      generateDataset: (n?: number, seed?: number) => {
+        const gen = new DataGenerator(seed || 12345);
+        const p = 0.01 + Math.random() * 0.14; // Random rate 1-15%
+        return DataGenerator.scenarios.betaBinomial.realistic(p, n || 10000, seed || 12345);
       }
     },
     
     highConversion: {
       description: 'High conversion rate (e.g., email clicks)',
-      trueRate: 0.25,
-      sampleSize: 1000,
-      generateData: (n?: number) => {
-        return DataGenerator.scenarios.betaBinomial.realistic(0.25, n || 1000, 12345).data;
+      generateData: (n?: number, seed?: number) => {
+        const gen = new DataGenerator(seed || 12345);
+        const p = 0.15 + Math.random() * 0.25; // Random rate 15-40%
+        return DataGenerator.scenarios.betaBinomial.realistic(p, n || 1000, seed || 12345).data;
       },
-      generateDataset: (n?: number) => {
-        return DataGenerator.scenarios.betaBinomial.realistic(0.25, n || 1000, 12345);
+      generateDataset: (n?: number, seed?: number) => {
+        const gen = new DataGenerator(seed || 12345);
+        const p = 0.15 + Math.random() * 0.25; // Random rate 15-40%
+        return DataGenerator.scenarios.betaBinomial.realistic(p, n || 1000, seed || 12345);
       }
     },
     
@@ -45,33 +49,49 @@ export const TestScenarios = {
   revenue: {
     ecommerce: {
       description: 'Typical e-commerce transaction values',
-      generateData: (n?: number) => {
-        return DataGenerator.scenarios.revenue.realistic(3.5, 0.5, n || 1000, 12345).data;
+      generateData: (n?: number, seed?: number) => {
+        const gen = new DataGenerator(seed || 12345);
+        const median = 10 + Math.random() * 200; // Random median $10-$210
+        const logMean = Math.log(median);
+        const logStd = 0.3 + Math.random() * 0.5; // Random spread
+        return DataGenerator.scenarios.revenue.realistic(logMean, logStd, n || 1000, seed || 12345).data;
       },
-      generateDataset: (n?: number) => {
-        return DataGenerator.scenarios.revenue.realistic(3.5, 0.5, n || 1000, 12345);
+      generateDataset: (n?: number, seed?: number) => {
+        const gen = new DataGenerator(seed || 12345);
+        const median = 10 + Math.random() * 200; // Random median $10-$210
+        const logMean = Math.log(median);
+        const logStd = 0.3 + Math.random() * 0.5; // Random spread
+        return DataGenerator.scenarios.revenue.realistic(logMean, logStd, n || 1000, seed || 12345);
       }
     },
     
     saas: {
       description: 'SaaS MRR distribution',
-      generateData: (n?: number) => {
+      generateData: (n?: number, seed?: number) => {
         // Extract just the revenue values from the compound model
-        const dataset = DataGenerator.scenarios.saas.clean(n || 500, 12345);
+        const dataset = DataGenerator.scenarios.saas.clean(n || 500, seed || 12345);
         return dataset.data.filter((u: any) => u.converted).map((u: any) => u.value);
       },
-      generateDataset: (n?: number) => {
-        return DataGenerator.scenarios.saas.clean(n || 500, 12345);
+      generateDataset: (n?: number, seed?: number) => {
+        return DataGenerator.scenarios.saas.clean(n || 500, seed || 12345);
       }
     },
     
     withOutliers: {
       description: 'Revenue with whale customers',
-      generateData: (n?: number) => {
-        return DataGenerator.scenarios.revenue.noisy(3.5, 0.5, n || 1000, 12345).data;
+      generateData: (n?: number, seed?: number) => {
+        const gen = new DataGenerator(seed || 12345);
+        const median = 50 + Math.random() * 300; // Random median $50-$350
+        const logMean = Math.log(median);
+        const logStd = 0.5 + Math.random() * 0.8; // Higher spread for outliers
+        return DataGenerator.scenarios.revenue.noisy(logMean, logStd, n || 1000, seed || 12345).data;
       },
-      generateDataset: (n?: number) => {
-        return DataGenerator.scenarios.revenue.noisy(3.5, 0.5, n || 1000, 12345);
+      generateDataset: (n?: number, seed?: number) => {
+        const gen = new DataGenerator(seed || 12345);
+        const median = 50 + Math.random() * 300; // Random median $50-$350
+        const logMean = Math.log(median);
+        const logStd = 0.5 + Math.random() * 0.8; // Higher spread for outliers
+        return DataGenerator.scenarios.revenue.noisy(logMean, logStd, n || 1000, seed || 12345);
       }
     }
   },
@@ -79,31 +99,32 @@ export const TestScenarios = {
   // Compound scenarios
   compound: {
     controlVariant: {
-      description: '5% conversion, $55 AOV',
-      generateUsers: (n?: number) => {
-        return DataGenerator.scenarios.ecommerce.clean(n || 1000, 12345).data;
+      description: 'Random conversion & AOV',
+      generateUsers: (n?: number, seed?: number) => {
+        return DataGenerator.scenarios.ecommerce.clean(n || 1000, seed || 12345).data;
       },
-      generateDataset: (n?: number) => {
-        return DataGenerator.scenarios.ecommerce.clean(n || 1000, 12345);
+      generateDataset: (n?: number, seed?: number) => {
+        return DataGenerator.scenarios.ecommerce.clean(n || 1000, seed || 12345);
       }
     },
     
     treatmentVariant: {
-      description: '6.5% conversion, $60 AOV',
-      generateUsers: (n?: number) => {
+      description: 'Improved conversion & AOV',
+      generateUsers: (n?: number, seed?: number) => {
         // Create a modified version with higher conversion and revenue
-        const gen = new DataGenerator(12346);
+        const gen = new DataGenerator(seed || 12346);
         const users: any[] = [];
-        const convRate = 0.065;
+        const convRate = 0.05 + Math.random() * 0.15; // Random 5-20%
         
         for (let i = 0; i < (n || 1000); i++) {
           const converted = Math.random() < convRate;
           let value = 0;
           
           if (converted) {
-            // LogNormal with mean ~$60
-            const logMean = 4.1;
-            const logStd = 0.8;
+            // LogNormal with random parameters
+            const median = 40 + Math.random() * 80; // Random median $40-$120
+            const logMean = Math.log(median);
+            const logStd = 0.6 + Math.random() * 0.4; // Random spread
             value = Math.exp(gen.continuous('normal', { mean: logMean, std: logStd }, 1).data[0]);
           }
           
@@ -116,14 +137,14 @@ export const TestScenarios = {
     
     multimodalRevenue: {
       description: 'Budget vs premium customer segments',
-      generateUsers: (n?: number) => {
+      generateUsers: (n?: number, seed?: number) => {
         // This uses the segments scenario but returns as compound data
-        const gen = new DataGenerator(12345);
-        const convRate = 0.08;
+        const gen = new DataGenerator(seed || 12345);
+        const convRate = 0.05 + Math.random() * 0.15; // Random 5-20%
         const users: any[] = [];
         
         // Generate segment revenues
-        const segmentData = DataGenerator.scenarios.segments.realistic(n || 2000, 12345);
+        const segmentData = DataGenerator.scenarios.segments.realistic(n || 2000, seed || 12345);
         const revenues = segmentData.data as number[];
         
         // Convert to compound format
@@ -144,22 +165,25 @@ export const TestScenarios = {
   mixtures: {
     bimodal: {
       description: 'Two clear normal components',
-      generateData: (n?: number) => {
-        const gen = new DataGenerator(12345);
+      generateData: (n?: number, seed?: number) => {
+        const gen = new DataGenerator(seed || 12345);
+        const mean1 = 5 + Math.random() * 15; // Random first component
+        const mean2 = 20 + Math.random() * 20; // Random second component
+        const weight1 = 0.3 + Math.random() * 0.4; // Random weight 30-70%
         return gen.mixture([
-          { distribution: 'normal', params: [10, 2], weight: 0.6 },
-          { distribution: 'normal', params: [25, 3], weight: 0.4 }
+          { distribution: 'normal', params: [mean1, 2], weight: weight1 },
+          { distribution: 'normal', params: [mean2, 3], weight: 1 - weight1 }
         ], n || 500).data;
       }
     },
     
     revenueMixture: {
       description: 'LogNormal mixture for customer tiers',
-      generateData: (n?: number) => {
-        return DataGenerator.scenarios.segments.realistic(n || 500, 12345).data;
+      generateData: (n?: number, seed?: number) => {
+        return DataGenerator.scenarios.segments.realistic(n || 500, seed || 12345).data;
       },
-      generateDataset: (n?: number) => {
-        return DataGenerator.scenarios.segments.realistic(n || 500, 12345);
+      generateDataset: (n?: number, seed?: number) => {
+        return DataGenerator.scenarios.segments.realistic(n || 500, seed || 12345);
       }
     }
   },

@@ -94,12 +94,16 @@ export const SimpleCustomCodeEditor: React.FC<SimpleCustomCodeEditorProps> = ({
         onChange={(e) => setCode(e.target.value)}
         className="w-full p-4 font-mono text-sm bg-gray-900 text-gray-100 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
         rows={8}
-        placeholder={`// Example:
-return DataGenerator.presets.betaBinomial(0.05, 1000, seed);
-
-// Or custom:
+        placeholder={`// Example with random parameters:
 const gen = new DataGenerator(seed);
-return gen.continuous('normal', { mean: 100, std: 30 }, 1000);`}
+const p = 0.01 + Math.random() * 0.14; // Random rate 1-15%
+return gen.betaBinomial(p, 1000);
+
+// Or custom normal distribution:
+const gen = new DataGenerator(seed);
+const mean = 30 + Math.random() * 170; // Random mean $30-$200
+const std = mean * (0.15 + Math.random() * 0.25); // Random std 15-40% of mean
+return gen.continuous('normal', { mean, std }, 1000);`}
         spellCheck={false}
       />
 

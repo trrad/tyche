@@ -85,15 +85,19 @@ const noisyData = gen.applyNoiseLevel(cleanData, 'realistic');
 ### Simple Scenarios
 
 ```typescript
-// Conversion rates
-DataGenerator.scenarios.betaBinomial.clean(0.05, 1000, seed);
-DataGenerator.scenarios.betaBinomial.realistic(0.05, 1000, seed);
-DataGenerator.scenarios.betaBinomial.noisy(0.05, 1000, seed);
+// Conversion rates with random parameters
+const p = 0.01 + Math.random() * 0.14; // Random rate 1-15%
+DataGenerator.scenarios.betaBinomial.clean(p, 1000, seed);
+DataGenerator.scenarios.betaBinomial.realistic(p, 1000, seed);
+DataGenerator.scenarios.betaBinomial.noisy(p, 1000, seed);
 
-// Revenue distributions
-DataGenerator.scenarios.revenue.clean(3.5, 0.5, 1000, seed);
-DataGenerator.scenarios.revenue.realistic(3.5, 0.5, 1000, seed);
-DataGenerator.scenarios.revenue.noisy(3.5, 0.5, 1000, seed);
+// Revenue distributions with random parameters
+const median = 10 + Math.random() * 200; // Random median $10-$210
+const logMean = Math.log(median);
+const logStd = 0.3 + Math.random() * 0.5; // Random spread
+DataGenerator.scenarios.revenue.clean(logMean, logStd, 1000, seed);
+DataGenerator.scenarios.revenue.realistic(logMean, logStd, 1000, seed);
+DataGenerator.scenarios.revenue.noisy(logMean, logStd, 1000, seed);
 
 // Customer segments
 DataGenerator.scenarios.segments.clean(1000, seed);
@@ -131,11 +135,15 @@ DataGenerator.presets.fourSegments(1000, seed);
 // E-commerce with customer segments
 DataGenerator.presets.ecommerceSegments(1000, seed);
 
-// Beta-Binomial with known truth
-DataGenerator.presets.betaBinomial(0.05, 1000, seed);
+// Beta-Binomial with random rate
+const p = 0.01 + Math.random() * 0.14; // Random rate 1-15%
+DataGenerator.presets.betaBinomial(p, 1000, seed);
 
-// LogNormal with known truth
-DataGenerator.presets.lognormal(3.5, 0.5, 1000, seed);
+// LogNormal with random parameters
+const median = 10 + Math.random() * 200; // Random median $10-$210
+const logMean = Math.log(median);
+const logStd = 0.3 + Math.random() * 0.5; // Random spread
+DataGenerator.presets.lognormal(logMean, logStd, 1000, seed);
 ```
 
 ## Ground Truth & Metadata

@@ -44,7 +44,7 @@ interface DataSource {
   description: string;
   category: 'conversion' | 'revenue' | 'mixture' | 'compound';
   generator: ((n?: number, seed?: number, noiseLevel?: NoiseLevel) => any) | null;
-  getCode: (noiseLevel: NoiseLevel) => string; // Function to generate code based on noise level
+  getCode: (params: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => string;
 }
 
 /**
@@ -101,285 +101,154 @@ function InferenceExplorer() {
     }
   }, [inferenceError]);
   
-  // Available data sources - Using new DataGenerator.scenarios API
-  const syntheticDataSources: DataSource[] = useMemo(() => [
-    // Conversion Rate Models
-    {
-      name: 'Conversion Rate',
-      description: '5% conversion rate',
-      category: 'conversion',
-      generator: (n, seed, noiseLevel = 'realistic') => {
-        switch (noiseLevel) {
-          case 'clean': return DataGenerator.scenarios.betaBinomial.clean(0.05, n || 1000, seed);
-          case 'realistic': return DataGenerator.scenarios.betaBinomial.realistic(0.05, n || 1000, seed);
-          case 'noisy': return DataGenerator.scenarios.betaBinomial.noisy(0.05, n || 1000, seed);
-        }
-      },
-      getCode: (noiseLevel) => `return DataGenerator.scenarios.betaBinomial.${noiseLevel}(0.05, 1000, seed);`
-    },
-    
-    // Revenue Models - Different distributions
-    {
-      name: 'Revenue (LogNormal)',
-      description: 'LogNormal(μ=3.5, σ=0.5) revenue distribution',
-      category: 'revenue',
-      generator: (n, seed, noiseLevel = 'realistic') => {
-        switch (noiseLevel) {
-          case 'clean': return DataGenerator.scenarios.revenue.clean(3.5, 0.5, n || 1000, seed);
-          case 'realistic': return DataGenerator.scenarios.revenue.realistic(3.5, 0.5, n || 1000, seed);
-          case 'noisy': return DataGenerator.scenarios.revenue.noisy(3.5, 0.5, n || 1000, seed);
-        }
-      },
-      getCode: (noiseLevel) => `return DataGenerator.scenarios.revenue.${noiseLevel}(3.5, 0.5, 1000, seed);`
-    },
-    
-    {
-      name: 'Revenue (Normal)',
-      description: 'Normal(μ=100, σ=30) revenue distribution',
-      category: 'revenue',
-      generator: (n, seed, noiseLevel = 'realistic') => {
-        const gen = new DataGenerator(seed);
-        const baseData = gen.continuous('normal', { mean: 100, std: 30 }, n || 1000);
-        if (noiseLevel === 'clean') return baseData;
-        
-        const noisyData = gen.applyNoiseLevel(baseData.data, noiseLevel);
-        return {
-          ...baseData,
-          data: noisyData,
-          groundTruth: { ...baseData.groundTruth, noiseLevel }
-        };
-      },
-      getCode: (noiseLevel) => {
-        const baseCode = `const gen = new DataGenerator(seed);
-const baseData = gen.continuous('normal', { mean: 100, std: 30 }, 1000);`;
-        if (noiseLevel === 'clean') return baseCode + '\nreturn baseData;';
-        return baseCode + `
-const noisyData = gen.applyNoiseLevel(baseData.data, '${noiseLevel}');
-return { ...baseData, data: noisyData, groundTruth: { ...baseData.groundTruth, noiseLevel: '${noiseLevel}' } };`;
-      }
-    },
-    
-    {
-      name: 'Revenue (Gamma)',
-      description: 'Gamma(shape=2, scale=50) revenue distribution',
-      category: 'revenue',
-      generator: (n, seed, noiseLevel = 'realistic') => {
-        const gen = new DataGenerator(seed);
-        const baseData = gen.continuous('gamma', { shape: 2, scale: 50 }, n || 1000);
-        if (noiseLevel === 'clean') return baseData;
-        
-        const noisyData = gen.applyNoiseLevel(baseData.data, noiseLevel);
-        return {
-          ...baseData,
-          data: noisyData,
-          groundTruth: { ...baseData.groundTruth, noiseLevel }
-        };
-      },
-      getCode: (noiseLevel) => {
-        const baseCode = `const gen = new DataGenerator(seed);
-const baseData = gen.continuous('gamma', { shape: 2, scale: 50 }, 1000);`;
-        if (noiseLevel === 'clean') return baseCode + '\nreturn baseData;';
-        return baseCode + `
-const noisyData = gen.applyNoiseLevel(baseData.data, '${noiseLevel}');
-return { ...baseData, data: noisyData, groundTruth: { ...baseData.groundTruth, noiseLevel: '${noiseLevel}' } };`;
-      }
-    },
-    
-    // Customer Segments (Revenue-level data)
-    {
-      name: 'Customer Segments',
-      description: '2 segments: Budget (70%) & Premium (30%)',
-      category: 'revenue',
-      generator: (n, seed, noiseLevel = 'realistic') => {
-        switch (noiseLevel) {
-          case 'clean': return DataGenerator.scenarios.segments.clean(n || 1000, seed);
-          case 'realistic': return DataGenerator.scenarios.segments.realistic(n || 1000, seed);
-          case 'noisy': return DataGenerator.scenarios.segments.noisy(n || 1000, seed);
-        }
-      },
-      getCode: (noiseLevel) => `return DataGenerator.scenarios.segments.${noiseLevel}(1000, seed);`
-    },
-    
-    // Compound Models (User-level data)
-    {
-      name: 'E-commerce (Compound)',
-      description: '5% conversion, $75 AOV - user-level data',
-      category: 'compound',
-      generator: (n, seed, noiseLevel = 'realistic') => {
-        switch (noiseLevel) {
-          case 'clean': return DataGenerator.scenarios.ecommerce.clean(n || 2000, seed);
-          case 'realistic': return DataGenerator.scenarios.ecommerce.realistic(n || 2000, seed);
-          case 'noisy': return DataGenerator.scenarios.ecommerce.noisy(n || 2000, seed);
-        }
-      },
-      getCode: (noiseLevel) => `return DataGenerator.scenarios.ecommerce.${noiseLevel}(2000, seed);`
-    },
-    
-    {
-      name: 'SaaS Subscriptions',
-      description: '3-tier SaaS pricing model',
-      category: 'compound',
-      generator: (n, seed, noiseLevel = 'realistic') => {
-        switch (noiseLevel) {
-          case 'clean': return DataGenerator.scenarios.saas.clean(n || 2000, seed);
-          case 'realistic': return DataGenerator.scenarios.saas.realistic(n || 2000, seed);
-          case 'noisy': return DataGenerator.scenarios.saas.noisy(n || 2000, seed);
-        }
-      },
-      getCode: (noiseLevel) => `return DataGenerator.scenarios.saas.${noiseLevel}(2000, seed);`
-    },
-    
-    {
-      name: 'Marketplace',
-      description: '4-seller marketplace with variable pricing',
-      category: 'compound',
-      generator: (n, seed, noiseLevel = 'realistic') => {
-        switch (noiseLevel) {
-          case 'clean': return DataGenerator.scenarios.marketplace.clean(n || 2000, seed);
-          case 'realistic': return DataGenerator.scenarios.marketplace.realistic(n || 2000, seed);
-          case 'noisy': return DataGenerator.scenarios.marketplace.noisy(n || 2000, seed);
-        }
-      },
-      getCode: (noiseLevel) => `return DataGenerator.scenarios.marketplace.${noiseLevel}(2000, seed);`
-    }
-  ], []);
-  
-  // Preset data sources - Curated selection with ground truth
-  const presetDataSources: DataSource[] = useMemo(() => [
-    {
-      name: 'Four Component Mixture',
-      description: '4-component mixture stress test',
-      category: 'mixture',
-      generator: (n, seed, noiseLevel = 'clean') => {
-        const base = DataGenerator.presets.fourSegments(n || 1000, seed || Date.now());
-        if (noiseLevel === 'clean') return base;
-        
-        const gen = new DataGenerator(seed);
-        return {
-          ...base,
-          data: gen.applyNoiseLevel(base.data, noiseLevel),
-          groundTruth: { ...base.groundTruth, noiseLevel }
-        };
-      },
-      getCode: (noiseLevel) => {
-        const baseCode = `const base = DataGenerator.presets.fourSegments(1000, seed);`;
-        if (noiseLevel === 'clean') return baseCode + '\nreturn base;';
-        return baseCode + `
-const gen = new DataGenerator(seed);
-return {
-  ...base,
-  data: gen.applyNoiseLevel(base.data, '${noiseLevel}'),
-  groundTruth: { ...base.groundTruth, noiseLevel: '${noiseLevel}' }
-};`;
-      }
-    },
-    {
-      name: 'E-commerce with Segments',
-      description: 'Compound data with customer segment effects',
-      category: 'compound',
-      generator: (n, seed, noiseLevel = 'realistic') => {
-        const base = DataGenerator.presets.ecommerceSegments(n || 1000, seed || Date.now());
-        if (noiseLevel === 'clean') return base;
-        
-        const gen = new DataGenerator(seed);
-        // For compound data, apply noise only to revenue values
-        const noisyUsers = base.data.map((user: any) => {
-          if (user.converted && user.value > 0) {
-            const noisy = gen.applyNoiseLevel([user.value], noiseLevel)[0];
-            return { ...user, value: noisy };
-          }
-          return user;
-        });
-        
-        return {
-          ...base,
-          data: noisyUsers,
-          groundTruth: { ...base.groundTruth, noiseLevel }
-        };
-      },
-      getCode: (noiseLevel) => {
-        const baseCode = `const base = DataGenerator.presets.ecommerceSegments(1000, seed);`;
-        if (noiseLevel === 'clean') return baseCode + '\nreturn base;';
-        return baseCode + `
-const gen = new DataGenerator(seed);
-// For compound data, apply noise only to revenue values
-const noisyUsers = base.data.map((user) => {
-  if (user.converted && user.value > 0) {
-    const noisy = gen.applyNoiseLevel([user.value], '${noiseLevel}')[0];
-    return { ...user, value: noisy };
-  }
-  return user;
-});
+  // Helper to create RNG from seed
+  const createRng = (seed: number) => {
+    const gen = new DataGenerator(seed);
+    return {
+      range: (min: number, max: number) => min + Math.random() * (max - min)
+    };
+  };
 
-return {
-  ...base,
-  data: noisyUsers,
-  groundTruth: { ...base.groundTruth, noiseLevel: '${noiseLevel}' }
-};`;
-      }
+  // Helper to execute code and create data source
+  const createDataSource = (config: {
+    name: string;
+    description: string;
+    category: 'conversion' | 'revenue' | 'mixture' | 'compound';
+    getCode: (params: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => string;
+  }): DataSource => ({
+    name: config.name,
+    description: config.description,
+    category: config.category,
+    generator: (n, seed, noiseLevel = 'realistic') => {
+      const code = config.getCode({
+        sampleSize: n || (config.category === 'compound' ? 2000 : 1000),
+        seed: seed || Date.now(),
+        noiseLevel
+      });
+      const func = new Function('DataGenerator', 'seed', code);
+      return func(DataGenerator, seed || Date.now());
     },
-    {
-      name: 'Beta-Binomial (Known Truth)',
-      description: '5% conversion with ground truth for validation',
-      category: 'conversion',
-      generator: (n, seed, noiseLevel = 'clean') => {
-        const base = DataGenerator.presets.betaBinomial(0.05, n || 1000, seed || Date.now());
-        if (noiseLevel === 'clean') return base;
-        
-        const gen = new DataGenerator(seed);
-        return {
-          ...base,
-          data: gen.applyNoiseLevel(base.data, noiseLevel),
-          groundTruth: { ...base.groundTruth, noiseLevel }
-        };
-      },
-      getCode: (noiseLevel) => {
-        const baseCode = `const base = DataGenerator.presets.betaBinomial(0.05, 1000, seed);`;
-        if (noiseLevel === 'clean') return baseCode + '\nreturn base;';
-        return baseCode + `
-const gen = new DataGenerator(seed);
-return {
-  ...base,
-  data: gen.applyNoiseLevel(base.data, '${noiseLevel}'),
-  groundTruth: { ...base.groundTruth, noiseLevel: '${noiseLevel}' }
-};`;
-      }
-    },
-    {
-      name: 'LogNormal (Known Truth)',
-      description: 'LogNormal revenue with ground truth for validation',
-      category: 'revenue',
-      generator: (n, seed, noiseLevel = 'clean') => {
-        const base = DataGenerator.presets.lognormal(3.5, 0.5, n || 1000, seed || Date.now());
-        if (noiseLevel === 'clean') return base;
-        
-        const gen = new DataGenerator(seed);
-        return {
-          ...base,
-          data: gen.applyNoiseLevel(base.data, noiseLevel),
-          groundTruth: { ...base.groundTruth, noiseLevel }
-        };
-      },
-      getCode: (noiseLevel) => {
-        const baseCode = `const base = DataGenerator.presets.lognormal(3.5, 0.5, 1000, seed);`;
-        if (noiseLevel === 'clean') return baseCode + '\nreturn base;';
-        return baseCode + `
-const gen = new DataGenerator(seed);
-return {
-  ...base,
-  data: gen.applyNoiseLevel(base.data, '${noiseLevel}'),
-  groundTruth: { ...base.groundTruth, noiseLevel: '${noiseLevel}' }
-};`;
-      }
-    }
-  ], []);
-  
-  // Filter data sources based on selected type
-  const filteredDataSources = useMemo(() => {
-    return [...syntheticDataSources, ...presetDataSources];
-  }, [syntheticDataSources, presetDataSources]);
-  
+    getCode: config.getCode
+  });
 
+  // Create all data sources with unified implementation
+  const createAllDataSources = (): DataSource[] => {
+    return [
+      // === CONVERSION SCENARIOS ===
+      {
+        name: 'Conversion Rate',
+        description: 'Random rate 1-15%',
+        category: 'conversion' as const,
+        getCode: ({ sampleSize, seed, noiseLevel }: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => {
+          const rng = createRng(seed);
+          const p = rng.range(0.01, 0.15);
+          return noiseLevel === 'clean'
+            ? `return new DataGenerator(seed).betaBinomial(${p.toFixed(3)}, ${sampleSize});`
+            : `const gen = new DataGenerator(seed);
+const clean = gen.betaBinomial(${p.toFixed(3)}, ${sampleSize});
+return { ...clean, data: gen.applyNoiseLevel(clean.data, '${noiseLevel}') };`;
+        }
+      },
+
+      // === REVENUE SCENARIOS ===
+      {
+        name: 'Revenue (LogNormal)',
+        description: 'Random LogNormal',
+        category: 'revenue' as const,
+        getCode: ({ sampleSize, seed, noiseLevel }: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => {
+          const rng = createRng(seed);
+          const median = rng.range(10, 200);
+          const logMean = Math.log(median);
+          const logStd = rng.range(0.3, 0.8);
+          return noiseLevel === 'clean'
+            ? `return new DataGenerator(seed).continuous('lognormal', { logMean: ${logMean.toFixed(3)}, logStd: ${logStd.toFixed(3)} }, ${sampleSize});`
+            : `const gen = new DataGenerator(seed);
+const clean = gen.continuous('lognormal', { logMean: ${logMean.toFixed(3)}, logStd: ${logStd.toFixed(3)} }, ${sampleSize});
+return { ...clean, data: gen.applyNoiseLevel(clean.data, '${noiseLevel}') };`;
+        }
+      },
+
+      {
+        name: 'Revenue (Normal)',
+        description: 'Random Normal',
+        category: 'revenue' as const,
+        getCode: ({ sampleSize, seed, noiseLevel }: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => {
+          const rng = createRng(seed);
+          const mean = rng.range(30, 200);
+          const std = mean * rng.range(0.15, 0.4);
+          return noiseLevel === 'clean'
+            ? `return new DataGenerator(seed).continuous('normal', { mean: ${mean.toFixed(1)}, std: ${std.toFixed(1)} }, ${sampleSize});`
+            : `const gen = new DataGenerator(seed);
+const clean = gen.continuous('normal', { mean: ${mean.toFixed(1)}, std: ${std.toFixed(1)} }, ${sampleSize});
+return { ...clean, data: gen.applyNoiseLevel(clean.data, '${noiseLevel}') };`;
+        }
+      },
+
+      {
+        name: 'Revenue (Gamma)',
+        description: 'Random Gamma',
+        category: 'revenue' as const,
+        getCode: ({ sampleSize, seed, noiseLevel }: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => {
+          const rng = createRng(seed);
+          const shape = rng.range(1.5, 4);
+          const scale = rng.range(30, 150) / shape;
+          return noiseLevel === 'clean'
+            ? `return new DataGenerator(seed).continuous('gamma', { shape: ${shape.toFixed(2)}, scale: ${scale.toFixed(2)} }, ${sampleSize});`
+            : `const gen = new DataGenerator(seed);
+const clean = gen.continuous('gamma', { shape: ${shape.toFixed(2)}, scale: ${scale.toFixed(2)} }, ${sampleSize});
+return { ...clean, data: gen.applyNoiseLevel(clean.data, '${noiseLevel}') };`;
+        }
+      },
+
+      // === MIXTURE SCENARIOS ===
+      {
+        name: 'Customer Segments',
+        description: '2-3 random segments',
+        category: 'mixture' as const,
+        getCode: ({ sampleSize, seed, noiseLevel }: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => 
+          `return DataGenerator.scenarios.segments.${noiseLevel}(${sampleSize}, seed);`
+      },
+
+      {
+        name: 'Four Segments',
+        description: '4-segment mixture',
+        category: 'mixture' as const,
+        getCode: ({ sampleSize, seed, noiseLevel }: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => 
+          noiseLevel === 'clean'
+            ? `return DataGenerator.presets.fourSegments(${sampleSize}, seed);`
+            : `const base = DataGenerator.presets.fourSegments(${sampleSize}, seed);
+return { ...base, data: new DataGenerator(seed).applyNoiseLevel(base.data, '${noiseLevel}') };`
+      },
+
+      // === COMPOUND SCENARIOS ===
+      {
+        name: 'E-commerce',
+        description: 'Random conversion & AOV',
+        category: 'compound' as const,
+        getCode: ({ sampleSize, seed, noiseLevel }: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => 
+          `return DataGenerator.scenarios.ecommerce.${noiseLevel}(${sampleSize}, seed);`
+      },
+
+      {
+        name: 'SaaS',
+        description: 'Tier subscriptions',
+        category: 'compound' as const,
+        getCode: ({ sampleSize, seed, noiseLevel }: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => 
+          `return DataGenerator.scenarios.saas.${noiseLevel}(${sampleSize}, seed);`
+      },
+
+      {
+        name: 'Marketplace',
+        description: 'Multi-seller',
+        category: 'compound' as const,
+        getCode: ({ sampleSize, seed, noiseLevel }: { sampleSize: number; seed: number; noiseLevel: NoiseLevel }) => 
+          `return DataGenerator.scenarios.marketplace.${noiseLevel}(${sampleSize}, seed);`
+      }
+    ].map(createDataSource);
+  };
+
+  // Single data source array
+  const dataSources: DataSource[] = useMemo(() => createAllDataSources(), []);
   
   // Generate data
   const generateData = useCallback(() => {
@@ -556,11 +425,11 @@ return {
         <div className="space-y-4">
           <div className="relative">
             <select
-              value={selectedDataSource ? filteredDataSources.findIndex(ds => ds.name === selectedDataSource.name) : ''}
+              value={selectedDataSource ? dataSources.findIndex(ds => ds.name === selectedDataSource.name) : ''}
               onChange={(e) => {
                 const idx = parseInt(e.target.value);
-                if (!isNaN(idx) && idx >= 0 && idx < filteredDataSources.length) {
-                  const selected = filteredDataSources[idx];
+                if (!isNaN(idx) && idx >= 0 && idx < dataSources.length) {
+                  const selected = dataSources[idx];
                   setSelectedDataSource(selected);
                 }
               }}
@@ -570,20 +439,30 @@ return {
               
               {/* Group by data format compatibility */}
               <optgroup label="📊 Simple Data (Conversion & Revenue)">
-                {filteredDataSources
+                {dataSources
                   .filter(ds => ds.category === 'conversion' || ds.category === 'revenue')
                   .map((ds) => (
-                    <option key={ds.name} value={filteredDataSources.indexOf(ds)}>
+                    <option key={ds.name} value={dataSources.indexOf(ds)}>
                       {ds.name} - {ds.description}
                     </option>
                   ))}
               </optgroup>
               
-              <optgroup label="🎯 Compound Data (User-level)">
-                {filteredDataSources
+              <optgroup label="🎯 Mixture Models">
+                {dataSources
+                  .filter(ds => ds.category === 'mixture')
+                  .map((ds) => (
+                    <option key={ds.name} value={dataSources.indexOf(ds)}>
+                      {ds.name} - {ds.description}
+                    </option>
+                  ))}
+              </optgroup>
+              
+              <optgroup label="👥 User-Level Data">
+                {dataSources
                   .filter(ds => ds.category === 'compound')
                   .map((ds) => (
-                    <option key={ds.name} value={filteredDataSources.indexOf(ds)}>
+                    <option key={ds.name} value={dataSources.indexOf(ds)}>
                       {ds.name} - {ds.description}
                     </option>
                   ))}
@@ -732,7 +611,12 @@ return {
           onError={setError}
           // Pass the current synthetic scenario's code if available
           syntheticCode={selectedDataSource?.getCode ? 
-            selectedDataSource.getCode(selectedNoiseLevel) : undefined}
+            selectedDataSource.getCode({
+              noiseLevel: selectedNoiseLevel,
+              sampleSize: useCustomSampleSize ? sampleSize : 
+                (selectedDataSource.category === 'compound' ? 2000 : 1000),
+              seed: useSeed ? seed : Date.now()
+            }) : undefined}
           syntheticName={selectedDataSource?.name}
         />
       )}
