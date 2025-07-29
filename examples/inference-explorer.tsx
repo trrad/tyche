@@ -22,7 +22,8 @@ import { UnifiedDistributionViz, BRAND_COLORS } from '../src/ui/visualizations/u
 
 // New components
 import { ModelSelector } from '../src/ui/components/ModelSelector';
-import { CustomDataEditor } from '../src/ui/components/CustomDataEditor';
+import { SimpleCustomCodeEditor } from '../src/ui/components/SimpleCustomCodeEditor';
+
 import { MODEL_DESCRIPTIONS } from '../src/inference/InferenceEngine';
 
 // Styles
@@ -41,7 +42,7 @@ interface FitProgress {
 interface DataSource {
   name: string;
   description: string;
-  category: 'conversion' | 'revenue' | 'mixture' | 'compound' | 'custom';
+  category: 'conversion' | 'revenue' | 'mixture' | 'compound';
   generator: ((n?: number, seed?: number, noiseLevel?: NoiseLevel) => any) | null;
   getCode: (noiseLevel: NoiseLevel) => string; // Function to generate code based on noise level
 }
@@ -64,10 +65,8 @@ function InferenceExplorer() {
   // PPC configuration
   const [showDiagnostics, setShowDiagnostics] = useState(true);
   
-  // Custom data input - now handled by CustomDataEditor
-  
-  // State for data source type selection - now simplified
-  const [dataSourceType, setDataSourceType] = useState<'synthetic' | 'custom'>('synthetic');
+  // Data source type selection
+  const [activeDataSource, setActiveDataSource] = useState<'synthetic' | 'custom'>('synthetic');
   
   // Sample size control
   const [sampleSize, setSampleSize] = useState(1000);
@@ -377,10 +376,8 @@ return {
   
   // Filter data sources based on selected type
   const filteredDataSources = useMemo(() => {
-    if (dataSourceType === 'custom') return [];
-    // Combine all synthetic sources
     return [...syntheticDataSources, ...presetDataSources];
-  }, [dataSourceType, syntheticDataSources, presetDataSources]);
+  }, [syntheticDataSources, presetDataSources]);
   
 
   
@@ -389,16 +386,6 @@ return {
     if (!selectedDataSource) return;
     
     try {
-      // Special handling for Custom source
-      if (selectedDataSource.name === 'Custom') {
-        // The custom data should already be generated via CustomDataEditor
-        // Just ensure we're using the custom tab's data
-        if (!generatedData) {
-          setError('Please generate data in the Custom Data tab first');
-        }
-        return;
-      }
-      
       const n = useCustomSampleSize ? sampleSize : undefined;
       const s = useSeed ? seed : undefined; // Only use seed if fixed seed is enabled
       // Pass the selected noise level to the generator
@@ -540,27 +527,32 @@ return {
     <div className="bg-white p-6 rounded-lg shadow">
       <h3 className="text-lg font-semibold mb-4">1. Select Data Source</h3>
       
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        {(['synthetic', 'custom'] as const).map(type => (
-          <button
-            key={type}
-            onClick={() => {
-              setDataSourceType(type);
-              // Don't clear selection or data when switching tabs
-            }}
-            className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-              dataSourceType === type
-                ? 'bg-purple-600 text-white shadow-sm'
-                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-            }`}
-          >
-            {type === 'synthetic' ? '🎲 Synthetic Data' : '📊 Custom Data'}
-          </button>
-        ))}
+      {/* Simple toggle between synthetic and custom */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => setActiveDataSource('synthetic')}
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+            activeDataSource === 'synthetic'
+              ? 'bg-purple-600 text-white'
+              : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+          }`}
+        >
+          🎲 Synthetic Data
+        </button>
+        <button
+          onClick={() => setActiveDataSource('custom')}
+          className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+            activeDataSource === 'custom'
+              ? 'bg-purple-600 text-white'
+              : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+          }`}
+        >
+          📝 Custom Code
+        </button>
       </div>
       
-      {/* Always render both, but only show the active one */}
-      <div className={dataSourceType === 'synthetic' ? 'block' : 'hidden'}>
+      {/* Synthetic data section */}
+      {activeDataSource === 'synthetic' && (
         <div className="space-y-3">
           <div className="relative">
             <select
@@ -570,7 +562,6 @@ return {
                 if (!isNaN(idx) && idx >= 0 && idx < filteredDataSources.length) {
                   const selected = filteredDataSources[idx];
                   setSelectedDataSource(selected);
-                  // Don't clear generated data when changing selection
                 }
               }}
               className="w-full p-3 pr-10 border border-gray-200 rounded-lg appearance-none bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -597,8 +588,6 @@ return {
                     </option>
                   ))}
               </optgroup>
-              
-
             </select>
             
             {/* Custom dropdown arrow */}
@@ -614,138 +603,30 @@ return {
             disabled={!selectedDataSource}
             className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
               selectedDataSource 
-                ? generatedData
-                  ? 'bg-green-500 text-white hover:bg-green-600 shadow-sm'
-                  : 'bg-red-500 text-white hover:bg-red-600 shadow-sm'
+                ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-sm'
                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}
           >
-            {generatedData ? (
-              <>
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                {Array.isArray(generatedData) 
-                  ? `Regenerate Data (${generatedData.length} samples)`
-                  : generatedData.trials 
-                    ? `Regenerate Data (${generatedData.successes}/${generatedData.trials})`
-                    : 'Regenerate Data'}
-              </>
-            ) : (
-              'Generate Data'
-            )}
+            Generate Synthetic Data
           </button>
-          
-          {/* Noise Level Selection - Smaller and below button */}
-          <div className="text-center">
-            <div className="inline-flex gap-3 text-xs">
-              {(['clean', 'realistic', 'noisy'] as const).map(level => (
-                <label key={level} className="flex items-center gap-1">
-                  <input
-                    type="radio"
-                    name="noise-level"
-                    value={level}
-                    checked={selectedNoiseLevel === level}
-                    onChange={(e) => setSelectedNoiseLevel(e.target.value as any)}
-                    className="w-3 h-3 text-purple-600 focus:ring-purple-500"
-                  />
-                  <span className="text-gray-600 capitalize">{level}</span>
-                </label>
-              ))}
-            </div>
-            <div className="mt-1 text-xs text-gray-500">
-              {selectedNoiseLevel === 'clean' && 'No noise'}
-              {selectedNoiseLevel === 'realistic' && '5% error, 2% outliers'}
-              {selectedNoiseLevel === 'noisy' && '15% error, 5% outliers'}
-            </div>
-          </div>
-          
-          {/* Sample size controls */}
-          {selectedDataSource && (
-            <div className="mt-4 p-3 bg-gray-50 rounded-lg space-y-2">
-              
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="custom-sample-size"
-                  checked={useCustomSampleSize}
-                  onChange={(e) => setUseCustomSampleSize(e.target.checked)}
-                  className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                />
-                <label htmlFor="custom-sample-size" className="text-sm font-medium text-gray-700">
-                  Custom sample size
-                </label>
-              </div>
-              
-              {useCustomSampleSize && (
-                <div className="pl-6 space-y-3">
-                  <div>
-                    <label className="text-sm text-gray-600">
-                      Sample size: <span className="font-medium text-gray-900">{sampleSize.toLocaleString()}</span>
-                    </label>
-                    <input
-                      type="range"
-                      min="100"
-                      max="10000"
-                      step="100"
-                      value={sampleSize}
-                      onChange={(e) => setSampleSize(parseInt(e.target.value))}
-                      className="w-full mt-1"
-                    />
-                    <div className="flex justify-between text-xs text-gray-500 mt-1">
-                      <span>100</span>
-                      <span>10,000</span>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        id="use-fixed-seed"
-                        checked={useSeed}
-                        onChange={(e) => setUseSeed(e.target.checked)}
-                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
-                      />
-                      <label htmlFor="use-fixed-seed" className="text-sm font-medium text-gray-700">
-                        Use fixed seed
-                      </label>
-                    </div>
-                    
-                    {useSeed && (
-                      <div className="mt-2">
-                        <input
-                          type="number"
-                          value={seed}
-                          onChange={(e) => setSeed(parseInt(e.target.value) || 0)}
-                          className="w-full px-3 py-1 text-sm border rounded"
-                          placeholder="Seed value"
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
         </div>
-      </div>
+      )}
       
-      <div className={dataSourceType === 'custom' ? 'block' : 'hidden'}>
-        <CustomDataEditor
-          onDataGenerated={(data, dataset) => {
+      {/* Custom code section */}
+      {activeDataSource === 'custom' && (
+        <SimpleCustomCodeEditor
+          onDataGenerated={(data) => {
             setGeneratedData(data);
-            setGeneratedDataset(dataset || null);
+            setGeneratedDataset(null); // Custom data doesn't have ground truth
             setError(null);
           }}
           onError={setError}
-          scenarioName={selectedDataSource?.name}
-          getScenarioCode={selectedDataSource?.getCode}
-          sampleSize={useCustomSampleSize ? sampleSize : undefined}
-          noiseLevel={selectedNoiseLevel}
+          // Pass the current synthetic scenario's code if available
+          syntheticCode={selectedDataSource?.getCode ? 
+            selectedDataSource.getCode(selectedNoiseLevel) : undefined}
+          syntheticName={selectedDataSource?.name}
         />
-      </div>
+      )}
     </div>
   );
   
