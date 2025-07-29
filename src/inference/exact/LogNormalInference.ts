@@ -127,6 +127,19 @@ export class LogNormalPosterior implements Posterior {
       posteriorMeanSigma2: this.params.beta / (this.params.alpha - 1)
     };
   }
+
+  logPdf(data: number): number {
+    // LogNormal PDF: log(f(x)) = -log(x) - 0.5*log(2π) - log(σ) - 0.5*((log(x) - μ)/σ)²
+    if (data <= 0) return -Infinity;
+    
+    const logData = Math.log(data);
+    const mu = this.params.mu0;
+    const sigma2 = this.params.beta / (this.params.alpha - 1);
+    const sigma = Math.sqrt(sigma2);
+    
+    const z = (logData - mu) / sigma;
+    return -logData - 0.5 * Math.log(2 * Math.PI) - Math.log(sigma) - 0.5 * z * z;
+  }
   
   // The following methods are now redundant as they rely on MC samples
   // and are handled by getMCSamples()

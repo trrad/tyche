@@ -96,20 +96,24 @@ export class NormalPosterior implements Posterior {
     return [[samples[lowerIdx], samples[upperIdx]]];
   }
   
-  sample(): number[] {
-    // Sample from posterior predictive distribution
-    // 1. Sample σ² from Inverse-Gamma(α, β)
-    const sigma2 = this.sampleInverseGamma(this.params.alpha, this.params.beta);
-    
-    // 2. Sample μ from Normal(μ₀, σ²/λ)
-    const mu = jStat.normal.sample(
-      this.params.mu0, 
-      Math.sqrt(sigma2 / this.params.lambda)
-    );
-    
-    // 3. Sample from Normal(μ, σ²) - no exp() transform!
-    const z = jStat.normal.sample(0, 1);
-    return [mu + Math.sqrt(sigma2) * z];
+  sample(n: number = 1): number[] {
+    const samples: number[] = [];
+    for (let i = 0; i < n; i++) {
+      // Sample from posterior predictive distribution
+      // 1. Sample σ² from Inverse-Gamma(α, β)
+      const sigma2 = this.sampleInverseGamma(this.params.alpha, this.params.beta);
+      
+      // 2. Sample μ from Normal(μ₀, σ²/λ)
+      const mu = jStat.normal.sample(
+        this.params.mu0, 
+        Math.sqrt(sigma2 / this.params.lambda)
+      );
+      
+      // 3. Sample from Normal(μ, σ²) - no exp() transform!
+      const z = jStat.normal.sample(0, 1);
+      samples.push(mu + Math.sqrt(sigma2) * z);
+    }
+    return samples;
   }
   
   private sampleInverseGamma(alpha: number, beta: number): number {
@@ -132,6 +136,16 @@ export class NormalPosterior implements Posterior {
       posteriorMeanMu: this.params.mu0,
       posteriorMeanSigma2: this.params.beta / (this.params.alpha - 1)
     };
+  }
+
+  /**
+   * Log probability density function for Normal
+   */
+  logPdf(data: number): number {
+    const mu = this.mean()[0];
+    const sigma = Math.sqrt(this.variance()[0]);
+    const z = (data - mu) / sigma;
+    return -0.5 * Math.log(2 * Math.PI) - Math.log(sigma) - 0.5 * z * z;
   }
 }
 

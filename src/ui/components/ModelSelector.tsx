@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ModelType, MODEL_DESCRIPTIONS, isModelMixture } from '../../inference/InferenceEngine';
 import { ComponentSelector, useComponentSelection } from './ComponentSelector';
+import { ModelQualityIndicator } from './ModelQualityIndicator';
 
 interface ModelSelectorProps {
   value: ModelType;
@@ -9,6 +10,8 @@ interface ModelSelectorProps {
   className?: string;
   dataSize?: number; // NEW: for data-driven component recommendations
   numComponents?: number; // NEW: external component count
+  showQualityFeedback?: boolean; // NEW: show quality indicators
+  inferenceResult?: any; // NEW: result containing WAIC info
 }
 
 /**
@@ -20,7 +23,9 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   disabled = false,
   className = '',
   dataSize,
-  numComponents: externalNumComponents
+  numComponents: externalNumComponents,
+  showQualityFeedback = true,
+  inferenceResult
 }) => {
   const { numComponents, setNumComponents, showComponentSelector } = useComponentSelection(value, externalNumComponents);
   
@@ -62,6 +67,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             dataSize={dataSize}
           />
         </div>
+      )}
+      
+      {/* Model Quality Feedback */}
+      {showQualityFeedback && inferenceResult && (
+        <ModelQualityIndicator
+          waicInfo={inferenceResult.waicInfo}
+          routeInfo={inferenceResult.routeInfo}
+        />
       )}
     </div>
   );

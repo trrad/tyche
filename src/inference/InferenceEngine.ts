@@ -112,18 +112,32 @@ export class InferenceEngine {
       returnRouteInfo?: boolean;
       maxComponents?: number;
       preferSimple?: boolean;
+      useWAIC?: boolean; // Enable WAIC-based selection (default: true)
     }
-  ): Promise<InferenceResult & { routeInfo?: ModelRouteResult }> {
+  ): Promise<InferenceResult & { 
+    routeInfo?: ModelRouteResult;
+    waicInfo?: {
+      waic: number;
+      components?: Array<{
+        k: number;
+        waic: number;
+        deltaWAIC: number;
+        weight: number;
+      }>;
+    };
+  }> {
     
     let actualModelType: ModelType;
     let routeInfo: ModelRouteResult | undefined;
     
     if (modelType === 'auto') {
-      // Delegate all routing logic to ModelRouter
+      // Delegate all routing logic to ModelRouter with WAIC support
       routeInfo = await ModelRouter.route(data, {
         businessContext: options?.businessContext,
         maxComponents: options?.maxComponents,
-        preferSimple: options?.preferSimple
+        preferSimple: options?.preferSimple,
+        engine: this,
+        useWAIC: options?.useWAIC ?? true // Default to true
       });
       
       actualModelType = routeInfo.recommendedModel;
@@ -140,6 +154,11 @@ export class InferenceEngine {
       }
       
       console.log(`ModelRouter selected: ${actualModelType}`, routeInfo.reasoning);
+      
+      // Log WAIC comparison if available
+      if (routeInfo.modelParams?.waicComparison) {
+        console.table(routeInfo.modelParams.waicComparison);
+      }
     } else {
       actualModelType = modelType;
     }
@@ -147,12 +166,45 @@ export class InferenceEngine {
     // Execute the selected model
     const result = await this.executeModel(actualModelType, data, options);
     
-    // Attach routing info if requested
-    if (options?.returnRouteInfo && routeInfo) {
-      return { ...result, routeInfo };
+    // Compute WAIC for the final model if requested
+    let waicInfo: any;
+    if (options?.useWAIC && result.posterior) {
+      try {
+        const { ModelSelectionCriteria } = await import('./ModelSelectionCriteriaSimple');
+        // Extract data array for WAIC computation
+        let dataArray: any;
+        if ('data' in data) {
+          dataArray = Array.isArray(data.data) ? data.data : [data.data];
+        } else {
+          dataArray = data;
+        }
+        const waic = await ModelSelectionCriteria.computeWAIC(
+          result.posterior,
+          dataArray,
+          actualModelType
+        );
+        
+        waicInfo = {
+          waic: waic.waic,
+          components: routeInfo?.modelParams?.waicComparison
+        };
+      } catch (e) {
+        console.warn('Failed to compute WAIC:', e);
+      }
     }
     
-    return result;
+    // Build enhanced result
+    const enhancedResult: any = { ...result };
+    
+    if (options?.returnRouteInfo && routeInfo) {
+      enhancedResult.routeInfo = routeInfo;
+    }
+    
+    if (waicInfo) {
+      enhancedResult.waicInfo = waicInfo;
+    }
+    
+    return enhancedResult;
   }
   
   /**

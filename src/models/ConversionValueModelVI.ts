@@ -213,7 +213,8 @@ import {
                   const z = 1.96; // 95% CI
                   const se = Math.sqrt(variance / summary.convertedValues.length);
                   return [[mean - z * se, mean + z * se]];
-                }
+                },
+                logPdf: (_data: any) => { throw new Error('logPdf not implemented for mock VI posterior'); }
               },
               diagnostics: {
                 converged: true,

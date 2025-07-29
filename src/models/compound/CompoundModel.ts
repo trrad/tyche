@@ -101,8 +101,8 @@ class CompoundPosteriorImpl implements CompoundPosterior {
     
     for (let i = 0; i < this.MC_SAMPLES; i++) {
       // Sample from posteriors
-      const p = this.frequency.sample()[0];
-      const v = this.severity.sample()[0];
+      const p = this.frequency.sample(1)[0];
+      const v = this.severity.sample(1)[0];
       
       // Revenue per user = p * v
       const revenue = p * v;
@@ -147,10 +147,14 @@ class CompoundPosteriorImpl implements CompoundPosterior {
    * Sample from the compound posterior
    * Returns [conversion_rate, value_given_conversion, revenue_per_user]
    */
-  sample(): number[] {
-    const p = this.frequency.sample()[0];
-    const v = this.severity.sample()[0];
-    return [p, v, p * v];
+  sample(n: number = 1): number[] {
+    const samples: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const p = this.frequency.sample(1)[0];
+      const v = this.severity.sample(1)[0];
+      samples.push(p * v); // Return revenue per user (most relevant for WAIC)
+    }
+    return samples;
   }
   
   /**
@@ -166,8 +170,8 @@ class CompoundPosteriorImpl implements CompoundPosterior {
     
     // Generate samples for CI calculation
     for (let i = 0; i < this.MC_SAMPLES; i++) {
-      const p = this.frequency.sample()[0];
-      const v = this.severity.sample()[0];
+      const p = this.frequency.sample(1)[0];
+      const v = this.severity.sample(1)[0];
       samples.convRate.push(p);
       samples.valueGivenConv.push(v);
       samples.revenuePerUser.push(p * v);
@@ -195,6 +199,29 @@ class CompoundPosteriorImpl implements CompoundPosterior {
    */
   expectedValuePerUser(): number {
     return this.mean()[2]; // Already computed via MC
+  }
+
+  /**
+   * Log probability for compound model
+   * Note: This requires user-level data
+   */
+  logPdf(data: UserData): number {
+    if (data.converted) {
+      // P(converted) * P(value | converted)
+      const pConv = this.frequency.mean()[0];
+      const logPConv = Math.log(pConv);
+      // Check if severity posterior has logPdf
+      if ('logPdf' in this.severity) {
+        const logPValue = (this.severity as any).logPdf(data.value);
+        return logPConv + logPValue;
+      } else {
+        throw new Error('Severity posterior must implement logPdf for WAIC');
+      }
+    } else {
+      // P(not converted)
+      const pConv = this.frequency.mean()[0];
+      return Math.log(1 - pConv);
+    }
   }
 }
 

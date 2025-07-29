@@ -29,6 +29,8 @@ export interface Posterior {
   sample(): number[];
   /** Get credible interval(s) at specified level */
   credibleInterval(level: number): Array<[number, number]>;
+  /** Log probability density/mass function for WAIC and model selection */
+  logPdf(data: any): number;
 }
 
 /**
@@ -179,6 +181,10 @@ class BetaPosterior implements Posterior {
       jStat.beta.inv(1 - alpha, this.alpha, this.beta)
     ]];
   }
+
+  logPdf(data: any): number {
+    return jStat.beta.logPdf(this.alpha, this.beta, data);
+  }
 }
 
 /**
@@ -287,6 +293,10 @@ class MixturePosterior implements Posterior {
       const std = Math.sqrt(c.variance);
       return [c.mean - z * std, c.mean + z * std] as [number, number];
     });
+  }
+
+  logPdf(data: any): number {
+    return jStat.normal.logPdf(this.components[0].mean, Math.sqrt(this.components[0].variance), data);
   }
 }
 
@@ -626,6 +636,10 @@ credibleInterval(level: number): Array<[number, number]> {
     ];
     
     return [zeroProbCI, valueCI, overallCI];
+  }
+
+  logPdf(data: any): number {
+    return jStat.normal.logPdf(this.mean()[1], Math.sqrt(this.variance()[1]), data);
   }
 }
 

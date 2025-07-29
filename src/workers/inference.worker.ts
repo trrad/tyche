@@ -24,7 +24,9 @@ type WorkerRequest =
   | { id: string; type: 'getComponents'; payload: { posteriorId: string } }
   | { id: string; type: 'clear'; payload: { posteriorId: string } }
   | { id: string; type: 'clearAll'; payload?: never }
-  | { id: string; type: 'getStats'; payload: { posteriorId: string } };
+  | { id: string; type: 'getStats'; payload: { posteriorId: string } }
+  | { id: string; type: 'logPdf'; payload: { posteriorId: string; data: any } }
+  | { id: string; type: 'logPdfBatch'; payload: { posteriorId: string; dataArray: any[] } };
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   console.log('🟡 [A] Worker received message');
@@ -80,7 +82,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         for (let i = 0; i < n; i += batchSize) {
           const currentBatch = Math.min(batchSize, n - i);
           for (let j = 0; j < currentBatch; j++) {
-            samples.push(stored.posterior.sample()[0]);
+            samples.push(stored.posterior.sample(1)[0]);
           }
           
           // Yield to message queue periodically
@@ -177,6 +179,37 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         const stats = computePosteriorSummary(stored.posterior);
         
         self.postMessage({ id, type: 'stats', payload: stats });
+        break;
+      }
+      
+      case 'logPdf': {
+        const { posteriorId, data } = payload;
+        const stored = posteriorStore.get(posteriorId);
+        if (!stored) {
+          throw new Error(`Posterior ${posteriorId} not found`);
+        }
+        // Check if posterior has logPdf method
+        if ('logPdf' in stored.posterior && typeof stored.posterior.logPdf === 'function') {
+          const logProb = stored.posterior.logPdf(data);
+          self.postMessage({ id, type: 'logPdf', payload: logProb });
+        } else {
+          throw new Error(`Posterior ${stored.type} does not implement logPdf`);
+        }
+        break;
+      }
+
+      case 'logPdfBatch': {
+        const { posteriorId, dataArray } = payload;
+        const stored = posteriorStore.get(posteriorId);
+        if (!stored) {
+          throw new Error(`Posterior ${posteriorId} not found`);
+        }
+        if ('logPdf' in stored.posterior && typeof stored.posterior.logPdf === 'function') {
+          const logProbs = dataArray.map(data => stored.posterior.logPdf(data));
+          self.postMessage({ id, type: 'logPdfBatch', payload: logProbs });
+        } else {
+          throw new Error(`Posterior ${stored.type} does not implement logPdf`);
+        }
         break;
       }
       
@@ -284,7 +317,7 @@ function estimateVariance(posterior: any): number[] {
   // If posterior doesn't have variance method, estimate from samples
   const samples: number[] = [];
   for (let i = 0; i < 1000; i++) {
-    samples.push(posterior.sample()[0]);
+            samples.push(posterior.sample(1)[0]);
   }
   
   const mean = samples.reduce((a, b) => a + b, 0) / samples.length;

@@ -43,31 +43,51 @@ export class LogNormalMixturePosterior implements Posterior {
     return this.components.map(c => c.posterior.variance()[0]);
   }
   
-  sample(): number[] {
-    // First sample which component
-    const u = Math.random();
-    let cumWeight = 0;
-    let selectedComponent: LogNormalComponent | null = null;
-    
-    for (const comp of this.components) {
-      cumWeight += comp.weight;
-      if (u <= cumWeight) {
-        selectedComponent = comp;
-        break;
+  sample(n: number = 1): number[] {
+    const samples: number[] = [];
+    for (let i = 0; i < n; i++) {
+      // First sample which component
+      const u = Math.random();
+      let cumWeight = 0;
+      let selectedComponent: LogNormalComponent | null = null;
+      
+      for (const comp of this.components) {
+        cumWeight += comp.weight;
+        if (u <= cumWeight) {
+          selectedComponent = comp;
+          break;
+        }
       }
+      
+      if (!selectedComponent) {
+        selectedComponent = this.components[this.components.length - 1];
+      }
+      
+      // Delegate to selected component's posterior
+      samples.push(selectedComponent.posterior.sample(1)[0]);
     }
-    
-    if (!selectedComponent) {
-      selectedComponent = this.components[this.components.length - 1];
-    }
-    
-    // Delegate to selected component's posterior
-    return selectedComponent.posterior.sample();
+    return samples;
   }
   
   credibleInterval(level: number = 0.95): Array<[number, number]> {
     // Delegate to each component's posterior
     return this.components.map(c => c.posterior.credibleInterval(level)[0]);
+  }
+
+  logPdf(data: number): number {
+    // Compute log-likelihood of data point under the mixture
+    const logProbs = this.components.map(comp => {
+      const logCompProb = comp.posterior.logPdf(data);
+      return Math.log(comp.weight) + logCompProb;
+    });
+    
+    // Use log-sum-exp trick for numerical stability
+    const maxLogProb = Math.max(...logProbs);
+    const logSumExp = maxLogProb + Math.log(
+      logProbs.reduce((sum, lp) => sum + Math.exp(lp - maxLogProb), 0)
+    );
+    
+    return logSumExp;
   }
   
   /**
@@ -455,12 +475,16 @@ export class LogNormalMixtureEM extends InferenceEngine {
           const m = this.mean()[0];
           return [m * m * (Math.exp(sigmaLog * sigmaLog) - 1)];
         },
-        sample(): number[] {
-          // Sample from lognormal using Box-Muller transform
-          const u1 = Math.random();
-          const u2 = Math.random();
-          const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-          return [Math.exp(muLog + sigmaLog * z)];
+        sample(n: number = 1): number[] {
+          const samples: number[] = [];
+          for (let i = 0; i < n; i++) {
+            // Sample from lognormal using Box-Muller transform
+            const u1 = Math.random();
+            const u2 = Math.random();
+            const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+            samples.push(Math.exp(muLog + sigmaLog * z));
+          }
+          return samples;
         },
         credibleInterval(level: number = 0.95): Array<[number, number]> {
           // Use normal approximation for credible interval
@@ -469,6 +493,13 @@ export class LogNormalMixtureEM extends InferenceEngine {
           const lower = Math.exp(muLog + sigmaLog * zAlpha);
           const upper = Math.exp(muLog + sigmaLog * (-zAlpha));
           return [[lower, upper]];
+        },
+        logPdf(data: number): number {
+          // LogNormal PDF
+          if (data <= 0) return -Infinity;
+          const logData = Math.log(data);
+          const z = (logData - muLog) / sigmaLog;
+          return -logData - 0.5 * Math.log(2 * Math.PI) - Math.log(sigmaLog) - 0.5 * z * z;
         }
       };
     }

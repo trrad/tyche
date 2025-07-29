@@ -24,9 +24,11 @@ export interface Posterior {
   /** Get the posterior variance(s) */
   variance(): number[];
   /** Sample from the posterior - returns array for consistency */
-  sample(): number[];
+  sample(n?: number): number[];
   /** Get credible interval(s) at specified level */
   credibleInterval(level: number): Array<[number, number]>;
+  /** Log probability density/mass function for WAIC and model selection */
+  logPdf(data: any): number;
 }
 
 /**

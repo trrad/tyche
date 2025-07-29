@@ -108,7 +108,7 @@ export function useDistributionStates({
             
             const batch = Math.min(batchSize, effectiveNSamples - i);
             for (let j = 0; j < batch; j++) {
-              const sampleResult = dist.posterior.sample();
+              const sampleResult = dist.posterior.sample(1);
               
               // Handle compound posteriors that return [convRate, value, revenue]
               if (Array.isArray(sampleResult) && sampleResult.length === 3) {

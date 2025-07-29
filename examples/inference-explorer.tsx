@@ -77,14 +77,6 @@ function InferenceExplorer() {
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 100000));
   const [selectedNoiseLevel, setSelectedNoiseLevel] = useState<NoiseLevel>('realistic');
   
-
-  
-
-  
-
-  
-
-  
   // Use the worker hook
   const { 
     runInference: runInferenceWorker, 

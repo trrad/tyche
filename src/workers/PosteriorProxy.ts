@@ -161,6 +161,21 @@ export class PosteriorProxy {
   getSummary(): PosteriorSummary {
     return this.summary;
   }
+
+  /**
+   * Compute log probability density/mass function
+   * Required for WAIC computation
+   */
+  async logPdf(data: any): Promise<number> {
+    return this.request<number>('logPdf', { data });
+  }
+
+  /**
+   * Batch computation of log probabilities for efficiency
+   */
+  async logPdfBatch(dataArray: any[]): Promise<number[]> {
+    return this.request<number[]>('logPdfBatch', { dataArray });
+  }
 }
 
 // Compound posterior proxy

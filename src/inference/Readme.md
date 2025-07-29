@@ -222,3 +222,40 @@ interface FitOptions {
   onProgress?: (p) => void;   // Progress callback
 }
 ```
+
+## Design Patterns & Future Considerations
+
+### Distribution/Posterior Interface Pattern (For Future Consideration)
+
+A useful pattern to consider for future extensibility is to define a core `Distribution` interface and have all posteriors implement or wrap it. For example:
+
+```typescript
+interface Distribution {
+  logPdf(x: number): number;
+  sample(): number;
+  mean(): number;
+  variance(): number;
+}
+
+interface Posterior extends Distribution {
+  // Posterior-specific operations
+  credibleInterval(level: number): [number, number];
+  // ... other business methods
+}
+
+// Now posteriors can wrap ANY distribution
+class PosteriorWrapper<T extends Distribution> implements Posterior {
+  constructor(private dist: T) {}
+  
+  logPdf(x: number): number {
+    return this.dist.logPdf(x);
+  }
+  
+  // Add posterior semantics
+  credibleInterval(level: number): [number, number] {
+    // Implementation
+  }
+}
+```
+
+This approach gives you the best of both worlds: clean separation and no duplication. **However, do not implement this pattern without careful consideration**—it can introduce complexity and may not be necessary for all use cases. Evaluate the trade-offs for your specific needs before adopting this design.

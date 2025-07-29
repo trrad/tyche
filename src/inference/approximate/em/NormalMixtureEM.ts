@@ -40,22 +40,26 @@ class NormalMixturePosterior implements Posterior {
     return this.components.map(c => c.variance);
   }
   
-  sample(): number[] {
-    // Sample a component based on weights
-    const weights = this.components.map(c => c.weight);
-    const cumWeights = weights.reduce((acc, w, i) => {
-      acc.push(i === 0 ? w : acc[i-1] + w);
-      return acc;
-    }, [] as number[]);
-    
-    const u = Math.random();
-    let componentIdx = cumWeights.findIndex(cw => u <= cw);
-    if (componentIdx === -1) componentIdx = this.components.length - 1;
-    
-    const component = this.components[componentIdx];
-    const z = jStat.normal.sample(0, 1);
-    
-    return [component.mean + Math.sqrt(component.variance) * z];
+  sample(n: number = 1): number[] {
+    const samples: number[] = [];
+    for (let i = 0; i < n; i++) {
+      // Sample a component based on weights
+      const weights = this.components.map(c => c.weight);
+      const cumWeights = weights.reduce((acc, w, i) => {
+        acc.push(i === 0 ? w : acc[i-1] + w);
+        return acc;
+      }, [] as number[]);
+      
+      const u = Math.random();
+      let componentIdx = cumWeights.findIndex(cw => u <= cw);
+      if (componentIdx === -1) componentIdx = this.components.length - 1;
+      
+      const component = this.components[componentIdx];
+      const z = jStat.normal.sample(0, 1);
+      
+      samples.push(component.mean + Math.sqrt(component.variance) * z);
+    }
+    return samples;
   }
   
   credibleInterval(level: number = 0.95): Array<[number, number]> {
@@ -92,6 +96,21 @@ class NormalMixturePosterior implements Posterior {
       const componentVar = c.variance + Math.pow(c.mean - mean, 2);
       return sum + c.weight * componentVar;
     }, 0);
+  }
+
+  /**
+   * Log probability density for mixture
+   */
+  logPdf(data: number): number {
+    // Compute weighted sum of component probabilities
+    let totalProb = 0;
+    for (const comp of this.components) {
+      const z = (data - comp.mean) / Math.sqrt(comp.variance);
+      const prob = comp.weight * Math.exp(-0.5 * z * z) /
+                   (Math.sqrt(2 * Math.PI * comp.variance));
+      totalProb += prob;
+    }
+    return Math.log(totalProb);
   }
 }
 

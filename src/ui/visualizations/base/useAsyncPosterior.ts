@@ -130,7 +130,7 @@ export function useAsyncPosterior(
           const updateInterval = Math.max(1, Math.floor(nSamples / 20));
           
           for (let i = 0; i < nSamples; i++) {
-            const value = posterior.sample();
+            const value = posterior.sample(1)[0];
             samples.push(Array.isArray(value) ? value[0] : value);
             
             if (i % updateInterval === 0) {
