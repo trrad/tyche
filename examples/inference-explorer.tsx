@@ -553,7 +553,7 @@ return {
       
       {/* Synthetic data section */}
       {activeDataSource === 'synthetic' && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <div className="relative">
             <select
               value={selectedDataSource ? filteredDataSources.findIndex(ds => ds.name === selectedDataSource.name) : ''}
@@ -598,17 +598,126 @@ return {
             </div>
           </div>
           
+
+          
           <button
             onClick={generateData}
             disabled={!selectedDataSource}
             className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
               selectedDataSource 
-                ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-sm'
+                ? generatedData
+                  ? 'bg-green-500 text-white hover:bg-green-600 shadow-sm'
+                  : 'bg-red-500 text-white hover:bg-red-600 shadow-sm'
                 : 'bg-gray-200 text-gray-400 cursor-not-allowed'
             }`}
           >
-            Generate Synthetic Data
+            {generatedData ? (
+              <>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {Array.isArray(generatedData) 
+                  ? `Regenerate Data (${generatedData.length} samples)`
+                  : generatedData.trials 
+                    ? `Regenerate Data (${generatedData.successes}/${generatedData.trials})`
+                    : 'Regenerate Data'}
+              </>
+            ) : (
+              'Generate Data'
+            )}
           </button>
+          
+          {/* Noise Level Selection - Smaller and below button */}
+          <div className="text-center">
+            <div className="inline-flex gap-3 text-xs">
+              {(['clean', 'realistic', 'noisy'] as const).map(level => (
+                <label key={level} className="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="noise-level"
+                    value={level}
+                    checked={selectedNoiseLevel === level}
+                    onChange={(e) => setSelectedNoiseLevel(e.target.value as any)}
+                    className="w-3 h-3 text-purple-600 focus:ring-purple-500"
+                  />
+                  <span className="text-gray-600 capitalize">{level}</span>
+                </label>
+              ))}
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              {selectedNoiseLevel === 'clean' && 'No noise'}
+              {selectedNoiseLevel === 'realistic' && '5% error, 2% outliers'}
+              {selectedNoiseLevel === 'noisy' && '15% error, 5% outliers'}
+            </div>
+          </div>
+          
+          {/* Sample size controls */}
+          {selectedDataSource && (
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg space-y-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="custom-sample-size"
+                  checked={useCustomSampleSize}
+                  onChange={(e) => setUseCustomSampleSize(e.target.checked)}
+                  className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                />
+                <label htmlFor="custom-sample-size" className="text-sm font-medium text-gray-700">
+                  Custom sample size
+                </label>
+              </div>
+              
+              {useCustomSampleSize && (
+                <div className="pl-6 space-y-3">
+                  <div>
+                    <label className="text-sm text-gray-600">
+                      Sample size: <span className="font-medium text-gray-900">{sampleSize.toLocaleString()}</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="100"
+                      max="10000"
+                      step="100"
+                      value={sampleSize}
+                      onChange={(e) => setSampleSize(parseInt(e.target.value))}
+                      className="w-full mt-1"
+                    />
+                    <div className="flex justify-between text-xs text-gray-500 mt-1">
+                      <span>100</span>
+                      <span>10,000</span>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="use-fixed-seed"
+                        checked={useSeed}
+                        onChange={(e) => setUseSeed(e.target.checked)}
+                        className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                      />
+                      <label htmlFor="use-fixed-seed" className="text-sm font-medium text-gray-700">
+                        Use fixed seed
+                      </label>
+                    </div>
+                    
+                    {useSeed && (
+                      <div className="mt-2">
+                        <input
+                          type="number"
+                          value={seed}
+                          onChange={(e) => setSeed(parseInt(e.target.value) || 0)}
+                          className="w-full px-3 py-1 text-sm border rounded"
+                          placeholder="Seed value"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       
