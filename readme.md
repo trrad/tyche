@@ -1,4 +1,4 @@
-# Tyche ⚡
+# TycheJS
 
 > Advanced Bayesian inference for A/B testing, entirely in your browser
 
@@ -8,7 +8,7 @@
 
 ---
 
-## ✨ **What Makes Tyche Different**
+## **What Makes Tyche Different**
 
 Instead of asking "In how many hypothetical worlds would we see an effect this large if there were no real difference?" (and then making decisions based on that backward question), Tyche asks: *"Given what we know about the world and what this experiment teaches us, what can we say about the effect?"*
 
@@ -21,7 +21,7 @@ Genuine probabilistic understanding comes through interaction—not just reading
 - **🎯 Segment discovery**: Find who responds differently (HTE analysis, Causal Trees)
 - **🔧 Extensible**: Clean interfaces for custom models and priors, inspired by a mix of PyMC3, WebPPL and Edward
 
-*Stop throwing away the rich detail in your data to make statements about hypothetical worlds where nothing happens. Start asking what your data can teach you about the world you actually live in.*
+*Stop throwing away the rich detail in your data to make a largely meaningless statment like p=0.03. Start asking what your data can teach you about the world you actually live in, and learn to reason correctly by accepting uncertainty as a fundemental part of belief*
 
 ## 🚀 **Quick Start**
 
