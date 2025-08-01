@@ -1016,6 +1016,54 @@ interface DependenceDecision {
 3. **Recommendation**: Whether to add dependence modeling
 4. **If yes**: Implementation plan for Phase 4
 
+### 2.6 Power Analysis Framework (Week 3-4)
+
+**Parallel simulation with worker pools:**
+
+The power analysis framework will be the first major use of the new worker pool pattern:
+
+```typescript
+class PowerAnalysisEngine {
+  private workerPool: WorkerPoolOperation<PowerAnalysisParams, PowerAnalysisResult>;
+  
+  async calculatePowerCurve(
+    prior: BetaPosterior,
+    effectSize: number,
+    sampleSizes: number[],
+    iterations: number = 10000
+  ): Promise<PowerCurve> {
+    // Create tasks for each sample size
+    const tasks = sampleSizes.map(sampleSize => ({
+      prior: { 
+        alpha: prior.alpha, 
+        beta: prior.beta 
+      },
+      effectSize,
+      sampleSize,
+      iterations: Math.floor(iterations / sampleSizes.length)
+    }));
+    
+    // Run in parallel across worker pool
+    const results = await this.workerPool.executeMany(
+      tasks,
+      (completed, total) => {
+        console.log(`Power analysis: ${completed}/${total} complete`);
+      }
+    );
+    
+    return {
+      sampleSizes,
+      power: results.map(r => r.power)
+    };
+  }
+}
+```
+
+**Benefits**:
+- UI remains responsive during heavy computation
+- Automatic scaling to available hardware
+- Clean separation between computation and orchestration
+
 ## Phase 3: Heterogeneous Treatment Effects (Week 3)
 
 **Key Insight**: Segments are user groupings for analyzing "who responds differently" to treatments, based on observable features like device type or behavior patterns. This is distinct from mixture components, which are statistical properties of value distributions.

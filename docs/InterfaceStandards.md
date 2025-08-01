@@ -631,42 +631,145 @@ class HTEAnalyzer {
 
 ## Infrastructure Interfaces
 
-### Worker Operations
+### Worker Computation Interfaces
 
-Standardized pattern for all worker operations:
+Worker usage is an implementation detail. Engines that need parallel computation follow these patterns:
 
 ```typescript
-class WorkerOperation<TRequest, TResponse> {
-  constructor(
-    private operation: string,
-    private timeout: number = 30000
-  ) {}
+// Generic worker operation contract
+interface WorkerOperation<TParams, TResult> {
+  execute(params: TParams): Promise<TResult>;
+}
+
+// Worker message protocol
+interface WorkerMessage<T = any> {
+  id: string;
+  type: 'execute' | 'result' | 'error' | 'progress';
+  operation?: string;
+  payload: T;
+}
+
+// Progress reporting from workers
+interface WorkerProgress {
+  operation: string;
+  current: number;
+  total: number;
+  message?: string;
+}
+
+// Worker pool for parallel operations
+interface WorkerPoolOperation<TParams, TResult> {
+  // Execute single task
+  execute(params: TParams): Promise<TResult>;
   
-  async execute(request: TRequest): Promise<TResponse> {
-    // Handles:
-    // - Timeout enforcement
-    // - Error propagation  
-    // - Progress reporting
-    // - Memory cleanup
-    return this.pool.execute(this.operation, request, {
-      timeout: this.timeout,
-      signal: this.abortController.signal
-    });
-  }
+  // Execute many tasks in parallel
+  executeMany(
+    tasks: TParams[],
+    onProgress?: (completed: number, total: number) => void
+  ): Promise<TResult[]>;
+}
+
+// Example parameter/result types for EM algorithms
+interface EMParameters {
+  data: number[];
+  components: number;
+  initialMeans: number[];
+  initialStds: number[];
+  initialWeights: number[];
+  maxIterations: number;
+  tolerance: number;
+}
+
+interface EMResult {
+  components: Array<{
+    mu: number;
+    sigma: number; 
+    weight: number;
+  }>;
+  converged: boolean;
+  iterations: number;
+  logLikelihood: number;
+}
+
+// Example: How an engine uses workers internally
+class LogNormalEMEngine extends InferenceEngine {
+  private worker?: WorkerOperation<EMParameters, EMResult>;
   
-  cancel(): void {
-    this.abortController.abort();
+  async fit(
+    data: StandardData,
+    config: ModelConfig,
+    options?: FitOptions
+  ): Promise<InferenceResult> {
+    // Extract values from StandardData
+    const values = data.userLevel!.users
+      .filter(u => u.value > 0)
+      .map(u => u.value);
+    
+    // Decide whether to use worker
+    if (values.length > 1000 && this.worker) {
+      // Prepare parameters
+      const initial = this.initializeParameters(values, config.components || 2);
+      
+      // Execute in worker
+      const result = await this.worker.execute({
+        data: values,
+        components: config.components || 2,
+        initialMeans: initial.means,
+        initialStds: initial.stds,
+        initialWeights: initial.weights,
+        maxIterations: options?.maxIterations || 1000,
+        tolerance: options?.tolerance || 1e-6
+      });
+      
+      // Construct posterior in main thread
+      const components = result.components.map(c => ({
+        distribution: new LogNormalDistribution(c.mu, c.sigma),
+        weight: c.weight
+      }));
+      
+      return {
+        posterior: new LogNormalMixturePosterior(components),
+        diagnostics: {
+          converged: result.converged,
+          iterations: result.iterations,
+          logLikelihood: result.logLikelihood
+        }
+      };
+    } else {
+      // Small dataset: run in main thread
+      return this.fitMainThread(data, config, options);
+    }
   }
+}
+
+// Example parameter/result types for power analysis
+interface PowerAnalysisParams {
+  prior: { alpha: number; beta: number };
+  effectSize: number;
+  sampleSize: number;
+  iterations: number;
+}
+
+interface PowerAnalysisResult {
+  power: number;
+  sampleSize: number;
 }
 
 // Standard operations
 const WORKER_OPERATIONS = {
-  fit: new WorkerOperation<FitRequest, InferenceResult>('fit'),
+  emfit: new WorkerOperation<EMParameters, EMResult>('emfit'),
   bootstrap: new WorkerOperation<BootstrapRequest, BootstrapResult>('bootstrap'),
   causalTree: new WorkerOperation<TreeRequest, CausalTree>('causalTree'),
   export: new WorkerOperation<ExportRequest, Blob>('export')
 };
 ```
+
+**Worker Contract Principles**:
+- Workers operate only on primitive types and plain objects
+- No class instances, functions, or closures cross worker boundaries  
+- All posterior construction happens in the main thread
+- Workers are pure computation - no side effects or state
+- Inference engines decide internally whether to use workers based on data size and complexity
 
 ### Progress Reporting
 

@@ -532,6 +532,14 @@ class WorkerOperation<TInput, TOutput> {
 // - Export generation
 ```
 
+#### Computation Placement
+
+Operations execute where they're most efficient:
+- **Main thread**: Conjugate updates (<1ms), prior operations, UI interactions
+- **Workers**: EM iterations (>50ms), power simulations, future MCMC chains
+
+Workers receive serializable parameters and return serializable results. The main thread handles all data preparation and posterior construction.
+
 ## Key Architectural Decisions
 
 ### Two Data Types Only
