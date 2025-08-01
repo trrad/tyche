@@ -7,8 +7,7 @@
 - **Working inference**: Beta-Binomial, (Log)+Normal compound models, mixtures
 - **WebWorker infrastructure**: Async computation with progress tracking
 - **Test suite**: Comprehensive scenarios and test data generators
-- **Two-part models**: Beta-LogNormal compound for revenue decomposition
-- **Mixture detection**: EM algorithms for discovering customer tiers
+- **Mixture fitting**: EM algorithms for discovering customer tiers
 - **Visualization and app layer**: Reasonably solid visualizations for individual distributions.
 
 ### Technical Debt 🚧
@@ -56,7 +55,7 @@ Your current WAIC integration revealed critical issues that must be fixed before
 ### 0.1 Merge Distributions (Day 1-2)
 **Files**: `src/core/distributions/*.ts`
 
-Current state has three different patterns scattered across codebase. Merge into unified pure mathematical objects:
+Current state has three different patterns scattered across codebase. Merge into unified pure mathematical objects. Need to decide what to do with some of the old AG/AD and computation graph scaffolding for gradients:
 
 ```typescript
 // BEFORE: Distributions coupled with inference

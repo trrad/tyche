@@ -1,63 +1,176 @@
-# Tyche
+# Tyche ⚡
 
-Browser-based inference engine for A/B testing and business experiments. Runs entirely client-side using WebWorkers for responsive UIs during heavy computation.
+> Advanced Bayesian inference for A/B testing, entirely in your browser
 
-## Quick Start
+**Tyche** transforms experiment analysis from binary "significant/not significant" decisions to rich probabilistic understanding. Find stable, actionable segments with proper uncertainty quantification, all client-side with zero setup required.
+
+[📖 **Documentation**](docs/CoreVision.md) | [🗺️ **Roadmap**](docs/ImplementationRoadmap.md) | [🔬 **Architecture**](docs/TechnicalArchitecture.md)
+
+---
+
+## ✨ **What Makes Tyche Different**
+
+Instead of asking "In how many hypothetical worlds would we see an effect this large if there were no real difference?" (and then making decisions based on that backward question), Tyche asks: *"Given what we know about the world and what this experiment teaches us, what can we say about the effect?"*
+
+Genuine probabilistic understanding comes through interaction—not just reading about Bayes' theorem, but *feeling* how evidence updates beliefs as you change assumptions and watch the posterior dance in real time. Most web A/B test and power calculators force you into the frequentist straightjacket of "significant or not." Tyche shows you the full distribution of plausible effects, lets you explore what happens under different priors, and helps you understand what your data is actually telling you.
+
+- **🧠 Bayesian throughout**: Full posterior distributions, not point estimates and p-values
+- **🔍 Automatic model selection**: Handles conversion, revenue, and compound metrics intelligently
+- **📊 Progressive complexity**: Start simple, reveal advanced features as you explore  
+- **⚡ Browser-native**: Zero server setup, works offline, respects privacy
+- **🎯 Segment discovery**: Find who responds differently (HTE analysis, Causal Trees)
+- **🔧 Extensible**: Clean interfaces for custom models and priors, inspired by a mix of PyMC3, WebPPL and Edward
+
+*Stop throwing away the rich detail in your data to make statements about hypothetical worlds where nothing happens. Start asking what your data can teach you about the world you actually live in.*
+
+## 🚀 **Quick Start**
 
 ```bash
 # Install dependencies
 npm install
 
 # Run the inference explorer
-npm run dev
+npm run dev:explorer
 
 # Run tests
 npm test
 ```
 
-## Where Things Live
-
-```
-src/
-├── core/               # Distributions, posteriors, and numerical utilities
-├── inference/          # Inference algorithms (conjugate, EM, VI)
-├── models/             # Business-level models (conversion, revenue, compound)
-├── workers/            # WebWorker infrastructure for parallel computation
-├── hooks/              # React hooks (useInferenceWorker)
-├── ui/                 # UI components and visualizations
-│   ├── components/     # React components
-│   └── visualizations/ # Distribution plots, diagnostics
-├── tests/              # Test suite with business scenarios
-└── analysis/           # Power analysis and decision tools (coming soon)
-```
-
-## Example Usage
+## 💡 **Example Usage**
 
 ```typescript
+// Modern fluent API for experiment analysis
+const result = await tyche
+  .experiment(data)
+  .forMetric('revenue')
+  .withPrior(customPrior)
+  .analyze();
+
+// Rich result exploration
+const summary = result.summary();                    // Immediate insights
+const comparison = await result.compareVariants();   // Cross-variant analysis  
+const segments = await result.discoverSegments();    // HTE discovery
+const effect = result.getVariantResult('treatment')
+  .getDecomposition();                               // Compound model breakdown
+```
+
+```typescript
+// Or use the worker infrastructure directly
 import { useInferenceWorker } from './src/hooks/useInferenceWorker';
 
-// Run inference in a worker, get reactive updates
 const { runInference, isRunning, progress } = useInferenceWorker();
 
 const result = await runInference(
-  'compound-beta-lognormal',  // Model type
-  { data: userData },          // Your data
-  { priorParams: myPriors }    // Optional config
+  'compound-beta-lognormal',  // 'auto' for automatic model selection
+  { data: userData },         // Your experiment data
+  { priorParams: myPriors }   // Optional Bayesian priors
 );
 
-// Access results (cached stats are instant, sampling is async)
+// Access rich posteriors (cached stats are instant, sampling is async)
 const conversionRate = result.posterior.frequency.mean()[0];
-const samples = await result.posterior.frequency.sample(10000);
+const revenuePerUser = result.posterior.mean()[0];
+const samples = await result.posterior.sample(10000);
 ```
 
-## Learn More
+## 📁 **Project Structure**
 
-- **[Roadmap](Tyche%20Roadmap%202.4)** - Project vision and upcoming features
-- **[DataGenerator README](src/tests/utilities/synthetic/Readme.md)** - Synthetic data generation for testing
-- **[Workers README](src/workers/README.md)** - WebWorker architecture and proxy pattern
-- **[Inference README](src/inference/README.md)** - Available algorithms and how they work
-- **[Visualizations README](src/ui/visualizations/README.md)** - Plotting distributions and results
+```
+📦 tyche/
+├── 📚 docs/                    # Comprehensive documentation
+│   ├── CoreVision.md           # Project philosophy & vision
+│   ├── TechnicalArchitecture.md # System design & data flow  
+│   ├── InterfaceStandards.md   # Complete interface definitions
+│   └── ImplementationRoadmap.md # Development roadmap
+├── 🔬 src/
+│   ├── core/                   # Mathematical foundations & distributions
+│   ├── inference/              # Bayesian inference engines (conjugate, EM, VI)
+│   ├── models/                 # Business model patterns (conversion, revenue, compound)
+│   ├── ui/                     # React components & visualizations
+│   │   ├── components/         # Reusable UI components
+│   │   └── visualizations/     # Distribution plots & diagnostics
+│   ├── workers/                # WebWorker infrastructure for parallel computation
+│   ├── hooks/                  # React hooks (useInferenceWorker)
+│   ├── tests/                  # Comprehensive test suite with business scenarios
+│   └── analysis/               # Power analysis and decision tools
+└── 🧪 examples/                # Interactive demos & tutorials
+```
 
-## Contributing
+## 📖 **Documentation**
 
-Check the README in each directory for specifics about that module. The codebase uses TypeScript throughout for type safety.
+| Document | Purpose |
+|----------|---------|
+| [**Core Vision**](docs/CoreVision.md) | Project philosophy and what makes Tyche different |
+| [**Technical Architecture**](docs/TechnicalArchitecture.md) | System design, data flow, and architectural decisions |
+| [**Interface Standards**](docs/InterfaceStandards.md) | Complete API reference and interface definitions |
+| [**Implementation Roadmap**](docs/ImplementationRoadmap.md) | Development phases and detailed implementation plan |
+
+**Additional Technical Docs:**
+- [**Data Generator**](src/tests/utilities/synthetic/Readme.md) - Synthetic data generation for testing
+- [**Workers Architecture**](src/workers/Readme.md) - WebWorker infrastructure and proxy patterns
+- [**Inference Engines**](src/inference/Readme.md) - Available algorithms and implementations
+- [**Visualizations**](src/ui/visualizations/Readme.md) - Distribution plotting and diagnostics
+
+*Start with [Core Vision](docs/CoreVision.md) for the big picture, then explore [Technical Architecture](docs/TechnicalArchitecture.md) to understand how it works.*
+
+## 🚧 **Development Status**
+
+- ✅ **Phase 1**: Core inference engine with unified distributions  
+- 🔄 **Phase 2**: Business-focused analyzers & power analysis
+- 🗓️ **Phase 3**: HTE discovery & validation framework
+- 📋 **Phase 4**: Natural language insights & embeddable visualizations
+
+Each phase delivers standalone value while building toward sophisticated causal inference accessible to anyone running experiments.
+
+[**View detailed roadmap →**](docs/ImplementationRoadmap.md)
+
+## 🎯 **Core Capabilities**
+
+### **Automatic Model Selection**
+- **Binomial data**: Exact Beta-Binomial conjugate updates
+- **User-level data**: Smart routing between simple and compound models
+- **Zero-inflated metrics**: Automatic compound model detection (frequency × severity)
+- **Mixture detection**: EM algorithms for extremely multi-modal data (ie: B2B vs. B2C in same data)
+
+### **Rich Analysis Results**
+- **Probabilistic comparisons**: Full posterior distributions, not just point estimates
+- **Effect decomposition**: Separate conversion and value effects in compound models
+- **Segment discovery**: Find meaningful user groups with differential treatment effects
+- **Progressive disclosure**: Simple summaries that reveal complexity when needed
+
+### **Browser-First Architecture**
+- **WebWorker computation**: Responsive UI during heavy inference
+- **Memory efficient**: Handles large datasets without blocking
+- **Offline capable**: No server dependencies, runs 100% locally.
+- **Privacy preserving**: Your data never leaves your browser
+
+## 🔬 **Technical Approach**
+
+**Two Data Input Types**
+- **Binomial**: Aggregate conversion data (successes/trials)
+- **User-level**: Everything else requiring row-level user data to enable full Bayesian updating
+
+**Model Structure vs Type**
+- **Structure**: `simple` (direct) or `compound` (zero-inflated, frequency × severity)  
+- **Type**: `beta`, `lognormal`, `normal`, `gamma`, more soon...
+- **Automatic routing**: Data compatability drives initial model selection, with optional advanced comparison metrics (WAIC/BIC)
+
+**Bayesian Throughout**
+- **Conjugate updates** when possible (sub-millisecond)
+- **EM algorithms** for mixtures and complex models -- MCMC/VI fitting for mixtures coming soon for weight posteriors.
+- **Proper uncertainty** quantification at every step
+
+*Technical interfaces detailed in [InterfaceStandards.md](docs/InterfaceStandards.md)*
+
+## 🤝 **Contributing**
+
+Check the README in each directory for module-specific details. The codebase uses TypeScript throughout for type safety and follows the architectural patterns described in our [technical documentation](docs/TechnicalArchitecture.md).
+
+**Getting Started with Development:**
+1. Read [Core Vision](docs/CoreVision.md) to understand the project philosophy
+2. Review [Technical Architecture](docs/TechnicalArchitecture.md) for system design
+3. Check [Implementation Roadmap](docs/ImplementationRoadmap.md) for current priorities
+4. Explore the relevant module README for implementation details
+
+---
+
+*Tyche makes sophisticated Bayesian analysis accessible through opinionated defaults, progressive complexity, and browser-native execution. Our constraints are features - they ensure insights are interpretable, targetable, and persistent.*
