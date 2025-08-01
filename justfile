@@ -138,7 +138,7 @@ fix name:
   @just work "fix/{{name}}"
 
 feature name:
-  @just work "{{name}}"
+  @just work "feat/{{name}}"
 
 # Show current work context
 context:
@@ -179,6 +179,85 @@ pr:
   fi
   git push -u origin "$branch"
   gh pr create --web || echo "Open PR manually on GitHub"
+
+# Merge current branch's PR and clean up
+merge:
+  #!/usr/bin/env bash
+  branch=$(git branch --show-current)
+  if [ "$branch" = "main" ]; then
+    echo "❌ Already on main branch"
+    exit 1
+  fi
+  
+  echo "🔍 Checking for open PR..."
+  pr_number=$(gh pr list --head "$branch" --json number --jq '.[0].number' 2>/dev/null)
+  
+  if [ -z "$pr_number" ] || [ "$pr_number" = "null" ]; then
+    echo "❌ No open PR found for branch: $branch"
+    echo "💡 Run 'just pr' first to create a PR"
+    exit 1
+  fi
+  
+  echo "✅ Found PR #$pr_number for branch: $branch"
+  echo ""
+  
+  # Show PR details
+  gh pr view $pr_number
+  echo ""
+  
+  # Ask for confirmation
+  read -p "🤔 Merge this PR? [y/N] " -n 1 -r
+  echo ""
+  
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "❌ Merge cancelled"
+    exit 1
+  fi
+  
+  echo "🚀 Merging PR #$pr_number..."
+  
+  # Merge the PR (squash by default, but allow override)
+  if gh pr merge $pr_number --squash --delete-branch; then
+    echo "✅ PR merged and remote branch deleted"
+    
+    # Switch to main and pull changes
+    echo "🔄 Switching to main and pulling changes..."
+    git checkout main
+    git pull origin main
+    
+    # Delete local branch
+    echo "🧹 Cleaning up local branch..."
+    git branch -d "$branch" || git branch -D "$branch"
+    
+    # Clean up remote references
+    git remote prune origin
+    
+    # Check if we should close the associated issue
+    if [ -f ".context/current-task.md" ]; then
+      issue_number=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
+      if [ ! -z "$issue_number" ]; then
+        echo ""
+        read -p "🎯 Close associated issue #$issue_number? [y/N] " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+          gh issue close $issue_number --comment "Completed in PR #$pr_number"
+          echo "✅ Issue #$issue_number closed"
+        fi
+      fi
+      
+      # Clean up context files
+      rm -f .context/current-task.md .context/active-phase.md
+      echo "🧹 Context files cleaned up"
+    fi
+    
+    echo ""
+    echo "🎉 Complete! You're back on main with all changes merged."
+    echo "📝 Ready for your next task: just work <issue> or just feature <name>"
+    
+  else
+    echo "❌ Failed to merge PR"
+    exit 1
+  fi
 
 # Show current status
 status:
