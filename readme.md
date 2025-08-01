@@ -1,4 +1,4 @@
-# Tyche
+# TycheJS
 
 A Bayesian A/B testing tool that actually makes sense. Built because I was tired of the frequentist calculators all over the web that make you jump through logical hoops to answer simple questions.
 
@@ -19,7 +19,7 @@ Genuine probabilistic understanding comes through interaction—not just reading
 - **Segment discovery**: Find who responds differently (HTE analysis, Causal Trees)
 - **Extensible**: Clean interfaces for custom models and priors, inspired by a mix of PyMC3, WebPPL and Edward
 
-*Stop throwing away the rich detail in your data to make statements about hypothetical worlds where nothing happens. Start asking what your data can teach you about the world you actually live in.*
+*Stop throwing away the rich detail in your data to make a largely meaningless statment like p=0.03. Start asking what your data can teach you about the world you actually live in, and learn to reason correctly by accepting uncertainty as a fundemental part of belief*
 
 ## Quick Start
 
