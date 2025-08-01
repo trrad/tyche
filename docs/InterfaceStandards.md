@@ -232,17 +232,24 @@ interface ComponentInfo {
   parameters: Record<string, number>;  // Distribution-specific
 }
 
-// Compound posteriors compose two distributions
+// Compound posteriors represent joint distributions (e.g., revenue = frequency × severity)
 interface CompoundPosterior extends Posterior {
-  conversion: Posterior;  // Beta posterior
-  value: Posterior;       // Value distribution posterior
+  frequency: Posterior;  // Beta posterior for conversion
+  severity: Posterior;   // Value distribution posterior (when converted)
   
-  // Assumes independence (see research task)
-  mean(): number[] {
-    const pConvert = this.conversion.mean()[0];
-    const valueMeans = this.value.mean();
-    return valueMeans.map(v => pConvert * v);
-  }
+  // The key behavior: sample() returns samples from the joint distribution
+  // Even though we currently assume independence, this abstracts that detail
+  sample(n?: number): Promise<number[]>;  // Returns revenue per user (frequency × severity)
+  
+  // mean() returns E[frequency × severity], not just the components
+  mean(): number[];  // Combined effect (e.g., revenue per user)
+  
+  // Optional method to get severity components if it's a mixture
+  getSeverityComponents?(): Array<{
+    mean: number;
+    variance: number;
+    weight: number;
+  }> | null;
 }
 ```
 
