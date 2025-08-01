@@ -46,9 +46,6 @@ Thumbs.db
 *.temp
 .cache/
 
-# Documentation build
-docs/
-
 # Misc
 .eslintcache
 .prettierignore
