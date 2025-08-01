@@ -1,0 +1,25 @@
+name: Roadmap Task
+description: Implementation roadmap task
+labels: ["roadmap"]
+body:
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Phase
+      options:
+        - "Phase 0: Foundation"
+        - "Phase 1: Basic A/B"
+        - "Phase 2: Business Layer"
+        - "Phase 3: Segmentation"
+        - "Phase 4: Polish"
+    validations:
+      required: true
+      
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      value: |
+        - [ ] 
+        - [ ] 
+        - [ ] 
