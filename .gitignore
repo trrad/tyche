@@ -49,3 +49,11 @@ Thumbs.db
 # Misc
 .eslintcache
 .prettierignore
+
+# DevOps
+# Task context files (regenerated per work session)
+.context/
+WEEKLY_METRICS.md
+
+# AI tool configs (keep personal)
+.cursorrules
