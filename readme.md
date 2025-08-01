@@ -1,29 +1,27 @@
-# Tyche ⚡
+# Tyche
 
-> Advanced Bayesian inference for A/B testing, entirely in your browser
+A Bayesian A/B testing tool that actually makes sense. Built because I was tired of the frequentist calculators all over the web that make you jump through logical hoops to answer simple questions.
 
-**Tyche** transforms experiment analysis from binary "significant/not significant" decisions to rich probabilistic understanding. Find stable, actionable segments with proper uncertainty quantification, all client-side with zero setup required.
+**This is very much a work in progress**, but there's a working proof of concept you can try. The core interactive inference engine is functional, and you can see it in action in our live demo.
 
-[📖 **Documentation**](docs/CoreVision.md) | [🗺️ **Roadmap**](docs/ImplementationRoadmap.md) | [🔬 **Architecture**](docs/TechnicalArchitecture.md)
+[Documentation](docs/CoreVision.md) | [Roadmap](docs/ImplementationRoadmap.md) | [Architecture](docs/TechnicalArchitecture.md)
 
----
-
-## ✨ **What Makes Tyche Different**
+## Why this exists
 
 Instead of asking "In how many hypothetical worlds would we see an effect this large if there were no real difference?" (and then making decisions based on that backward question), Tyche asks: *"Given what we know about the world and what this experiment teaches us, what can we say about the effect?"*
 
 Genuine probabilistic understanding comes through interaction—not just reading about Bayes' theorem, but *feeling* how evidence updates beliefs as you change assumptions and watch the posterior dance in real time. Most web A/B test and power calculators force you into the frequentist straightjacket of "significant or not." Tyche shows you the full distribution of plausible effects, lets you explore what happens under different priors, and helps you understand what your data is actually telling you.
 
-- **🧠 Bayesian throughout**: Full posterior distributions, not point estimates and p-values
-- **🔍 Automatic model selection**: Handles conversion, revenue, and compound metrics intelligently
-- **📊 Progressive complexity**: Start simple, reveal advanced features as you explore  
-- **⚡ Browser-native**: Zero server setup, works offline, respects privacy
-- **🎯 Segment discovery**: Find who responds differently (HTE analysis, Causal Trees)
-- **🔧 Extensible**: Clean interfaces for custom models and priors, inspired by a mix of PyMC3, WebPPL and Edward
+- **Bayesian throughout**: Full posterior distributions, not point estimates and p-values
+- **Automatic model selection**: Handles conversion, revenue, and compound metrics intelligently
+- **Progressive complexity**: Start simple, reveal advanced features as you explore  
+- **Browser-native**: Zero server setup, works offline, respects privacy
+- **Segment discovery**: Find who responds differently (HTE analysis, Causal Trees)
+- **Extensible**: Clean interfaces for custom models and priors, inspired by a mix of PyMC3, WebPPL and Edward
 
 *Stop throwing away the rich detail in your data to make statements about hypothetical worlds where nothing happens. Start asking what your data can teach you about the world you actually live in.*
 
-## 🚀 **Quick Start**
+## Quick Start
 
 ```bash
 # Install dependencies
@@ -36,7 +34,7 @@ npm run dev:explorer
 npm test
 ```
 
-## 💡 **Example Usage**
+## Example Usage
 
 ```typescript
 // Modern fluent API for experiment analysis
@@ -72,7 +70,7 @@ const revenuePerUser = result.posterior.mean()[0];
 const samples = await result.posterior.sample(10000);
 ```
 
-## 📁 **Project Structure**
+## Project Structure
 
 ```
 📦 tyche/
@@ -95,7 +93,7 @@ const samples = await result.posterior.sample(10000);
 └── 🧪 examples/                # Interactive demos & tutorials
 ```
 
-## 📖 **Documentation**
+## Documentation
 
 | Document | Purpose |
 |----------|---------|
@@ -112,38 +110,38 @@ const samples = await result.posterior.sample(10000);
 
 *Start with [Core Vision](docs/CoreVision.md) for the big picture, then explore [Technical Architecture](docs/TechnicalArchitecture.md) to understand how it works.*
 
-## 🚧 **Development Status**
+## Development Status
 
 - ✅ **Phase 1**: Core inference engine with unified distributions  
 - 🔄 **Phase 2**: Business-focused analyzers & power analysis
 - 🗓️ **Phase 3**: HTE discovery & validation framework
 - 📋 **Phase 4**: Natural language insights & embeddable visualizations
 
-Each phase delivers standalone value while building toward sophisticated causal inference accessible to anyone running experiments.
+Each phase builds on the previous one, but should be useful on its own.
 
-[**View detailed roadmap →**](docs/ImplementationRoadmap.md)
+[View detailed roadmap](docs/ImplementationRoadmap.md)
 
-## 🎯 **Core Capabilities**
+## What it does (so far)
 
-### **Automatic Model Selection**
+### Automatic Model Selection
 - **Binomial data**: Exact Beta-Binomial conjugate updates
 - **User-level data**: Smart routing between simple and compound models
 - **Zero-inflated metrics**: Automatic compound model detection (frequency × severity)
 - **Mixture detection**: EM algorithms for extremely multi-modal data (ie: B2B vs. B2C in same data)
 
-### **Rich Analysis Results**
+### Rich Analysis Results
 - **Probabilistic comparisons**: Full posterior distributions, not just point estimates
 - **Effect decomposition**: Separate conversion and value effects in compound models
 - **Segment discovery**: Find meaningful user groups with differential treatment effects
 - **Progressive disclosure**: Simple summaries that reveal complexity when needed
 
-### **Browser-First Architecture**
+### Browser-First Architecture
 - **WebWorker computation**: Responsive UI during heavy inference
 - **Memory efficient**: Handles large datasets without blocking
 - **Offline capable**: No server dependencies, runs 100% locally.
 - **Privacy preserving**: Your data never leaves your browser
 
-## 🔬 **Technical Approach**
+## Technical Approach
 
 **Two Data Input Types**
 - **Binomial**: Aggregate conversion data (successes/trials)
@@ -161,16 +159,6 @@ Each phase delivers standalone value while building toward sophisticated causal 
 
 *Technical interfaces detailed in [InterfaceStandards.md](docs/InterfaceStandards.md)*
 
-## 🤝 **Contributing**
-
-Check the README in each directory for module-specific details. The codebase uses TypeScript throughout for type safety and follows the architectural patterns described in our [technical documentation](docs/TechnicalArchitecture.md).
-
-**Getting Started with Development:**
-1. Read [Core Vision](docs/CoreVision.md) to understand the project philosophy
-2. Review [Technical Architecture](docs/TechnicalArchitecture.md) for system design
-3. Check [Implementation Roadmap](docs/ImplementationRoadmap.md) for current priorities
-4. Explore the relevant module README for implementation details
-
 ---
 
-*Tyche makes sophisticated Bayesian analysis accessible through opinionated defaults, progressive complexity, and browser-native execution. Our constraints are features - they ensure insights are interpretable, targetable, and persistent.*
+*The goal is to make Bayesian analysis feel as natural as using a calculator, while still being statistically rigorous. Constraints are features—they ensure the insights you get are interpretable and actionable.*
