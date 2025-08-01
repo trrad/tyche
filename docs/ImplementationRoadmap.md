@@ -4,11 +4,12 @@
 
 ### What's Working Well ✅
 - **Solid mathematical core**: Distributions, conjugate updates, EM algorithms
-- **Working inference**: Beta-Binomial, Gamma-Poisson, compound models, mixtures
+- **Working inference**: Beta-Binomial, (Log)+Normal compound models, mixtures
 - **WebWorker infrastructure**: Async computation with progress tracking
 - **Test suite**: Comprehensive scenarios and test data generators
 - **Two-part models**: Beta-LogNormal compound for revenue decomposition
 - **Mixture detection**: EM algorithms for discovering customer tiers
+- **Visualization and app layer**: Reasonably solid visualizations for individual distributions.
 
 ### Technical Debt 🚧
 - **WAIC integration complexity**: Revealed architectural issues
@@ -146,7 +147,7 @@ interface ModelConfig {
   components?: number;      // Default 1
   
   // For compound models (zero-inflated)
-  conversionType?: 'beta';  // Always beta
+  frequencyType?: 'beta';  // Always beta
   valueType?: ModelType;    // Type for positive values
   valueComponents?: number; // Components in value distribution
 }

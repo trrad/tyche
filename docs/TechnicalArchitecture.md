@@ -71,7 +71,7 @@ const result = await tyche
 
 2. Determine ModelConfig:
    - Binomial → { structure: 'simple', type: 'beta' }
-   - User-level with zeros → { structure: 'compound', conversionType: 'beta', valueType: 'lognormal', valueComponents: k }
+   - User-level with zeros → { structure: 'compound', frequencyType: 'beta', valueType: 'lognormal', valueComponents: k }
    - User-level no zeros → { structure: 'simple', type: 'lognormal', components: k }
    
    Where k is determined by multimodality detection on the relevant values. Can select other types of value distributions as default based on simple heuristic tests run here or fitting all options and comparing in step 3.
@@ -127,43 +127,43 @@ result.export('pdf')                      // Generate static report
 - **Parsers**: Convert various formats to StandardData
 - **Validators**: Ensure data quality
 
+**Core Data Flow Interfaces**:
+
 ```typescript
-// Simplified data model
-type DataType = 'binomial' | 'user-level';
+// Essential interfaces for understanding the data flow
 
 interface StandardData {
-  type: DataType;
+  type: 'binomial' | 'user-level';
   n: number;
-  
-  // For binomial (aggregate)
-  binomial?: {
-    successes: number;
-    trials: number;
-  };
-  
-  // For everything else
-  userLevel?: {
-    users: UserLevelData[];
-    empiricalStats?: EmpiricalStats;
-  };
-  
-  // Quality indicators
-  quality: DataQuality;
+  binomial?: { successes: number; trials: number; };
+  userLevel?: { users: UserLevelData[]; };
+  quality: DataQuality;  // Routing indicators
 }
 
-// Distributions are pure math (no inference logic)
-interface Distribution {
-  // Pure math only
-  pdf(x: number): number;
-  logPdf(x: number): number;
-  cdf(x: number): number;
-  mean(): number;
-  variance(): number;
+interface ExperimentData {
+  id: string;
+  variants: {
+    control: VariantData;
+    treatments: Map<string, VariantData>;
+  };
+}
 
-  sample(rng: RNG): number;
+interface VariantData {
+  name: string;
+  n: number;
+  binary?: BinomialData;
+  users?: UserLevelData[];
+}
 
+interface DataQuality {
+  hasZeros: boolean;      // → compound structure needed
+  hasNegatives: boolean;  // → affects distribution choice  
+  hasOutliers: boolean;   // → suggests mixtures
+  missingData: number;
 }
 ```
+
+*Complete interface definitions with all fields in InterfaceStandards.md*
 
 ### Statistical Layer
 **Purpose**: Inference algorithms and posterior representations
@@ -175,83 +175,86 @@ interface Distribution {
 - **Data Quality**: Indicators computed once and used for routing
 - **Inference Engines**: Actual fitting algorithms
 
+**Core Routing & Fitting Interfaces**:
+
 ```typescript
-// Clear separation of structure from type
+// Essential for understanding routing and fitting
+
 interface ModelConfig {
   structure: 'simple' | 'compound';
   
   // For simple models
-  type?: ModelType;        // beta, lognormal, etc.
-  components?: number;     // 1 for single, 2+ for mixture
+  type?: 'beta' | 'lognormal' | 'normal' | 'gamma';
+  components?: number;
   
-  // For compound models a.k.a. frequency x severity (value) models
-  frequencyType?: 'beta'; // Always beta for now
-  valueType?: ModelType;   // Type for positive values
+  // For compound models  
+  frequencyType?: 'beta';
+  valueType?: 'beta' | 'lognormal' | 'normal' | 'gamma';
   valueComponents?: number;
 }
 
-// Model types are the actual distributions
-// We'll support more in the future for things like watch time, arrival data
-type ModelType = 'beta' | 'lognormal' | 'normal' | 'gamma';
-
-interface FitOptions {
-  prior?: Distribution;             // Prior distribution
-  maxIterations?: number;           // For iterative algorithms
-  tolerance?: number;               // Convergence threshold
-  progressCallback?: (p: number) => void;
+interface InferenceResult {
+  posterior: Posterior;
+  diagnostics: { converged: boolean; logLikelihood?: number; };
 }
 
-// Engines have built-in capabilities
 abstract class InferenceEngine {
-  abstract readonly capabilities: EngineCapabilities;
-  // An InferenceEngine determines if it can fit a particular combination of modelconfig, standarddata and fitoptions objects using its own logic. These three pieces of information will determine what distributions are selected, how they are composed into a InferenceResult object and what other optional arguments might be used.
-  
-  canHandle(config: ModelConfig, data: StandardData, fitOptions?: FitOptions): boolean {
-    // Check if this engine can handle the config
-    return this.matchesStructure(config) &&
-           this.matchesType(config) &&
-           this.meetsDataRequirements(data) &&
-           this.supportsPrior(fitOptions?.prior);
-  }
-  
-  abstract async fit(
-    data: StandardData,
-    config: ModelConfig,
-    options?: FitOptions
-  ): Promise<InferenceResult>;
+  abstract capabilities: EngineCapabilities;
+  canHandle(config: ModelConfig, data: StandardData, options?: FitOptions): boolean;
+  abstract fit(data: StandardData, config: ModelConfig, options?: FitOptions): Promise<InferenceResult>;
 }
 
-// Example engine with capabilities
-class BetaBinomialConjugateEngine extends InferenceEngine {
-  readonly capabilities = {
-    structures: ['simple'],
-    types: ['beta'],
-    dataTypes: ['binomial'],
-    exact: true,
-    fast: true,
-    components: 1  // Only single component
-  };
-  
-  fit(data: StandardData, config: ModelConfig, options?: FitOptions): Promise<InferenceResult> {
-    // Conjugate update implementation
-  }
+// Results flow through these structures
+interface VariantResult {
+  getPosterior(): Posterior;
+  getDecomposition(): EffectDecomposition | null;  // For compound models
+  getComponents(): ComponentInfo[] | null;         // For mixtures
 }
 
-class CompoundInferenceEngine extends InferenceEngine {
-  readonly capabilities = {
-    structures: ['compound'],
-    types: [],  // Compound is a structure that composes other types
-    dataTypes: ['user-level'],
-    exact: false,  // Depends on sub-engines used
-    fast: true,
-    requiresValueType: true
-  };
-  
-  fit(data: StandardData, config: ModelConfig, options?: FitOptions): Promise<InferenceResult> {
-    // Delegate to sub-engines for each part
-  }
+interface ExperimentResult {
+  getVariantResult(name: string): VariantResult;
+  compareVariants(): Promise<Comparison>;
+  discoverSegments(): Promise<HTEResult>;
 }
 ```
+
+*Complete interface definitions with all fields in InterfaceStandards.md*
+
+**Architectural Pattern**:
+```typescript
+// Structure vs Type separation enables clear routing
+config = {
+  structure: 'compound',      // How to handle zeros
+  frequencyType: 'beta',      // Always beta for frequency
+  valueType: 'lognormal',     // Distribution for positive values
+  valueComponents: 2          // Mixture components in value distribution
+}
+
+// Engines declare capabilities and check compatibility
+abstract class InferenceEngine {
+  abstract capabilities: EngineCapabilities;
+  
+  canHandle(config: ModelConfig, data: StandardData, options?: FitOptions): boolean {
+    return this.matchesStructure(config) && 
+           this.matchesType(config) && 
+           this.supportsData(data) &&
+           this.supportsPrior(options?.prior);
+  }
+  
+  abstract fit(data, config, options): Promise<InferenceResult>;
+}
+
+// Example: Conjugate engine only handles simple beta models
+class BetaBinomialEngine extends InferenceEngine {
+  capabilities = { 
+    structures: ['simple'], 
+    types: ['beta'], 
+    dataTypes: ['binomial'] 
+  };
+}
+```
+
+*Full implementation details in ImplementationRoadmap.md Phase 1*
 
 ### Domain Analysis Layer
 **Purpose**: Business-specific analysis patterns

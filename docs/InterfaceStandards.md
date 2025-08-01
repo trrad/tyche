@@ -7,8 +7,9 @@
 4. [Statistical Interfaces](#statistical-interfaces)
 5. [Analysis Interfaces](#analysis-interfaces)
 6. [Infrastructure Interfaces](#infrastructure-interfaces)
-7. [API Design](#api-design)
-8. [Type Guards & Utilities](#type-guards--utilities)
+7. [Error Handling Strategy](#error-handling-strategy)
+8. [API Design](#api-design)
+9. [Type Guards & Utilities](#type-guards--utilities)
 
 ## Overview
 
@@ -22,6 +23,13 @@ We use only TWO data types throughout the system:
 
 ```typescript
 type DataType = 'binomial' | 'user-level';
+
+interface DataQuality {
+  hasZeros: boolean;     // Key for compound model selection
+  hasNegatives: boolean; // Determines distribution family
+  hasOutliers: boolean;  // Suggests mixture models
+  missingData: number;   // Count of null/undefined values
+}
 
 interface StandardData {
   type: DataType;
@@ -40,12 +48,7 @@ interface StandardData {
   };
   
   // Quality indicators for routing
-  quality: {
-    hasZeros: boolean;     // Key for compound model selection
-    hasNegatives: boolean; // Determines distribution family
-    hasOutliers: boolean;
-    missingData: number;
-  };
+  quality: DataQuality;
 }
 
 interface UserLevelData {
@@ -126,7 +129,7 @@ interface ModelConfig {
   components?: number;  // 1 for single, 2+ for mixture
   
   // For compound models (zero-inflated)
-  conversionType?: 'beta';    // Always beta for conversion
+  frequencyType?: 'beta';    // Always beta for frequency
   valueType?: ModelType;       // Distribution for positive values
   valueComponents?: number;    // Components in value distribution
   
@@ -140,13 +143,13 @@ interface ModelConfig {
 // Revenue with tiers: { structure: 'simple', type: 'lognormal', components: 2 }
 // Zero-inflated revenue: { 
 //   structure: 'compound',
-//   conversionType: 'beta',
+//   frequencyType: 'beta',
 //   valueType: 'lognormal',
 //   valueComponents: 1
 // }
 // Zero-inflated revenue with tiers: { 
 //   structure: 'compound',
-//   conversionType: 'beta',
+//   frequencyType: 'beta',
 //   valueType: 'lognormal',
 //   valueComponents: 2
 // }
@@ -657,16 +660,44 @@ interface WorkerProgress {
   message?: string;
 }
 
-// Worker pool for parallel operations
-interface WorkerPoolOperation<TParams, TResult> {
-  // Execute single task
-  execute(params: TParams): Promise<TResult>;
+// Worker task definition
+interface WorkerTask<TParams, TResult> {
+  id: string;
+  operation: string;
+  params: TParams;
+  timeout?: number;
+  priority?: number;
+  onProgress?: (progress: WorkerProgress) => void;
+  onCancel?: () => void;
+}
+
+// Pool configuration options
+interface PoolOptions {
+  maxConcurrency?: number;
+  onProgress?: (completed: number, total: number) => void;
+  priority?: number;
+}
+
+// Pool status monitoring
+interface PoolStatus {
+  active: number;
+  queued: number;
+  completed: number;
+  failed: number;
+}
+
+// Unified worker pool interface (replaces WorkerPoolOperation)
+interface WorkerPool {
+  // Execute single task (simple params or full task object)
+  execute<T, R>(params: T): Promise<R>;
+  execute<T, R>(task: WorkerTask<T, R>): Promise<R>;
   
   // Execute many tasks in parallel
-  executeMany(
-    tasks: TParams[],
-    onProgress?: (completed: number, total: number) => void
-  ): Promise<TResult[]>;
+  executeMany<T, R>(tasks: T[], options?: PoolOptions): Promise<R[]>;
+  
+  // Pool management
+  cancel(taskId: string): void;
+  getStatus(): PoolStatus;
 }
 
 // Example parameter/result types for EM algorithms
@@ -880,6 +911,49 @@ class ExperimentBuilder {
     
     throw new Error('Unrecognized data format');
   }
+}
+```
+
+## Error Handling Strategy
+
+Standardized error types for consistent handling:
+
+```typescript
+// Standardized error types for consistent handling
+class TycheError extends Error {
+  constructor(
+    public code: ErrorCode,
+    message: string,
+    public context?: any,
+    public recoverable: boolean = false
+  ) {
+    super(message);
+    this.name = 'TycheError';
+  }
+}
+
+enum ErrorCode {
+  // Data errors
+  INVALID_DATA = 'INVALID_DATA',
+  INSUFFICIENT_DATA = 'INSUFFICIENT_DATA',
+  DATA_QUALITY = 'DATA_QUALITY',
+  
+  // Model errors  
+  CONVERGENCE_FAILED = 'CONVERGENCE_FAILED',
+  MODEL_MISMATCH = 'MODEL_MISMATCH',
+  INVALID_PRIOR = 'INVALID_PRIOR',
+  
+  // System errors
+  WORKER_TIMEOUT = 'WORKER_TIMEOUT',
+  MEMORY_LIMIT = 'MEMORY_LIMIT',
+  BROWSER_UNSUPPORTED = 'BROWSER_UNSUPPORTED'
+}
+
+// Error context helpers
+interface ErrorContext {
+  operation: string;
+  parameters?: any;
+  suggestions?: string[];
 }
 ```
 

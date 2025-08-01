@@ -125,6 +125,8 @@ All distributions are potentially mixtures:
 - **Type**: `beta`, `lognormal`, `normal`, `gamma`
 - Compound models compose any value distribution with Beta for conversion
 
+*Technical interfaces for these concepts are defined in InterfaceStandards.md*
+
 This eliminates redundancy and makes the mental model clearer.
 
 ### Performance Strategy  
