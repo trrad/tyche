@@ -98,26 +98,14 @@ class LogNormalDistribution implements Distribution {
 
 Every StandardData object includes quality indicators that help with routing:
 
-```typescript
-interface StandardData {
-  type: 'binomial' | 'user-level';
-  n: number;
-  
-  // Data-specific fields
-  binomial?: { successes: number; trials: number; };
-  userLevel?: { users: UserLevelData[]; };
-  
-  // Quality indicators used for model routing
-  quality: {
-    hasZeros: boolean;      // Key for compound model selection
-    hasNegatives: boolean;  // Determines distribution family
-    hasOutliers: boolean;
-    missingData: number;
-  };
-}
+// See InterfaceStandards.md for StandardData, DataQuality, UserLevelData
 
-// These quality indicators are computed once when converting to StandardData
-// and used by ModelRouter and InferenceEngines to make routing decisions
+// Quality indicators are computed once when converting to StandardData
+// and used by ModelRouter and InferenceEngines to make routing decisions:
+// - hasZeros → compound model needed
+// - hasNegatives → affects distribution family choice  
+// - hasOutliers → suggests mixture models
+// - missingData → validation requirements
 ```
 
 ### 0.3 Replace ModelRouter (Day 4)
@@ -139,18 +127,7 @@ type ModelStructure = 'simple' | 'compound';
 // Data types are different from model types
 type DataType = 'binomial' | 'user-level';  // That's it!
 
-interface ModelConfig {
-  structure: ModelStructure;
-  
-  // For simple models
-  type?: ModelType;
-  components?: number;      // Default 1
-  
-  // For compound models (zero-inflated)
-  frequencyType?: 'beta';  // Always beta
-  valueType?: ModelType;    // Type for positive values
-  valueComponents?: number; // Components in value distribution
-}
+// See InterfaceStandards.md for ModelConfig, StandardData, DataQuality
 
 interface MultimodalityResult {
   isMultimodal: boolean;
@@ -314,23 +291,16 @@ class ModelSelection {
 ### 0.5 Simplify Worker Operations (Day 6)
 **Files**: `src/infrastructure/WorkerOperation.ts`
 
-```typescript
-// Standardize ALL worker operations
-export class WorkerOperation<TInput, TOutput> {
-  constructor(
-    private operation: string,
-    private timeout: number = 30000
-  ) {}
-  
-  async execute(input: TInput): Promise<TOutput> {
-    // Uniform timeout, error handling, cleanup
-    return this.pool.execute(this.operation, input, this.timeout);
-  }
-}
+// See InterfaceStandards.md for WorkerPool, WorkerTask, PoolOptions, PoolStatus
 
-// Workers handle inference operations
-// Sampling can be batched to avoid blocking without full worker implementation
-```
+// Workers handle expensive inference operations:
+// - EM algorithm fitting (>50ms)
+// - Bootstrap validation 
+// - Causal tree construction
+// - Power analysis simulations
+// - Export generation
+
+// Sampling from fitted posteriors stays on main thread (fast)
 
 ### Why Foundation Replacement Matters
 
@@ -382,24 +352,7 @@ interface VariantData {
   users?: UserLevelData[];
 }
 
-interface UserLevelData {
-  userId: string;
-  converted: boolean;
-  value: number;
-  features?: FeatureSet;  // Raw user attributes for segmentation
-  timestamp?: Date;
-}
-
-interface FeatureSet {
-  // User attributes (for future HTE)
-  device?: 'mobile' | 'desktop' | 'tablet';
-  browser?: string;
-  dayOfWeek?: string;
-  hour?: number;
-  
-  // Custom features
-  [key: string]: any;
-}
+// See InterfaceStandards.md for UserLevelData, FeatureSet
 ```
 
 Also implement core data components:
@@ -408,6 +361,33 @@ Also implement core data components:
   - JSONParser for experiment data
   - FeatureTypes and FeatureRegistry
   - DataValidator with clear error messages
+
+```typescript
+// Example: DataValidator with TycheError integration
+class DataValidator {
+  static validate(data: StandardData): void {
+    // See InterfaceStandards.md for TycheError, ErrorCode
+    
+    if (data.n < 30) {
+      throw new TycheError(
+        ErrorCode.INSUFFICIENT_DATA,
+        'Need at least 30 samples for reliable inference',
+        { sampleSize: data.n, minimum: 30 },
+        true  // recoverable - user can add more data
+      );
+    }
+    
+    if (data.quality.missingData > data.n * 0.1) {
+      throw new TycheError(
+        ErrorCode.DATA_QUALITY,
+        'Too much missing data for reliable analysis',
+        { missingCount: data.quality.missingData, threshold: data.n * 0.1 },
+        false  // not easily recoverable
+      );
+    }
+  }
+}
+```
 
 ### 1.2 Basic Conversion Analysis (Day 3)
 **File**: `src/domain/analyzers/ConversionAnalyzer.ts`
@@ -1024,8 +1004,10 @@ interface DependenceDecision {
 The power analysis framework will be the first major use of the new worker pool pattern:
 
 ```typescript
+// See InterfaceStandards.md for WorkerPool, WorkerTask, PoolOptions
+
 class PowerAnalysisEngine {
-  private workerPool: WorkerPoolOperation<PowerAnalysisParams, PowerAnalysisResult>;
+  private workerPool: WorkerPool;
   
   async calculatePowerCurve(
     prior: BetaPosterior,
@@ -1044,18 +1026,34 @@ class PowerAnalysisEngine {
       iterations: Math.floor(iterations / sampleSizes.length)
     }));
     
-    // Run in parallel across worker pool
+    // Run in parallel with new WorkerPool interface
     const results = await this.workerPool.executeMany(
       tasks,
-      (completed, total) => {
-        console.log(`Power analysis: ${completed}/${total} complete`);
+      {
+        maxConcurrency: 4,
+        onProgress: (completed, total) => {
+          console.log(`Power analysis: ${completed}/${total} complete`);
+        }
       }
     );
     
-    return {
-      sampleSizes,
-      power: results.map(r => r.power)
-    };
+    // Add worker timeout error handling
+    try {
+      return {
+        sampleSizes,
+        power: results.map(r => r.power)
+      };
+    } catch (error) {
+      if (error.code === ErrorCode.WORKER_TIMEOUT) {
+        throw new TycheError(
+          ErrorCode.WORKER_TIMEOUT,
+          'Power analysis computation timed out',
+          { sampleSizes: sampleSizes.length, iterations },
+          true  // user can retry with smaller dataset
+        );
+      }
+      throw error;
+    }
   }
 }
 ```
@@ -1121,13 +1119,32 @@ class CausalTreeSegmentation {
   }
   
   private async growTree(data: ExperimentData): Promise<CausalTree> {
-    const worker = new WorkerOperation<TreeRequest, CausalTree>('causalTree');
+    // See InterfaceStandards.md for WorkerPool, WorkerTask
+    const task: WorkerTask<TreeRequest, CausalTree> = {
+      id: generateId(),
+      operation: 'causalTree',
+      params: {
+        data,
+        constraints: this.constraints,
+        features: this.extractFeatures(data)
+      },
+      timeout: 60000,  // Causal trees can take longer
+      onProgress: (progress) => console.log(`Tree building: ${progress.current}/${progress.total}`)
+    };
     
-    return worker.execute({
-      data,
-      constraints: this.constraints,
-      features: this.extractFeatures(data)
-    });
+    try {
+      return await this.workerPool.execute(task);
+    } catch (error) {
+      if (error.code === ErrorCode.WORKER_TIMEOUT) {
+        throw new TycheError(
+          ErrorCode.WORKER_TIMEOUT,
+          'Causal tree construction timed out',
+          { features: this.extractFeatures(data).length, maxDepth: this.constraints.maxDepth },
+          true  // user can reduce maxDepth or features
+        );
+      }
+      throw error;
+    }
   }
 }
 ```
@@ -1176,16 +1193,38 @@ class HTEAnalyzer {
     // Filter data to segment
     const segmentData = this.filterToSegment(data, segment);
     
-    // Run appropriate analyzer
-    const analyzer = AnalyzerFactory.fromData(segmentData);
-    const result = await analyzer.analyze(segmentData);
+    // Validate segment size for reliable analysis
+    if (segmentData.variants.control.n < 20) {
+      throw new TycheError(
+        ErrorCode.INSUFFICIENT_DATA,
+        `Segment '${segment.name}' too small for reliable analysis`,
+        { segmentSize: segmentData.variants.control.n, minimum: 20, segmentId: segment.id },
+        true  // recoverable - user can adjust segmentation rules
+      );
+    }
     
-    return {
-      segment,
-      result,
-      effect: this.calculateSegmentEffect(result),
-      confidence: this.assessConfidence(segmentData, result)
-    };
+    try {
+      // Run appropriate analyzer
+      const analyzer = AnalyzerFactory.fromData(segmentData);
+      const result = await analyzer.analyze(segmentData);
+      
+      return {
+        segment,
+        result,
+        effect: this.calculateSegmentEffect(result),
+        confidence: this.assessConfidence(segmentData, result)
+      };
+    } catch (error) {
+      if (error.code === ErrorCode.CONVERGENCE_FAILED) {
+        throw new TycheError(
+          ErrorCode.CONVERGENCE_FAILED,
+          `Analysis failed for segment '${segment.name}'`,
+          { segmentId: segment.id, originalError: error.message },
+          false  // not easily recoverable for individual segments
+        );
+      }
+      throw error;
+    }
   }
   
 
