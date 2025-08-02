@@ -2,9 +2,13 @@
 default:
   @just --list
 
-# Development commands
+# Start development server
 dev:
   npm run dev
+
+# Build project for production
+build:
+  npm run build
 
 # Start work on an issue (by number, name search, or creating new)
 # Usage:
@@ -165,6 +169,95 @@ refresh-context:
     echo "❌ No current task. Use 'just work <issue>' to start."
   fi
 
+# Close an issue (auto-detect from context or specify number)
+close-issue *issue_number="":
+  #!/usr/bin/env bash
+  issue_num="{{issue_number}}"
+  
+  # Auto-detect issue number if not provided
+  if [ -z "$issue_num" ] && [ -f ".context/current-task.md" ]; then
+    issue_num=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
+  fi
+  
+  if [ -z "$issue_num" ]; then
+    echo "❌ No issue number provided and none found in context"
+    echo "💡 Usage: just issue close [number]"
+    exit 1
+  fi
+  
+  echo "🎯 Closing issue #$issue_num..."
+  
+  # Show issue details first
+  gh issue view $issue_num
+  echo ""
+  
+  # Ask for confirmation
+  read -p "🤔 Close this issue? [y/N] " -n 1 -r
+  echo ""
+  
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "❌ Issue closure cancelled"
+    exit 1
+  fi
+  
+  # Close the issue
+  if gh issue close $issue_num --comment "✅ Requirement fully satisfied and implemented"; then
+    echo "✅ Issue #$issue_num closed successfully"
+    
+    # Clean up context files since we're done
+    if [ -f ".context/current-task.md" ]; then
+      context_issue=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
+      if [ "$context_issue" = "$issue_num" ]; then
+        rm -f .context/current-task.md .context/active-phase.md
+        echo "🧹 Context files cleaned up"
+      fi
+    fi
+    
+    echo "🎉 Issue complete! Ready for next task."
+  else
+    echo "❌ Failed to close issue"
+    exit 1
+  fi
+
+# Update an issue body (auto-detect from context or specify number)  
+update-issue *issue_number="":
+  #!/usr/bin/env bash
+  issue_num="{{issue_number}}"
+  
+  # Auto-detect issue number if not provided
+  if [ -z "$issue_num" ] && [ -f ".context/current-task.md" ]; then
+    issue_num=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
+  fi
+  
+  if [ -z "$issue_num" ]; then
+    echo "❌ No issue number provided and none found in context"
+    echo "💡 Usage: just issue update [number]"
+    exit 1
+  fi
+  
+  echo "📝 Updating issue #$issue_num..."
+  
+  # Determine preferred editor (cursor -> nano -> EDITOR -> vi)
+  editor=""
+  if command -v cursor >/dev/null 2>&1; then
+    editor="cursor --wait"
+  elif command -v nano >/dev/null 2>&1; then
+    editor="nano"
+  elif [ ! -z "$EDITOR" ]; then
+    editor="$EDITOR"
+  else
+    editor="vi"
+  fi
+  
+  # Edit the issue using GitHub CLI with preferred editor
+  if EDITOR="$editor" gh issue edit $issue_num; then
+    echo "✅ Issue #$issue_num updated successfully"
+    echo "💡 Context preserved - continue working with: just work $issue_num"
+  else
+    echo "❌ Failed to update issue"
+    exit 1
+  fi
+
 # Run all checks
 check:
   npm run check
@@ -236,17 +329,15 @@ merge:
     # Clean up remote references
     git remote prune origin
     
-    # Check if we should close the associated issue
+    # Link to associated issue but don't close it
     if [ -f ".context/current-task.md" ]; then
       issue_number=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
       if [ ! -z "$issue_number" ]; then
         echo ""
-        read -p "🎯 Close associated issue #$issue_number? [y/N] " -n 1 -r
-        echo ""
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-          gh issue close $issue_number --comment "Completed in PR #$pr_number"
-          echo "✅ Issue #$issue_number closed"
-        fi
+        echo "🔗 Linking to issue #$issue_number..."
+        gh issue comment $issue_number --body "✅ Completed PR #$pr_number - implementation merged to main"
+        echo "💡 Issue #$issue_number remains open for future iterations/discussion"
+        echo "   Close manually when the full requirement is satisfied: gh issue close $issue_number"
       fi
       
       # Clean up context files
@@ -283,6 +374,10 @@ report:
 setup:
   npm install
   npx husky init
+
+# Show available commands
+help:
+  @bash .setup/scripts/quick-reference.sh
 
 # Clean everything
 clean:
