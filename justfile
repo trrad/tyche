@@ -181,7 +181,7 @@ close-issue *issue_number="":
   
   if [ -z "$issue_num" ]; then
     echo "❌ No issue number provided and none found in context"
-    echo "💡 Usage: just issue close [number]"
+    echo "💡 Usage: just close-issue [number]"
     exit 1
   fi
   
