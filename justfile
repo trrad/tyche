@@ -68,7 +68,7 @@ work issue-identifier:
     matches=$(gh issue list --search "{{issue-identifier}}" --json number,title --limit 5)
     
     if [ "$(echo "$matches" | jq length)" -eq 0 ]; then
-      echo "❌ No issues found matching '{{issue-identifier}}'"
+      echo -e "\033[31m❌ No issues found matching '{{issue-identifier}}'\033[0m"
       echo ""
       echo "To create a new issue, use:"
       echo "  just feature '{{issue-identifier}}'"
@@ -78,7 +78,7 @@ work issue-identifier:
       # Exactly one match - use it
       issue_number=$(echo "$matches" | jq -r '.[0].number')
       title=$(echo "$matches" | jq -r '.[0].title')
-      echo "✓ Found issue #$issue_number: $title"
+      echo -e "\033[32m✓ Found issue #$issue_number: $title\033[0m"
       
       # Fetch full details
       issue_json=$(gh issue view $issue_number --json number,title,body,labels)
@@ -127,12 +127,12 @@ work issue-identifier:
   
   git checkout -b "$branch_name"
   
-  echo "✅ Ready to work on: $title"
-  echo "📋 Issue: #${issue_number}"
-  echo "🌿 Branch: $branch_name"
-  echo "📄 Context: .context/current-task.md"
+  echo -e "\033[32m✅ Ready to work on:\033[0m $title"
+  echo -e "\033[33mIssue:\033[0m #${issue_number}"
+  echo -e "\033[33mBranch:\033[0m $branch_name" 
+  echo -e "\033[33mContext:\033[0m .context/current-task.md"
   echo ""
-  echo "💡 In your editor:"
+  echo -e "\033[36mIn your editor:\033[0m"
   echo "   Cursor: @.context/current-task.md"
   echo "   VS Code: Open .context/current-task.md"
   echo "   Claude: Include context file in prompt"
@@ -146,13 +146,14 @@ feature name:
 
 # Show current work context
 context:
-  @echo "📋 Current Task:"
-  @echo "==============="
-  @cat .context/current-task.md 2>/dev/null || echo "No active task. Use 'just work <issue>' to start."
-  @echo ""
-  @echo "📍 Current Phase:"
-  @echo "================"
-  @cat .context/active-phase.md 2>/dev/null || echo "No phase information available."
+  #!/usr/bin/env bash
+  echo -e "\033[1m\033[36mCurrent Task:\033[0m"
+  echo "==============="
+  cat .context/current-task.md 2>/dev/null || echo -e "\033[33mNo active task. Use 'just work <issue>' to start.\033[0m"
+  echo ""
+  echo -e "\033[1m\033[36mCurrent Phase:\033[0m"
+  echo "================"
+  cat .context/active-phase.md 2>/dev/null || echo -e "\033[33mNo phase information available.\033[0m"
 
 # Update context (if issue changed)
 refresh-context:
@@ -161,12 +162,12 @@ refresh-context:
     issue_number=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*')
     if [ ! -z "$issue_number" ]; then
       just work $issue_number
-      echo "✅ Context refreshed from issue #$issue_number"
+      echo -e "\033[32m✅ Context refreshed from issue #$issue_number\033[0m"
     else
-      echo "❌ No issue number found in current context"
+      echo -e "\033[31m❌ No issue number found in current context\033[0m"
     fi
   else
-    echo "❌ No current task. Use 'just work <issue>' to start."
+    echo -e "\033[31m❌ No current task. Use 'just work <issue>' to start.\033[0m"
   fi
 
 # Close an issue (auto-detect from context or specify number)
@@ -180,42 +181,42 @@ close *issue_number="":
   fi
   
   if [ -z "$issue_num" ]; then
-    echo "❌ No issue number provided and none found in context"
-    echo "💡 Usage: just close [number]"
+    echo -e "\033[31m❌ No issue number provided and none found in context\033[0m"
+    echo -e "\033[33mUsage: just close [number]\033[0m"
     exit 1
   fi
   
-  echo "🎯 Closing issue #$issue_num..."
+  echo -e "\033[36mClosing issue #$issue_num...\033[0m"
   
   # Show issue details first
   gh issue view $issue_num
   echo ""
   
   # Ask for confirmation
-  read -p "🤔 Close this issue? [y/N] " -n 1 -r
+  read -p "Close this issue? [y/N] " -n 1 -r
   echo ""
   
   if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "❌ Issue closure cancelled"
+    echo -e "\033[31m❌ Issue closure cancelled\033[0m"
     exit 1
   fi
   
   # Close the issue
   if gh issue close $issue_num --comment "✅ Requirement fully satisfied and implemented"; then
-    echo "✅ Issue #$issue_num closed successfully"
+    echo -e "\033[32m✅ Issue #$issue_num closed successfully\033[0m"
     
     # Clean up context files since we're done
     if [ -f ".context/current-task.md" ]; then
       context_issue=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
       if [ "$context_issue" = "$issue_num" ]; then
         rm -f .context/current-task.md .context/active-phase.md
-        echo "🧹 Context files cleaned up"
+        echo -e "\033[33mContext files cleaned up\033[0m"
       fi
     fi
     
-    echo "🎉 Issue complete! Ready for next task."
+    echo -e "\033[32mIssue complete! Ready for next task.\033[0m"
   else
-    echo "❌ Failed to close issue"
+    echo -e "\033[31m❌ Failed to close issue\033[0m"
     exit 1
   fi
 
@@ -230,12 +231,12 @@ update *issue_number="":
   fi
   
   if [ -z "$issue_num" ]; then
-    echo "❌ No issue number provided and none found in context"
-    echo "💡 Usage: just update [number]"
+    echo -e "\033[31m❌ No issue number provided and none found in context\033[0m"
+    echo -e "\033[33mUsage: just update [number]\033[0m"
     exit 1
   fi
   
-  echo "📝 Updating issue #$issue_num..."
+  echo -e "\033[36mUpdating issue #$issue_num...\033[0m"
   
   # Determine preferred editor (cursor -> nano -> EDITOR -> vi)
   editor=""
@@ -251,10 +252,10 @@ update *issue_number="":
   
   # Edit the issue using GitHub CLI with preferred editor
   if EDITOR="$editor" gh issue edit $issue_num; then
-    echo "✅ Issue #$issue_num updated successfully"
-    echo "💡 Context preserved - continue working with: just work $issue_num"
+    echo -e "\033[32m✅ Issue #$issue_num updated successfully\033[0m"
+    echo -e "\033[33mContext preserved - continue working with: just work $issue_num\033[0m"
   else
-    echo "❌ Failed to update issue"
+    echo -e "\033[31m❌ Failed to update issue\033[0m"
     exit 1
   fi
 
@@ -267,11 +268,30 @@ pr:
   #!/usr/bin/env bash
   branch=$(git branch --show-current)
   if [ "$branch" = "main" ]; then
-    echo "❌ Cannot create PR from main branch"
+    echo -e "\033[31m❌ Cannot create PR from main branch\033[0m"
     exit 1
   fi
+  
+  # Try to get issue number from context first
+  issue_num=""
+  if [ -f ".context/current-task.md" ]; then
+    issue_num=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
+  fi
+  
+  # If no context, try extracting from branch name (e.g., feat/42-description)
+  if [ -z "$issue_num" ]; then
+    issue_num=$(echo "$branch" | grep -o '/[0-9]*-' | grep -o '[0-9]*' | head -1)
+  fi
+  
   git push -u origin "$branch"
-  gh pr create --web || echo "Open PR manually on GitHub"
+  
+  if [ ! -z "$issue_num" ]; then
+    echo -e "\033[36mCreating PR linked to issue #$issue_num...\033[0m"
+    gh pr create --body "Addresses #$issue_num" --web || echo -e "\033[33mOpen PR manually on GitHub\033[0m"
+  else
+    echo -e "\033[36mCreating PR (no issue detected)...\033[0m"
+    gh pr create --web || echo -e "\033[33mOpen PR manually on GitHub\033[0m"
+  fi
 
 # Merge current branch's PR and clean up
 merge:
@@ -282,12 +302,12 @@ merge:
     exit 1
   fi
   
-  echo "🔍 Checking for open PR..."
+  echo -e "\033[36mChecking for open PR...\033[0m"
   pr_number=$(gh pr list --head "$branch" --json number --jq '.[0].number' 2>/dev/null)
   
   if [ -z "$pr_number" ] || [ "$pr_number" = "null" ]; then
-    echo "❌ No open PR found for branch: $branch"
-    echo "💡 Run 'just pr' first to create a PR"
+    echo -e "\033[31m❌ No open PR found for branch: $branch\033[0m"
+    echo -e "\033[33mRun 'just pr' first to create a PR\033[0m"
     exit 1
   fi
   
@@ -320,7 +340,7 @@ merge:
     
     # Delete local branch (if it still exists - gh might have already done this)
     if git show-ref --verify --quiet refs/heads/"$branch"; then
-      echo -e "\033[33m🧹 Cleaning up local branch...\033[0m"
+      echo -e "\033[33mCleaning up local branch...\033[0m"
       git branch -d "$branch" || git branch -D "$branch"
     else
       echo -e "\033[32m✅ Local branch already cleaned up by GitHub CLI\033[0m"
@@ -334,15 +354,15 @@ merge:
       issue_number=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
       if [ ! -z "$issue_number" ]; then
         echo ""
-        echo -e "\033[36m🔗 Linking to issue #$issue_number...\033[0m"
+        echo -e "\033[36mLinking to issue #$issue_number...\033[0m"
         gh issue comment $issue_number --body "✅ Completed PR #$pr_number - implementation merged to main"
-        echo -e "\033[93m💡 Issue #$issue_number linked but remains open\033[0m"
+        echo -e "\033[33mIssue #$issue_number linked but remains open\033[0m"
       fi
     fi
     
     echo ""
-    echo -e "\033[32m🎉 PR merged successfully!\033[0m"
-    echo -e "\033[36m📝 Next steps:\033[0m"
+    echo -e "\033[32mPR merged successfully!\033[0m"
+    echo -e "\033[1m\033[36mNext steps:\033[0m"
     echo -e "   \033[93m• Run '\033[1mjust close\033[0m\033[93m' when issue is fully complete\033[0m"
     echo -e "   \033[93m• Or run '\033[1mjust work <issue>\033[0m\033[93m' for next task\033[0m"
     
@@ -353,11 +373,12 @@ merge:
 
 # Show current status
 status:
-  @echo "📍 Branch: $(git branch --show-current)"
-  @echo "📝 Status:"
-  @git status -s
-  @echo "\n📊 Recent commits:"
-  @git log --oneline -5
+  #!/usr/bin/env bash
+  echo -e "\033[33mBranch:\033[0m $(git branch --show-current)"
+  echo -e "\033[1m\033[36mStatus:\033[0m"
+  git status -s
+  echo -e "\n\033[1m\033[36mRecent commits:\033[0m"
+  git log --oneline -5
 
 # Weekly report
 report:
