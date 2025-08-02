@@ -1,1 +1,29 @@
+#!/usr/bin/env sh
+
+# Check if we're on main branch and warn
+branch=$(git branch --show-current)
+if [ "$branch" = "main" ]; then
+  echo ""
+  echo "⚠️  WARNING: You're about to commit directly to main branch!"
+  echo ""
+  echo "🚨 Recommended workflow:"
+  echo "   1. just work <issue>     # Create/switch to feature branch"
+  echo "   2. git commit -m '...'   # Commit on feature branch"
+  echo "   3. just pr               # Create pull request"
+  echo "   4. just merge            # Merge via PR"
+  echo ""
+  echo "💡 To fix this commit:"
+  echo "   git reset --soft HEAD~1  # Undo commit, keep changes"
+  echo "   just work <issue>        # Switch to proper branch"
+  echo ""
+  read -p "🤔 Continue committing to main anyway? [y/N] " -n 1 -r
+  echo ""
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "❌ Commit cancelled. Use proper workflow above."
+    exit 1
+  fi
+  echo "⚠️  Proceeding with main branch commit..."
+  echo ""
+fi
+
 npx lint-staged
