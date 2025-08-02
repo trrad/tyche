@@ -170,7 +170,7 @@ refresh-context:
   fi
 
 # Close an issue (auto-detect from context or specify number)
-close-issue *issue_number="":
+close *issue_number="":
   #!/usr/bin/env bash
   issue_num="{{issue_number}}"
   
@@ -181,7 +181,7 @@ close-issue *issue_number="":
   
   if [ -z "$issue_num" ]; then
     echo "❌ No issue number provided and none found in context"
-    echo "💡 Usage: just close-issue [number]"
+    echo "💡 Usage: just close [number]"
     exit 1
   fi
   
@@ -220,7 +220,7 @@ close-issue *issue_number="":
   fi
 
 # Update an issue body (auto-detect from context or specify number)  
-update-issue *issue_number="":
+update *issue_number="":
   #!/usr/bin/env bash
   issue_num="{{issue_number}}"
   
@@ -231,7 +231,7 @@ update-issue *issue_number="":
   
   if [ -z "$issue_num" ]; then
     echo "❌ No issue number provided and none found in context"
-    echo "💡 Usage: just update-issue [number]"
+    echo "💡 Usage: just update [number]"
     exit 1
   fi
   
@@ -311,19 +311,19 @@ merge:
   
   # Merge the PR (squash by default, but allow override)
   if gh pr merge $pr_number --squash --delete-branch; then
-    echo "✅ PR merged and remote branch deleted"
+    echo -e "\033[32m✅ PR merged and remote branch deleted\033[0m"
     
     # Switch to main and pull changes
-    echo "🔄 Switching to main and pulling changes..."
+    echo -e "\033[36m🔄 Switching to main and pulling changes...\033[0m"
     git checkout main
     git pull origin main
     
     # Delete local branch (if it still exists - gh might have already done this)
     if git show-ref --verify --quiet refs/heads/"$branch"; then
-      echo "🧹 Cleaning up local branch..."
+      echo -e "\033[33m🧹 Cleaning up local branch...\033[0m"
       git branch -d "$branch" || git branch -D "$branch"
     else
-      echo "✅ Local branch already cleaned up by GitHub CLI"
+      echo -e "\033[32m✅ Local branch already cleaned up by GitHub CLI\033[0m"
     fi
     
     # Clean up remote references
@@ -334,20 +334,17 @@ merge:
       issue_number=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
       if [ ! -z "$issue_number" ]; then
         echo ""
-        echo "🔗 Linking to issue #$issue_number..."
+        echo -e "\033[36m🔗 Linking to issue #$issue_number...\033[0m"
         gh issue comment $issue_number --body "✅ Completed PR #$pr_number - implementation merged to main"
-        echo "💡 Issue #$issue_number remains open for future iterations/discussion"
-        echo "   Close manually when the full requirement is satisfied: gh issue close $issue_number"
+        echo -e "\033[93m💡 Issue #$issue_number linked but remains open\033[0m"
       fi
-      
-      # Clean up context files
-      rm -f .context/current-task.md .context/active-phase.md
-      echo "🧹 Context files cleaned up"
     fi
     
     echo ""
-    echo "🎉 Complete! You're back on main with all changes merged."
-    echo "📝 Ready for your next task: just work <issue> or just feature <name>"
+    echo -e "\033[32m🎉 PR merged successfully!\033[0m"
+    echo -e "\033[36m📝 Next steps:\033[0m"
+    echo -e "   \033[93m• Run '\033[1mjust close\033[0m\033[93m' when issue is fully complete\033[0m"
+    echo -e "   \033[93m• Or run '\033[1mjust work <issue>\033[0m\033[93m' for next task\033[0m"
     
   else
     echo "❌ Failed to merge PR"
