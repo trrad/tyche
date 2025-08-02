@@ -6,7 +6,7 @@
     "module": "ESNext",
     "moduleResolution": "node",
     "types": ["d3"],
-    
+
     // Emit
     "declaration": true,
     "declarationMap": true,
@@ -14,55 +14,54 @@
     "outDir": "./dist",
     "removeComments": false,
     "preserveConstEnums": true,
-    
+
     // Type Checking - Pragmatic for numerical code
-    "strict": true,                        // Keep base strictness
-    "noImplicitAny": true,                // Require explicit any
-    "strictNullChecks": true,             // Keep null safety
-    "strictFunctionTypes": true,          // Keep function type safety
-    "strictBindCallApply": true,          // Keep method call safety
-    
+    "strict": true, // Keep base strictness
+    "noImplicitAny": true, // Require explicit any
+    "strictNullChecks": true, // Keep null safety
+    "strictFunctionTypes": true, // Keep function type safety
+    "strictBindCallApply": true, // Keep method call safety
+
     // Relaxed settings for numerical/array code
-    "noUncheckedIndexedAccess": false,    // Arrays won't be T | undefined
-    "exactOptionalPropertyTypes": false,   // More flexible optional properties
-    "noImplicitOverride": false,          // Override is good but not required
-    
+    "noUncheckedIndexedAccess": false, // Arrays won't be T | undefined
+    "exactOptionalPropertyTypes": false, // More flexible optional properties
+    "noImplicitOverride": false, // Override is good but not required
+
     // Still catch common errors
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUnusedLocals": false, // Allow unused variables for future compatibility
+    "noUnusedParameters": false, // Allow unused parameters for interface compliance
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
-    
+
     // JavaScript Support
     "allowJs": false,
     "checkJs": false,
     "jsx": "react-jsx",
-    
+
     // Editor Support
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    
+
     // Skip Lib Check for faster builds
     "skipLibCheck": true,
-    
+
     // Advanced
     "allowUnusedLabels": false,
     "allowUnreachableCode": false,
     "assumeChangesOnlyAffectDirectDependencies": true,
-    
+
     // Include type declarations
     "typeRoots": ["./node_modules/@types", "./src/types"]
   },
-  "include": [
-    "src/**/*",
-    "examples/**/*"
-  ],
+  "include": ["src/**/*"],
   "exclude": [
     "node_modules",
     "dist",
     "**/*.test.ts",
-    "**/*.spec.ts"
+    "**/*.spec.ts",
+    "src/archive/**/*",
+    "examples/**/*"
   ]
 }

@@ -225,9 +225,13 @@ merge:
     git checkout main
     git pull origin main
     
-    # Delete local branch
-    echo "🧹 Cleaning up local branch..."
-    git branch -d "$branch" || git branch -D "$branch"
+    # Delete local branch (if it still exists - gh might have already done this)
+    if git show-ref --verify --quiet refs/heads/"$branch"; then
+      echo "🧹 Cleaning up local branch..."
+      git branch -d "$branch" || git branch -D "$branch"
+    else
+      echo "✅ Local branch already cleaned up by GitHub CLI"
+    fi
     
     # Clean up remote references
     git remote prune origin

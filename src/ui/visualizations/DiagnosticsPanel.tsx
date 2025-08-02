@@ -35,13 +35,13 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ diagnostics 
     { key: 'converged', label: 'Converged', important: true },
     { key: 'iterations', label: 'Iterations' },
     { key: 'runtime', label: 'Runtime (ms)' },
-    { key: 'modelType', label: 'Model Type' }
+    { key: 'modelType', label: 'Model Type' },
   ];
 
   // Optional diagnostics
   const optionalDiagnostics = [
     { key: 'finalELBO', label: 'Final ELBO' },
-    { key: 'finalLogLikelihood', label: 'Final Log-Likelihood' }
+    { key: 'finalLogLikelihood', label: 'Final Log-Likelihood' },
   ];
 
   return (
@@ -50,7 +50,7 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ diagnostics 
       <div className="grid grid-cols-2 gap-4">
         {primaryDiagnostics.map(({ key, label, important }) => {
           if (!(key in diagnostics)) return null;
-          
+
           return (
             <div key={key} className="flex justify-between">
               <span className="text-gray-600">{label}:</span>
@@ -67,13 +67,11 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ diagnostics 
         <div className="grid grid-cols-2 gap-4">
           {optionalDiagnostics.map(({ key, label }) => {
             if (!(key in diagnostics)) return null;
-            
+
             return (
               <div key={key} className="flex justify-between">
                 <span className="text-gray-600 text-sm">{label}:</span>
-                <span className="font-mono text-sm">
-                  {formatValue(diagnostics[key])}
-                </span>
+                <span className="font-mono text-sm">{formatValue(diagnostics[key])}</span>
               </div>
             );
           })}
@@ -85,16 +83,18 @@ export const DiagnosticsPanel: React.FC<DiagnosticsPanelProps> = ({ diagnostics 
         <div className="border-t pt-4">
           <h4 className="text-sm font-semibold text-gray-700 mb-2">Convergence History</h4>
           <div className="h-20 bg-gray-50 rounded p-2">
-            <svg 
-              viewBox={`0 0 ${diagnostics.elboHistory.length} 100`} 
+            <svg
+              viewBox={`0 0 ${diagnostics.elboHistory.length} 100`}
               className="w-full h-full"
               preserveAspectRatio="none"
             >
               <polyline
-                points={diagnostics.elboHistory
+                points={(diagnostics.elboHistory || [])
                   .map((v, i) => {
-                    const normalized = (v - Math.min(...diagnostics.elboHistory)) / 
-                      (Math.max(...diagnostics.elboHistory) - Math.min(...diagnostics.elboHistory));
+                    const history = diagnostics.elboHistory || [];
+                    const minVal = Math.min(...history);
+                    const maxVal = Math.max(...history);
+                    const normalized = history.length > 0 ? (v - minVal) / (maxVal - minVal) : 0;
                     return `${i},${100 - normalized * 100}`;
                   })
                   .join(' ')}
