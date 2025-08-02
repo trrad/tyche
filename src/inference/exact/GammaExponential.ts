@@ -5,61 +5,67 @@
 
 import jStat from 'jstat';
 import { InferenceEngine } from '../base/InferenceEngine';
-import { 
-  DataInput, 
-  FitOptions, 
-  InferenceResult, 
-  Posterior
-} from '../base/types';
+import { DataInput, FitOptions, InferenceResult, Posterior } from '../base/types';
 
 /**
  * Gamma posterior distribution wrapper
  */
 export class GammaPosterior implements Posterior {
   constructor(
-    private readonly shape: number,  // alpha
-    private readonly rate: number    // beta (rate = 1/scale)
+    private readonly shape: number, // alpha
+    private readonly rate: number // beta (rate = 1/scale)
   ) {
     if (shape <= 0 || rate <= 0) {
-      throw new Error(`Invalid Gamma parameters: shape=${shape}, rate=${rate}. Both must be positive.`);
+      throw new Error(
+        `Invalid Gamma parameters: shape=${shape}, rate=${rate}. Both must be positive.`
+      );
     }
   }
-  
+
   mean(): number[] {
     return [this.shape / this.rate];
   }
-  
+
   variance(): number[] {
     return [this.shape / (this.rate * this.rate)];
   }
-  
+
   sample(): number[] {
     // Use jstat for sampling - note jstat uses scale parameterization
     const scale = 1 / this.rate;
     return [jStat.gamma.sample(this.shape, scale)];
   }
-  
+
+  logPdf(data: any): number {
+    // Convert rate to scale for jStat
+    const scale = 1 / this.rate;
+    if (Array.isArray(data)) {
+      // Sum log probabilities for multiple data points
+      return data.reduce((sum, x) => sum + Math.log(jStat.gamma.pdf(x, this.shape, scale)), 0);
+    }
+    return Math.log(jStat.gamma.pdf(data, this.shape, scale));
+  }
+
   credibleInterval(level: number = 0.95): Array<[number, number]> {
     const alpha = (1 - level) / 2;
     const scale = 1 / this.rate;
-    
-    return [[
-      jStat.gamma.inv(alpha, this.shape, scale),
-      jStat.gamma.inv(1 - alpha, this.shape, scale)
-    ]];
+
+    return [
+      [jStat.gamma.inv(alpha, this.shape, scale), jStat.gamma.inv(1 - alpha, this.shape, scale)],
+    ];
   }
-  
+
   /**
    * Get the parameters of the posterior
    */
   getParameters(): { shape: number; rate: number; scale: number } {
-    return { 
-      shape: this.shape, 
+    return {
+      shape: this.shape,
       rate: this.rate,
-      scale: 1 / this.rate
+      scale: 1 / this.rate,
     };
   }
-  
+
   /**
    * Mode of the Gamma distribution (for shape > 1)
    */
@@ -69,7 +75,7 @@ export class GammaPosterior implements Posterior {
     }
     return 0; // Mode at 0 for shape < 1
   }
-  
+
   /**
    * Probability that the parameter is greater than a threshold
    */
@@ -82,13 +88,13 @@ export class GammaPosterior implements Posterior {
 
 /**
  * Gamma-Exponential conjugate inference engine
- * 
+ *
  * This implements exact Bayesian inference for exponentially distributed data
  * with a Gamma prior on the rate parameter.
- * 
+ *
  * Model: X ~ Exponential(λ), λ ~ Gamma(α, β)
  * Posterior: λ | X ~ Gamma(α + n, β + Σx)
- * 
+ *
  * Also supports:
  * - Gamma-Poisson (with sufficient statistics)
  * - General positive continuous data with Gamma prior
@@ -97,42 +103,42 @@ export class GammaExponentialConjugate extends InferenceEngine {
   constructor() {
     super('Gamma-Exponential Conjugate');
   }
-  
+
   async fit(data: DataInput, options?: FitOptions): Promise<InferenceResult> {
     // Validate input
     this.validateInput(data);
-    
+
     // Extract data
     let n: number;
     let sumX: number;
-    
+
     if (Array.isArray(data.data)) {
       // Raw data
       const values = data.data;
-      
+
       // Check all values are positive
-      if (values.some(x => x <= 0)) {
+      if (values.some((x) => x <= 0)) {
         throw new Error('Gamma conjugate requires all positive values');
       }
-      
+
       n = values.length;
       sumX = values.reduce((a, b) => a + b, 0);
     } else if ('n' in data.data && 'sum' in data.data) {
       // Summary statistics
       n = data.data.n;
       sumX = data.data.sum!;
-      
+
       if (n <= 0 || sumX <= 0) {
         throw new Error('Invalid summary statistics');
       }
     } else {
       throw new Error('Gamma conjugate requires array data or summary statistics with n and sum');
     }
-    
+
     // Get prior parameters (default to weakly informative)
-    let priorShape = 1;   // α
-    let priorRate = 0.1;  // β (small rate = weak prior)
-    
+    let priorShape = 1; // α
+    let priorRate = 0.1; // β (small rate = weak prior)
+
     if (options?.priorParams) {
       if (options.priorParams.type !== 'gamma') {
         throw new Error('Gamma conjugate requires gamma prior');
@@ -142,44 +148,44 @@ export class GammaExponentialConjugate extends InferenceEngine {
       }
       [priorShape, priorRate] = options.priorParams.params;
     }
-    
+
     // Conjugate update
     const posteriorShape = priorShape + n;
     const posteriorRate = priorRate + sumX;
-    
+
     // Create posterior
     const posterior = new GammaPosterior(posteriorShape, posteriorRate);
-    
+
     // Return result with diagnostics
     return {
       posterior,
       diagnostics: {
-        converged: true,  // Always converges (exact inference)
-        iterations: 1,    // Single update
-        runtime: 0,       // Near-instant
-        modelType: 'gamma'
-      }
+        converged: true, // Always converges (exact inference)
+        iterations: 1, // Single update
+        runtime: 0, // Near-instant
+        modelType: 'gamma',
+      },
     };
   }
-  
+
   canHandle(data: DataInput): boolean {
     // Can handle positive continuous data
     if (Array.isArray(data.data)) {
-      return data.data.length > 0 && data.data.every(x => x > 0);
+      return data.data.length > 0 && data.data.every((x) => x > 0);
     }
-    
+
     // Can handle summary statistics
     if (data.data && typeof data.data === 'object') {
       return 'n' in data.data && 'sum' in data.data;
     }
-    
+
     return false;
   }
-  
+
   getDescription(): string {
     return 'Exact Bayesian inference for positive continuous data using Gamma conjugacy';
   }
-  
+
   /**
    * Helper to compute summary statistics from array
    */

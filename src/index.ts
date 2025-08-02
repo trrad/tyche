@@ -1,8 +1,8 @@
 /**
  * Tyche - Browser-based Bayesian inference with GPU acceleration
- * 
+ *
  * A TypeScript library for probabilistic programming and experimental design,
- * running entirely in the browser with automatic differentiation and 
+ * running entirely in the browser with automatic differentiation and
  * (future) GPU acceleration via WebGL.
  */
 
@@ -20,7 +20,7 @@ export {
   log,
   exp,
   sigmoid,
-  logit
+  logit,
 } from './core/RandomVariable';
 
 export {
@@ -29,7 +29,7 @@ export {
   ParameterNode,
   GradientTape,
   GraphContext,
-  withGraph
+  withGraph,
 } from './core/ComputationGraph';
 
 // Mathematical utilities
@@ -40,7 +40,7 @@ export {
   logBinomial,
   erf,
   erfc,
-  erfInv
+  erfInv,
 } from './core/utils/math/special';
 
 // Random number generation
@@ -51,7 +51,7 @@ export {
   normal as normalSample,
   gamma as gammaSample,
   beta as betaSample,
-  binomial as binomialSample
+  binomial as binomialSample,
 } from './core/utils/math/random';
 
 // Distribution exports
@@ -60,20 +60,20 @@ export { GammaRV, gamma } from './core/distributions/Gamma';
 export { BinomialRV, binomial, bernoulli } from './core/distributions/Binomial';
 export { ExponentialRV, exponential } from './core/distributions/Exponential';
 export { LogNormalRV, logNormal } from './core/distributions/LogNormal';
-export { 
-  NormalRV, 
-  normal, 
+export {
+  NormalRV,
+  normal,
   standardNormal,
   HalfNormalRV,
-  halfNormal 
+  halfNormal,
 } from './core/distributions/Normal';
 
 // Common distribution patterns
-export { 
-  jeffreysBeta, 
+export {
+  jeffreysBeta,
   uniformBeta,
   weaklyInformativeBeta,
-  haldaneBeta
+  haldaneBeta,
 } from './core/distributions';
 
 // Sampler exports
@@ -82,36 +82,35 @@ export {
   AdaptiveMetropolisSampler,
   type Model,
   type MCMCDiagnostics,
-  type MetropolisOptions
+  type MetropolisOptions,
 } from './samplers/Metropolis';
 
 // Model exports
-export { 
-  ConversionValueModel,
+export {
+  ConversionValueModel2 as ConversionValueModel,
   type UserData,
   type VariantData,
-  type VariantSummary,
-  type ConversionValuePosterior,
-  type OutlierDiagnostic,
-  type EffectDriver
-} from './models/ConversionValueModel';
+} from './models/ConversionValueModel2';
+
+// Note: VariantSummary, ConversionValuePosterior, OutlierDiagnostic, EffectDriver
+// types moved to archive - no longer exported
 
 // Version
 export const VERSION = '0.1.0';
 
 /**
  * Quick start example
- * 
+ *
  * @example
  * ```typescript
  * import { beta, RNG, MetropolisSampler } from 'tyche';
- * 
+ *
  * // Create a reproducible RNG
  * const rng = new RNG(12345);
- * 
+ *
  * // Define a model with better sampling
  * const prior = beta(1, 1, rng);
- * 
+ *
  * // Run inference
  * const sampler = new MetropolisSampler();
  * const results = sampler.sample(model, 1000);
