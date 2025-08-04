@@ -393,6 +393,21 @@ setup:
   npm install
   npx husky init
 
+# Setup GitHub project structure (labels, milestones, project)
+setup-github:
+  ./.setup/scripts/setup-github-project.sh
+
+# Migrate sprint documents to GitHub issues (dry run first!)
+migrate-issues:
+  node .setup/scripts/migrate-sprint-issues.cjs --dry-run
+  @echo ""
+  @echo "This was a dry run. To create issues, run:"
+  @echo "  just create-issues"
+
+# Actually create the GitHub issues
+create-issues:
+  node .setup/scripts/migrate-sprint-issues.cjs
+
 # Show available commands
 help:
   @bash .setup/scripts/quick-reference.sh
