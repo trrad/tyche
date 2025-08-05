@@ -606,6 +606,26 @@ Everything is independently instantiable and testable.
 
 New capabilities added by extending domain analyzers.
 
+### Sample-Based Posterior Architecture
+
+**Key Insight**: All posteriors are sample generators. This eliminates the need for separate Distribution/Posterior hierarchies and is consistent with modern probabilistic programming languages like Stan.
+
+Our sample-based approach:
+
+- Single required method for posteriors: `sample(n: number): number[]`
+- All statistics computed from samples via `PosteriorStats` utilities
+- Uniform interface across conjugate, EM, VI, and MCMC posteriors
+- Model comparison via sample-based KDE for `logPdf()`
+- No "missing methods" - every posterior can compute any statistic
+- Priors remain analytical distributions with known mathematical forms
+
+**Benefits**:
+
+- **Eliminates technical debt**: No more "missing logPdf" issues
+- **Future-proof**: MCMC and VI naturally fit this pattern
+- **Simplified testing**: All posteriors behave identically
+- **Consistent model comparison**: WAIC works uniformly across all methods
+
 ### Browser-First Design
 
 All architectural decisions optimize for browser constraints.
