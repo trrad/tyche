@@ -19,6 +19,11 @@ work issue-identifier:
   #!/usr/bin/env bash
   mkdir -p .context
   
+  # Initialize variables
+  issue_json=""
+  issue_number=""
+  title=""
+  
   # Check if input is a number (existing issue)
   if [[ "{{issue-identifier}}" =~ ^[0-9]+$ ]]; then
     # Working with existing issue by number
@@ -27,6 +32,7 @@ work issue-identifier:
     # Fetch issue details
     issue_json=$(gh issue view $issue_number --json number,title,body,labels)
     title=$(echo "$issue_json" | jq -r .title)
+    
   elif [[ "{{issue-identifier}}" == */* ]]; then
     # Creating new issue (has slash like fix/name or feat/name)
     issue_name="{{issue-identifier}}"
@@ -55,13 +61,9 @@ work issue-identifier:
     issue_number=$(echo "$issue_url" | grep -o '[0-9]*$')
     title="$issue_type: $clean_name"
     
-    # Create context file for new issue
-    echo "# Current Task: $title" > .context/current-task.md
-    echo "" >> .context/current-task.md
-    echo "Issue: #$issue_number" >> .context/current-task.md
-    echo "Title: $title" >> .context/current-task.md
-    echo -e "\n## Description" >> .context/current-task.md
-    echo "Implementation task for: $clean_name" >> .context/current-task.md
+    # Fetch the created issue for consistency
+    issue_json=$(gh issue view $issue_number --json number,title,body,labels)
+    
   else
     # Search for existing issue by title
     echo "Searching for issues matching: {{issue-identifier}}"
@@ -84,7 +86,7 @@ work issue-identifier:
       issue_json=$(gh issue view $issue_number --json number,title,body,labels)
     else
       # Multiple matches - let user choose
-      echo "Multiple issues found:"
+      echo "Multiple matches found:"
       echo "$matches" | jq -r '.[] | "  #\(.number): \(.title)"'
       echo ""
       read -p "Enter issue number: " issue_number
@@ -93,13 +95,21 @@ work issue-identifier:
       issue_json=$(gh issue view $issue_number --json number,title,body,labels)
       title=$(echo "$issue_json" | jq -r .title)
     fi
-    
-    # Create context file from existing issue
-    echo "# Current Task: $title" > .context/current-task.md
-    echo "" >> .context/current-task.md
-    echo "$issue_json" | jq -r '"Issue: #\(.number)\nTitle: \(.title)\n\n## Description\n\(.body)\n\nLabels: \(.labels[].name)"' \
-      >> .context/current-task.md
   fi
+  
+  # Now create the context file consistently for all paths
+  echo "# Current Task: $title" > .context/current-task.md
+  echo "" >> .context/current-task.md
+  echo "Issue: #$issue_number" >> .context/current-task.md
+  echo "Title: $title" >> .context/current-task.md
+  echo "" >> .context/current-task.md
+  echo "## Description" >> .context/current-task.md
+  echo "$issue_json" | jq -r '.body' >> .context/current-task.md
+  echo "" >> .context/current-task.md
+  echo "## Labels" >> .context/current-task.md
+  echo "$issue_json" | jq -r '.labels[].name' | while read label; do
+    echo "- $label" >> .context/current-task.md
+  done
   
   # Add acceptance criteria template if not present
   if ! grep -q "## Acceptance Criteria" .context/current-task.md; then
