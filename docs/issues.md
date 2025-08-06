@@ -443,6 +443,59 @@ issues:
   files:
   toCreate: - "src/domain/results/\*.ts"
 
+- id: "1.4"
+  title: "Posterior Interface with Hybrid Capabilities"
+  phase: 1
+  priority: P0
+  labels: ['phase-1', 'posteriors', 'architecture']
+  size: M
+  dependsOn: ["1.3"]
+  blocks: ["0.4"] # ModelSelection needs this for WAIC
+
+  description: |
+  Enhance the Posterior interface to support both sample-based and analytical methods using a hybrid approach. This enables efficient WAIC computation for conjugate models while maintaining the unified sample-based philosophy for complex posteriors.
+
+  Critical for ModelSelection (0.4) to efficiently compute WAIC - conjugate posteriors can provide O(n) analytical likelihood computation while mixture/MCMC posteriors fall back to O(n \* samples) KDE approximation.
+
+  tasks:
+  - "Update Posterior interface with optional analytical methods"
+  - "Add hasAnalyticalForm() capability detection"
+  - "Implement analytical methods for conjugate posteriors (Beta, Normal, LogNormal)"
+  - "Ensure mixture posteriors remain sample-based only"
+  - "Add tests verifying capability detection works correctly"
+  - "Document which posteriors support which capabilities"
+
+  codeSnippets: |
+  interface Posterior {
+  // Required: sample-based interface
+  sample(n: number): number[] | Promise<number[]>;
+
+      // Optional: analytical methods (only when tractable)
+      logPdf?(x: number): number;
+      logPdfBatch?(x: number[]): number[];
+      mean?(): number;
+      variance?(): number;
+
+      // Required: capability detection for routing
+      hasAnalyticalForm(): boolean;
+
+  }
+
+  // Usage in ModelSelection:
+  static async computeWAIC(posterior: Posterior, data: number[]): Promise<number> {
+  if (posterior.hasAnalyticalForm() && posterior.logPdf) {
+  // Fast path: use analytical likelihood
+  return this.computeWAICAnalytical(posterior, data);
+  } else {
+  // Fallback: sample-based KDE approximation
+  return this.computeWAICSampleBased(posterior, data);
+  }
+  }
+
+  files:
+  toCreate: - "src/core/posteriors/Posterior.ts"
+  mentioned: - "src/inference/engines/\*Conjugate.ts" - "src/inference/ModelSelection.ts"
+
 # ==================== PHASE 2: Domain Layer & Business Analysis ====================
 
 - id: "2.1"
