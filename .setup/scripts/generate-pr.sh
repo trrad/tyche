@@ -65,6 +65,7 @@ pr_body="$pr_body
 
 ---
 Addresses #${issue_num}
+*Generated with Claude*"
 
 # Save PR body to temp file
 echo "$pr_body" > /tmp/pr-body.md
