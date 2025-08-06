@@ -203,10 +203,3 @@ export class BetaDistribution {
     return h;
   }
 }
-
-/**
- * Factory function for creating Beta distributions
- */
-export function createBeta(alpha: number, beta: number, rng?: RNG): BetaDistribution {
-  return new BetaDistribution(alpha, beta, rng);
-}

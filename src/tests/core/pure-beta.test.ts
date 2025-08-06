@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { BetaDistribution, createBeta } from '../../core/distributions/BetaDistribution';
+import { BetaDistribution } from '../../core/distributions/BetaDistribution';
 import { RNG } from '../../core/utils/math/random';
 
 describe('BetaDistribution', () => {
@@ -134,9 +134,9 @@ describe('BetaDistribution', () => {
     });
   });
 
-  describe('factory function', () => {
-    it('should create Beta distribution via factory', () => {
-      const beta = createBeta(2, 3);
+  describe('direct construction', () => {
+    it('should create Beta distribution via constructor', () => {
+      const beta = new BetaDistribution(2, 3);
       expect(beta.getParameters()).toEqual({ alpha: 2, beta: 3 });
       expect(beta.mean()).toBeCloseTo(0.4, 6);
     });
