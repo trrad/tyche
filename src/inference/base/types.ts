@@ -35,35 +35,35 @@ export interface Posterior {
  * Result of inference including diagnostics
  */
 export interface InferenceResult {
-    posterior: Posterior;
-    diagnostics: {
-      converged: boolean;
-      iterations: number;
-      finalELBO?: number;           // For VI
-      finalLogLikelihood?: number;  // For EM
-      elboHistory?: number[];
-      likelihoodHistory?: number[]; // For EM
-      acceptanceRate?: number;      // For MCMC
-      runtime?: number;
-      modelType?: string;
-    };
-  }
+  posterior: Posterior;
+  diagnostics: {
+    converged: boolean;
+    iterations: number;
+    finalELBO?: number; // For VI
+    finalLogLikelihood?: number; // For EM
+    elboHistory?: number[];
+    likelihoodHistory?: number[]; // For EM
+    acceptanceRate?: number; // For MCMC
+    runtime?: number;
+    modelType?: string;
+  };
+}
 
 /**
  * Common data input format for all models
- * 
+ *
  * DATA FORMATS BY MODEL TYPE:
- * 
+ *
  * 1. BETA-BINOMIAL MODELS:
  *    - { successes: number, trials: number }  // Summary format
  *    - number[] (all 0s and 1s)              // Binary array format
- * 
+ *
  * 2. CONTINUOUS MODELS (Normal, LogNormal, Gamma, Mixtures):
  *    - number[]                               // Raw continuous values
- * 
+ *
  * 3. COMPOUND MODELS (Revenue, Conversion-Value):
  *    - UserData[]                             // Array of {converted: boolean, value: number}
- * 
+ *
  * 4. SUMMARY STATISTICS:
  *    - { n: number, mean?: number, variance?: number, sum?: number, sumSquares?: number }
  */
@@ -156,12 +156,12 @@ export interface InferenceEngine {
    * @returns Inference result with posterior and diagnostics
    */
   fit(data: DataInput, options?: FitOptions): Promise<InferenceResult>;
-  
+
   /**
    * Get a description of the inference method
    */
   getDescription(): string;
-  
+
   /**
    * Check if this engine can handle the given data
    */
@@ -171,4 +171,29 @@ export interface InferenceEngine {
 /**
  * Type aliases for backward compatibility
  */
-export type VIResult = InferenceResult;  // Legacy name from vi-engine.ts
+export type VIResult = InferenceResult; // Legacy name from vi-engine.ts
+
+/**
+ * Clear separation of structure vs type per InterfaceStandards.md
+ * Model structure: How we handle the data
+ * Model type: Which distribution family
+ */
+export type ModelStructure = 'simple' | 'compound';
+export type ModelType = 'beta' | 'lognormal' | 'normal' | 'gamma';
+
+export interface ModelConfig {
+  structure: ModelStructure;
+
+  // For simple models
+  type?: ModelType;
+  components?: number; // 1 for single, 2+ for mixture
+
+  // For compound models (zero-inflated)
+  frequencyType?: 'beta'; // Always beta for frequency
+  valueType?: ModelType; // Distribution for positive values
+  valueComponents?: number; // Components in value distribution
+
+  // Note: We use 'valueType' and 'valueComponents' for compound models
+  // to make it clear these apply to the value distribution only.
+  // The conversion part is always single-component Beta.
+}
