@@ -435,7 +435,7 @@ bootstrap-roadmap:
   bash ./.setup/scripts/setup-github-project.sh
   @echo ""
   @echo "📝 Creating roadmap issues..."
-  node ./.setup/scripts/migrate-roadmap-issues.js
+  node ./.setup/scripts/migrate-sprint-issues.cjs
 
 # Help - show available commands
 help:
