@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * Sprint Issues Migration
+ * Roadmap Issues Migration
  * 
- * Parses docs/sprints/sprint_*.md files and creates/updates GitHub issues
- * with proper labels, milestones, and formatting.
+ * Creates GitHub issues from the structured roadmap document
+ * with proper labels, milestones, and dependencies.
  * 
- * Modes:
- * --create: Create new issues (default)
- * --update: Update existing issues with new content
- * --sync-numbers: Update sprint docs with GitHub issue numbers
+ * Usage:
+ *   node .setup/scripts/migrate-roadmap-issues.js           # Dry run
+ *   node .setup/scripts/migrate-roadmap-issues.js --create  # Create issues
+ *   node .setup/scripts/migrate-roadmap-issues.js --update  # Update existing
  */
 
 const fs = require('fs');
@@ -17,33 +17,200 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 // Configuration
-const DRY_RUN = process.argv.includes('--dry-run');
-const SPRINT_COUNT = 7; // sprints 0-6
+const DRY_RUN = !process.argv.includes('--create') && !process.argv.includes('--update');
+const UPDATE_MODE = process.argv.includes('--update');
 
-// Sprint titles for milestone mapping
-const SPRINT_TITLES = {
-  0: "Sprint 0: Data Foundation",
-  1: "Sprint 1: Math & Basic Analysis", 
-  2: "Sprint 2: Routing & Inference Engines",
-  3: "Sprint 3: Business Analysis Layer",
-  4: "Sprint 4: Power Analysis & Industry Presets",
-  5: "Sprint 5: HTE & Segmentation", 
-  6: "Sprint 6: Polish & Integration"
+// Phase titles for milestone mapping
+const PHASE_MILESTONES = {
+  0: "Phase 0: Foundation Alignment",
+  1: "Phase 1: Statistical Layer",
+  2: "Phase 2: Domain Layer & Business Analysis",
+  3: "Phase 3: Segmentation & HTE",
+  4: "Phase 4: Application Layer & Polish"
 };
 
 // Utility function to run commands
-function run(cmd) {
+function run(cmd, silent = false) {
   if (DRY_RUN) {
-    console.log(`[DRY RUN] ${cmd}`);
+    if (!silent) console.log(`[DRY RUN] ${cmd}`);
     return { success: true, output: 'dry-run' };
   }
   
   try {
-    const output = execSync(cmd, { encoding: 'utf8', stdio: 'pipe' });
-    return { success: true, output: output.trim() };
+    const output = execSync(cmd, { encoding: 'utf8', stdio: silent ? 'pipe' : 'inherit' });
+    return { success: true, output: output?.trim() };
   } catch (error) {
     return { success: false, error: error.message };
   }
+}
+
+// Parse the structured roadmap document
+function parseRoadmap() {
+  const roadmapPath = path.join(__dirname, '../../docs/issues.md');
+  
+  if (!fs.existsSync(roadmapPath)) {
+    console.error(`❌ Roadmap file not found: ${roadmapPath}`);
+    console.error('   Please ensure issues.md exists in docs/');
+    process.exit(1);
+  }
+  
+  const content = fs.readFileSync(roadmapPath, 'utf8');
+  const issues = [];
+  
+  // Split by issue blocks
+  const issueBlocks = content.split(/\s+- id: "/).slice(1); // Skip header
+  
+  for (const block of issueBlocks) {
+    try {
+      // Extract fields using regex patterns
+      const id = block.match(/^([^"]+)"/)?.[1];
+      const title = block.match(/title: "([^"]+)"/)?.[1];
+      const phase = parseFloat(block.match(/phase: ([\d.]+)/)?.[1] || 0);
+      const priority = block.match(/priority: (P\d)/)?.[1];
+      const labelsMatch = block.match(/labels: \[([^\]]+)\]/);
+      const labels = labelsMatch ? labelsMatch[1].split(',').map(l => l.trim().replace(/'/g, '')) : [];
+      const size = block.match(/size: ([SMLX]+)/)?.[1];
+      const dependsOn = block.match(/dependsOn: \[([^\]]*)\]/)?.[1]?.split(',').map(d => d.trim().replace(/['"]/g, ''));
+      const blocks = block.match(/blocks: \[([^\]]*)\]/)?.[1]?.split(',').map(b => b.trim().replace(/['"]/g, ''));
+      
+      // Extract description
+      const descMatch = block.match(/description: \|\s*([\s\S]*?)(?=\n\s+tasks:|$)/);
+      const description = descMatch?.[1]?.trim() || '';
+      
+      // Extract tasks
+      const tasksMatch = block.match(/tasks:\s*([\s\S]*?)(?=\n\s+codeSnippets:|files:|$)/);
+      const taskLines = tasksMatch?.[1]?.trim().split('\n').filter(line => line.trim().startsWith('-')) || [];
+      const tasks = taskLines.map(line => line.replace(/^\s*-\s*"?/, '').replace(/"$/, ''));
+      
+      // Extract code snippets
+      const codeMatch = block.match(/codeSnippets: \|\s*([\s\S]*?)(?=\n\s+files:|$)/);
+      const codeSnippets = codeMatch?.[1]?.trim() || '';
+      
+      // Extract file references
+      const filesMatch = block.match(/files:\s*([\s\S]*?)$/);
+      const filesBlock = filesMatch?.[1] || '';
+      const toCreate = [];
+      const mentioned = [];
+      
+      // Parse file lists
+      const toCreateMatch = filesBlock.match(/toCreate:\s*([\s\S]*?)(?=mentioned:|$)/);
+      if (toCreateMatch) {
+        const lines = toCreateMatch[1].trim().split('\n').filter(l => l.trim().startsWith('-'));
+        toCreate.push(...lines.map(l => l.replace(/^\s*-\s*"?/, '').replace(/"$/, '')));
+      }
+      
+      const mentionedMatch = filesBlock.match(/mentioned:\s*([\s\S]*?)$/);
+      if (mentionedMatch) {
+        const lines = mentionedMatch[1].trim().split('\n').filter(l => l.trim().startsWith('-'));
+        mentioned.push(...lines.map(l => l.replace(/^\s*-\s*"?/, '').replace(/"$/, '')));
+      }
+      
+      // Build the issue object
+      const issue = {
+        id,
+        title,
+        phase: Math.floor(phase), // Handle phase 2.5 → phase 2
+        priority: priority || 'P2',
+        labels: [`phase-${Math.floor(phase)}`, ...labels, `size: ${size || 'M'}`],
+        size,
+        description,
+        tasks,
+        codeSnippets,
+        files: { toCreate, mentioned },
+        dependsOn,
+        blocks
+      };
+      
+      // Add priority label
+      if (priority) {
+        issue.labels.push(priority);
+      }
+      
+      // Always add the roadmap label
+      issue.labels.push('roadmap');
+      
+      issues.push(issue);
+      
+    } catch (error) {
+      console.error(`⚠️ Failed to parse issue block: ${error.message}`);
+      console.error(`Block content: ${block.substring(0, 100)}...`);
+    }
+  }
+  
+  return issues;
+}
+
+// Format issue body for GitHub
+function formatIssueBody(issue) {
+  let body = '';
+  
+  // Add phase and priority badges
+  body += `**Phase ${issue.phase}** | **Priority: ${issue.priority}** | **Size: ${issue.size || 'M'}**\n\n`;
+  
+  // Add description with proper context
+  if (issue.description) {
+    body += `## Overview\n\n${issue.description}\n\n`;
+  }
+  
+  // Add tasks as checklist
+  if (issue.tasks && issue.tasks.length > 0) {
+    body += `## Tasks\n\n`;
+    issue.tasks.forEach(task => {
+      body += `- [ ] ${task}\n`;
+    });
+    body += '\n';
+  }
+  
+  // Add code snippets if present
+  if (issue.codeSnippets) {
+    body += `## Implementation Notes\n\n`;
+    body += '```typescript\n';
+    body += issue.codeSnippets;
+    body += '\n```\n\n';
+  }
+  
+  // Add file references
+  if (issue.files) {
+    if (issue.files.toCreate && issue.files.toCreate.length > 0) {
+      body += `### Files to Create\n\n`;
+      issue.files.toCreate.forEach(file => {
+        body += `- \`${file}\`\n`;
+      });
+      body += '\n';
+    }
+    
+    if (issue.files.mentioned && issue.files.mentioned.length > 0) {
+      body += `### Files to Modify\n\n`;
+      issue.files.mentioned.forEach(file => {
+        body += `- \`${file}\`\n`;
+      });
+      body += '\n';
+    }
+  }
+  
+  // Add dependencies and blocks
+  if (issue.dependsOn && issue.dependsOn.length > 0) {
+    body += `### Dependencies\n\nThis issue depends on:\n`;
+    issue.dependsOn.forEach(dep => {
+      body += `- ${dep}\n`;
+    });
+    body += '\n';
+  }
+  
+  if (issue.blocks && issue.blocks.length > 0) {
+    body += `### Blocks\n\nThis issue blocks:\n`;
+    issue.blocks.forEach(block => {
+      body += `- ${block}\n`;
+    });
+    body += '\n';
+  }
+  
+  // Add context footer
+  body += `---\n`;
+  body += `*This issue is part of the Tyche roadmap implementation.*\n`;
+  body += `*Reference: [Implementation Roadmap](docs/ImplementationRoadmap.md)*\n`;
+  
+  return body;
 }
 
 // Fetch existing GitHub issues
@@ -51,10 +218,11 @@ function fetchExistingIssues() {
   console.log('📋 Fetching existing GitHub issues...');
   
   const cmd = `gh issue list --limit 1000 --state all --json number,title,labels`;
-  const result = run(cmd);
+  const result = run(cmd, true);
   
   if (!result.success) {
-    throw new Error(`Failed to fetch issues: ${result.error}`);
+    console.error(`❌ Failed to fetch issues: ${result.error}`);
+    return {};
   }
   
   if (DRY_RUN) {
@@ -63,304 +231,122 @@ function fetchExistingIssues() {
   
   // Build mapping: title → GitHub issue number
   const mapping = {};
-  const issues = JSON.parse(result.output);
+  const issues = JSON.parse(result.output || '[]');
   
-  let sprintIssueCount = 0;
+  let roadmapIssueCount = 0;
   for (const issue of issues) {
-    // Match sprint issues by looking for sprint-N labels
-    const hasSprintLabel = issue.labels.some(label => label.name.startsWith('sprint-'));
-    if (hasSprintLabel) {
+    // Match roadmap issues by looking for roadmap label
+    const hasRoadmapLabel = issue.labels.some(label => label.name === 'roadmap');
+    if (hasRoadmapLabel) {
       mapping[issue.title] = issue.number;
-      sprintIssueCount++;
+      roadmapIssueCount++;
     }
   }
   
-  console.log(`   Found ${sprintIssueCount} existing sprint issues`);
+  console.log(`   Found ${roadmapIssueCount} existing roadmap issues`);
   return mapping;
 }
 
-// Parse a single sprint document
-function parseSprintDoc(sprintNumber) {
-  // Get path relative to project root, not script location
-  const filePath = path.join(__dirname, '../../docs/sprints', `sprint_${sprintNumber}.md`);
-  
-  if (!fs.existsSync(filePath)) {
-    console.log(`⚠️ Sprint file not found: ${filePath}`);
-    return [];
-  }
-  
-  const content = fs.readFileSync(filePath, 'utf8');
-  
-  // Extract sprint goal for context
-  const goalMatch = content.match(/## Sprint Goal\n(.+?)\n\n/s);
-  const sprintGoal = goalMatch ? goalMatch[1].trim() : '';
-  
-  console.log(`📖 Parsing ${filePath}...`);
-  if (sprintGoal) {
-    console.log(`   Goal: ${sprintGoal.substring(0, 80)}...`);
-  }
-  
-  return parseIssuesFromContent(content, sprintNumber, sprintGoal);
-}
-
-// Parse issues from sprint content
-function parseIssuesFromContent(content, sprintNumber, sprintGoal) {
-  const issues = [];
-  
-  // Split content by issue headers
-  const issueBlocks = content.split(/(?=## Issue [A-Z]?\d+:)/).slice(1);
-  
-  for (const block of issueBlocks) {
-    const issue = parseIssueBlock(block, sprintNumber);
-    if (issue) {
-      issues.push(issue);
-    }
-  }
-  
-  console.log(`   Found ${issues.length} issues`);
-  return issues;
-}
-
-// Parse individual issue block
-function parseIssueBlock(block, sprintNumber) {
-  // Extract issue header
-  const headerMatch = block.match(/## Issue ([A-Z]?\d+): (.+?)\n/);
-  if (!headerMatch) return null;
-  
-  const [, issueNumber, title] = headerMatch;
-  
-  // Extract metadata
-  const priority = extractMetadata(block, 'Priority');
-  const labels = extractMetadata(block, 'Labels');
-  const size = extractMetadata(block, 'Size');
-  const blocks = extractMetadata(block, 'Blocks');
-  const dependsOn = extractMetadata(block, 'Depends on');
-  
-  // Extract sections
-  const description = extractSection(block, 'Description');
-  const context = extractSection(block, 'Context');
-  const acceptanceCriteria = extractSection(block, 'Acceptance Criteria');
-  const implementationRequirements = extractSection(block, 'Implementation Requirements');
-  const technicalImpl = extractSection(block, 'Technical Implementation');
-  
-  // Build issue body
-  const body = buildIssueBody({
-    description,
-    context,
-    acceptanceCriteria,
-    implementationRequirements,
-    technicalImpl,
-    blocks,
-    dependsOn,
-    sprintNumber
-  });
-  
-  // Parse labels
-  const parsedLabels = parseLabels(labels, sprintNumber, priority, size);
-  
-  return {
-    number: issueNumber,
-    title: title.trim(),
-    body,
-    labels: parsedLabels,
-    milestone: SPRINT_TITLES[sprintNumber],
-    sprintNumber
-  };
-}
-
-// Extract metadata field (Priority, Labels, etc.)
-function extractMetadata(block, field) {
-  const regex = new RegExp(`\\*\\*${field}\\*\\*: (.+?)\\n`, 'i');
-  const match = block.match(regex);
-  return match ? match[1].trim() : '';
-}
-
-// Extract section content (Description, Acceptance Criteria, etc.)
-function extractSection(block, sectionName) {
-  const regex = new RegExp(`### ${sectionName}\\n(.+?)(?=\\n### |\\n\\n---|\$)`, 's');
-  const match = block.match(regex);
-  return match ? match[1].trim() : '';
-}
-
-// Parse labels from the Labels field
-function parseLabels(labelsString, sprintNumber, priority, size) {
-  const labels = [];
-  
-  // Add sprint label
-  labels.push(`sprint-${sprintNumber}`);
-  
-  // Parse existing labels (remove backticks and split)
-  if (labelsString) {
-    const parsed = labelsString
-      .split(',')
-      .map(l => l.trim().replace(/`/g, ''))
-      .filter(l => l && !l.startsWith('sprint-')); // Remove existing sprint labels
-    labels.push(...parsed);
-  }
-  
-  // Add priority and size if they exist
-  if (priority) labels.push(priority);
-  if (size) labels.push(size);
-  
-  return labels;
-}
-
-// Build the issue body in GitHub markdown format
-function buildIssueBody({ description, context, acceptanceCriteria, implementationRequirements, technicalImpl, blocks, dependsOn, sprintNumber }) {
-  let body = '';
-  
-  // Sprint context
-  body += `> **Sprint ${sprintNumber}** | See [Sprint ${sprintNumber} Document](docs/sprints/sprint_${sprintNumber}.md) for full context\n\n`;
-  
-  // Context (new narrative style)
-  if (context) {
-    body += `## Context\n\n${context}\n\n`;
-  }
-  
-  // Description
-  if (description) {
-    body += `## Description\n\n${description}\n\n`;
-  }
-  
-  // Dependencies
-  if (blocks || dependsOn) {
-    body += `## Dependencies\n\n`;
-    if (blocks) body += `**Blocks**: ${blocks}\n`;
-    if (dependsOn) body += `**Depends on**: ${dependsOn}\n`;
-    body += '\n';
-  }
-  
-  // Implementation Requirements (before Acceptance Criteria)
-  if (implementationRequirements) {
-    body += `## Implementation Requirements\n\n${implementationRequirements}\n\n`;
-  }
-  
-  // Acceptance Criteria
-  if (acceptanceCriteria) {
-    body += `## Acceptance Criteria\n\n${acceptanceCriteria}\n\n`;
-  }
-  
-  // Technical Implementation
-  if (technicalImpl) {
-    body += `## Technical Implementation\n\n${technicalImpl}\n\n`;
-  }
-  
-  // Workflow footer
-  body += `---\n\n`;
-  body += `**Workflow:**\n`;
-  body += `\`\`\`bash\n`;
-  body += `# Start work on this issue\n`;
-  body += `just work ${getWorkCommand(sprintNumber)}\n\n`;
-  body += `# After implementation\n`;
-  body += `just pr\n`;
-  body += `just merge\n`;
-  body += `just close\n`;
-  body += `\`\`\``;
-  
-  return body;
-}
-
-// Generate just work command suggestion
-function getWorkCommand(sprintNumber) {
-  // Use issue number or sprint for search
-  return `"sprint-${sprintNumber}"`;
-}
-
 // Create GitHub issues
-function createIssues(allIssues) {
+function createIssues(issues) {
   console.log('\n📝 Creating GitHub Issues...\n');
   
   const created = [];
-  let totalIssues = 0;
+  const failed = [];
   
-  for (let sprintNumber = 0; sprintNumber < SPRINT_COUNT; sprintNumber++) {
-    const sprintIssues = allIssues.filter(issue => issue.sprintNumber === sprintNumber);
+  // Group by phase for organized output
+  const byPhase = {};
+  for (const issue of issues) {
+    if (!byPhase[issue.phase]) {
+      byPhase[issue.phase] = [];
+    }
+    byPhase[issue.phase].push(issue);
+  }
+  
+  // Create issues phase by phase
+  for (const [phase, phaseIssues] of Object.entries(byPhase).sort()) {
+    console.log(`\n${PHASE_MILESTONES[phase]}`);
+    console.log('='.repeat(50));
     
-    if (sprintIssues.length === 0) continue;
-    
-    console.log(`\n${SPRINT_TITLES[sprintNumber].toUpperCase()}`);
-    console.log('-'.repeat(50));
-    
-    for (const issue of sprintIssues) {
+    for (const issue of phaseIssues) {
       const labelString = issue.labels.join(',');
+      const milestone = PHASE_MILESTONES[issue.phase];
       
       // Write body to temporary file to avoid shell escaping issues
       const tempFile = `/tmp/issue-body-${Date.now()}.md`;
-      fs.writeFileSync(tempFile, issue.body);
+      const body = formatIssueBody(issue);
+      fs.writeFileSync(tempFile, body);
       
-      // Build GitHub CLI command using temp file
+      // Build GitHub CLI command
       const cmd = `gh issue create ` +
         `--title "${issue.title.replace(/"/g, '\\"')}" ` +
         `--body-file "${tempFile}" ` +
         `--label "${labelString}" ` +
-        `--milestone "${issue.milestone}" ` +
-        `--assignee @me`;
+        `--milestone "${milestone}"`;
       
-      const result = run(cmd);
-      
-      // Clean up temp file
-      try {
-        fs.unlinkSync(tempFile);
-      } catch (e) {
-        // Ignore cleanup errors
-      }
-      
-      if (result.success) {
-        const match = result.output.match(/\/issues\/(\d+)/);
-        const issueNumber = match ? match[1] : '?';
-        console.log(`  ✅ #${issueNumber}: ${issue.title}`);
-        
-        created.push({
-          number: issueNumber,
-          title: issue.title,
-          sprint: sprintNumber,
-          originalNumber: issue.number
-        });
+      if (DRY_RUN) {
+        console.log(`  [DRY RUN] Would create: ${issue.id} - ${issue.title}`);
+        console.log(`           Labels: ${labelString}`);
+        console.log(`           Milestone: ${milestone}`);
       } else {
-        console.log(`  ❌ Failed: ${issue.title}`);
-        console.log(`     Error: ${result.error}`);
+        const result = run(cmd, true);
+        
+        // Clean up temp file
+        try {
+          fs.unlinkSync(tempFile);
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+        
+        if (result.success) {
+          const match = result.output?.match(/\/issues\/(\d+)/) || result.output?.match(/#(\d+)/);
+          const issueNumber = match ? match[1] : '?';
+          console.log(`  ✅ #${issueNumber}: ${issue.id} - ${issue.title}`);
+          
+          created.push({
+            number: issueNumber,
+            id: issue.id,
+            title: issue.title,
+            phase: issue.phase
+          });
+        } else {
+          console.log(`  ❌ Failed: ${issue.id} - ${issue.title}`);
+          console.log(`     Error: ${result.error}`);
+          failed.push(issue);
+        }
       }
-      
-      totalIssues++;
     }
   }
   
-  return created;
+  return { created, failed };
 }
 
-// Update existing GitHub issues
-function updateIssues(allIssues, existingMapping) {
-  console.log('\n📝 Updating GitHub Issues...\n');
+// Update existing issues
+function updateIssues(issues, existingMapping) {
+  console.log('\n📝 Updating Existing GitHub Issues...\n');
   
   const updated = [];
   const notFound = [];
   
-  for (let sprintNumber = 0; sprintNumber < SPRINT_COUNT; sprintNumber++) {
-    const sprintIssues = allIssues.filter(issue => issue.sprintNumber === sprintNumber);
+  for (const issue of issues) {
+    const githubNumber = existingMapping[issue.title];
     
-    if (sprintIssues.length === 0) continue;
+    if (!githubNumber) {
+      notFound.push(issue);
+      continue;
+    }
     
-    console.log(`\n${SPRINT_TITLES[sprintNumber].toUpperCase()}`);
-    console.log('-'.repeat(50));
+    const body = formatIssueBody(issue);
+    const tempFile = `/tmp/issue-body-${Date.now()}.md`;
+    fs.writeFileSync(tempFile, body);
     
-    for (const issue of sprintIssues) {
-      const githubNumber = existingMapping[issue.title];
+    const cmd = `gh issue edit ${githubNumber} --body-file "${tempFile}"`;
+    
+    if (DRY_RUN) {
+      console.log(`  [DRY RUN] Would update #${githubNumber}: ${issue.title}`);
+    } else {
+      const result = run(cmd, true);
       
-      if (!githubNumber) {
-        console.log(`  ⚠️ Not found: ${issue.title}`);
-        notFound.push(issue.title);
-        continue;
-      }
-      
-      // Write body to temp file
-      const tempFile = `/tmp/issue-body-${Date.now()}.md`;
-      fs.writeFileSync(tempFile, issue.body);
-      
-      // Update the issue
-      const cmd = `gh issue edit ${githubNumber} --body-file "${tempFile}"`;
-      const result = run(cmd);
-      
-      // Clean up temp file
       try {
         fs.unlinkSync(tempFile);
       } catch (e) {
@@ -368,170 +354,81 @@ function updateIssues(allIssues, existingMapping) {
       }
       
       if (result.success) {
-        console.log(`  ✅ #${githubNumber}: ${issue.title}`);
-        updated.push({
-          githubNumber,
-          title: issue.title,
-          originalNumber: issue.number,
-          sprintNumber: issue.sprintNumber
-        });
+        console.log(`  ✅ Updated #${githubNumber}: ${issue.title}`);
+        updated.push({ number: githubNumber, ...issue });
       } else {
-        console.log(`  ❌ Failed #${githubNumber}: ${issue.title}`);
-        console.log(`     Error: ${result.error}`);
+        console.log(`  ❌ Failed to update #${githubNumber}: ${issue.title}`);
       }
     }
   }
   
   if (notFound.length > 0) {
     console.log(`\n⚠️ Issues not found in GitHub (${notFound.length}):`);
-    notFound.forEach(title => console.log(`   - ${title}`));
+    notFound.forEach(issue => {
+      console.log(`   - ${issue.id}: ${issue.title}`);
+    });
   }
   
-  return updated;
-}
-
-// Update sprint documents with GitHub issue numbers
-function updateSprintDocuments(issueMapping) {
-  console.log('\n📄 Updating sprint documents with GitHub issue numbers...\n');
-  
-  // Group by sprint
-  const bySprint = {};
-  for (const issue of issueMapping) {
-    if (!bySprint[issue.sprintNumber]) {
-      bySprint[issue.sprintNumber] = [];
-    }
-    bySprint[issue.sprintNumber].push(issue);
-  }
-  
-  let totalUpdated = 0;
-  
-  // Update each sprint document
-  for (const [sprintNumber, issues] of Object.entries(bySprint)) {
-    const filePath = path.join(__dirname, '../../docs/sprints', `sprint_${sprintNumber}.md`);
-    
-    if (!fs.existsSync(filePath)) {
-      console.log(`  ⚠️ Sprint file not found: ${filePath}`);
-      continue;
-    }
-    
-    let content = fs.readFileSync(filePath, 'utf8');
-    let changes = 0;
-    
-    // Replace issue numbers in headers
-    for (const issue of issues) {
-      // Match: ## Issue A2: Title → ## Issue 123: Title  
-      const oldPattern = new RegExp(`## Issue ${escapeRegex(issue.originalNumber)}:`, 'g');
-      const newPattern = `## Issue ${issue.githubNumber}:`;
-      
-      const newContent = content.replace(oldPattern, newPattern);
-      if (newContent !== content) {
-        content = newContent;
-        changes++;
-      }
-    }
-    
-    if (changes > 0) {
-      // Write back to file
-      if (!DRY_RUN) {
-        fs.writeFileSync(filePath, content);
-      }
-      console.log(`  ✅ Updated ${filePath} (${changes} issue number${changes > 1 ? 's' : ''})`);
-      totalUpdated += changes;
-    } else {
-      console.log(`  ℹ️ No changes needed in ${filePath}`);
-    }
-  }
-  
-  return totalUpdated;
-}
-
-// Escape regex special characters
-function escapeRegex(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return { updated, notFound };
 }
 
 // Main execution
 function main() {
-  const mode = process.argv.find(arg => ['--create', '--update', '--sync-numbers'].includes(arg)) || '--create';
+  console.log('🚀 Tyche Roadmap Issues Migration');
+  console.log('==================================');
+  console.log(`Mode: ${DRY_RUN ? 'DRY RUN' : UPDATE_MODE ? 'UPDATE' : 'CREATE'}`);
+  console.log('');
   
-  console.log('Sprint Issues Migration');
-  console.log(`Mode: ${DRY_RUN ? 'DRY RUN' : 'LIVE'} | Action: ${mode}`);
-  console.log('='.repeat(50));
+  // Parse the roadmap document
+  const issues = parseRoadmap();
+  console.log(`📊 Parsed ${issues.length} issues from roadmap`);
   
-  // Parse all sprint documents
-  const allIssues = [];
-  for (let i = 0; i < SPRINT_COUNT; i++) {
-    const sprintIssues = parseSprintDoc(i);
-    allIssues.push(...sprintIssues);
+  // Show summary by phase
+  const phaseCounts = {};
+  for (const issue of issues) {
+    phaseCounts[issue.phase] = (phaseCounts[issue.phase] || 0) + 1;
   }
   
-  console.log(`\n📊 Found ${allIssues.length} total issues across ${SPRINT_COUNT} sprints`);
+  console.log('\nIssues by phase:');
+  for (const [phase, count] of Object.entries(phaseCounts).sort()) {
+    console.log(`  Phase ${phase}: ${count} issues`);
+  }
   
-  switch (mode) {
-    case '--create':
-      const created = createIssues(allIssues);
-      console.log('\n\n🎉 Creation Complete');
-      console.log('='.repeat(50));
-      console.log(`Created ${created.length} GitHub issues`);
-      
-      if (!DRY_RUN && created.length > 0) {
-        console.log('\nNext Steps:');
-        console.log('1. View all issues: gh issue list --label sprint-0');
-        console.log('2. View by priority: gh issue list --label "P0: Critical"');
-        console.log('3. Start working: just work "sprint-0"');
-        console.log('\nExamples:');
-        created.slice(0, 3).forEach(issue => {
-          console.log(`  just work ${issue.number}  # ${issue.title}`);
-        });
-      }
-      break;
-      
-    case '--update':
-      const existingMapping = fetchExistingIssues();
-      console.log(`📋 Found ${Object.keys(existingMapping).length} existing GitHub issues with sprint labels`);
-      
-      const updated = updateIssues(allIssues, existingMapping);
-      console.log('\n\n🎉 Update Complete');
-      console.log('='.repeat(50));
-      console.log(`Updated ${updated.length} GitHub issues`);
-      break;
-      
-    case '--sync-numbers':
-      const mapping = fetchExistingIssues();
-      const allIssuesForSync = [];
-      
-      // Parse issues again and match with GitHub numbers
-      for (let i = 0; i < SPRINT_COUNT; i++) {
-        const sprintIssues = parseSprintDoc(i);
-        for (const issue of sprintIssues) {
-          const githubNumber = mapping[issue.title];
-          if (githubNumber) {
-            allIssuesForSync.push({
-              originalNumber: issue.number,
-              githubNumber,
-              title: issue.title,
-              sprintNumber: issue.sprintNumber
-            });
-          }
-        }
-      }
-      
-      const totalUpdated = updateSprintDocuments(allIssuesForSync);
-      console.log('\n\n🎉 Sync Complete');
-      console.log('='.repeat(50));
-      console.log(`Updated ${totalUpdated} issue numbers in sprint documents`);
-      
-      if (!DRY_RUN && totalUpdated > 0) {
-        console.log('\nNext Steps:');
-        console.log('1. Review changes: git diff docs/sprints/');
-        console.log('2. Commit changes: git add docs/sprints/ && git commit -m "Update issue numbers"');
-      }
-      break;
-      
-    default:
-      console.error(`Unknown mode: ${mode}`);
-      console.error('Valid modes: --create, --update, --sync-numbers');
-      process.exit(1);
+  if (UPDATE_MODE) {
+    // Update existing issues
+    const existingMapping = fetchExistingIssues();
+    const { updated, notFound } = updateIssues(issues, existingMapping);
+    
+    console.log('\n✅ Update Complete');
+    console.log('==================');
+    console.log(`Updated: ${updated.length} issues`);
+    console.log(`Not found: ${notFound.length} issues`);
+    
+    if (!DRY_RUN && notFound.length > 0) {
+      console.log('\nTo create missing issues, run:');
+      console.log('  node .setup/scripts/migrate-roadmap-issues.js --create');
+    }
+    
+  } else {
+    // Create new issues
+    const { created, failed } = createIssues(issues);
+    
+    console.log('\n✅ Migration Complete');
+    console.log('=====================');
+    console.log(`Created: ${created.length} issues`);
+    console.log(`Failed: ${failed.length} issues`);
+    
+    if (!DRY_RUN && created.length > 0) {
+      console.log('\nNext steps:');
+      console.log('1. View Phase 0 issues: gh issue list --label phase-0');
+      console.log('2. View critical issues: gh issue list --label P0');
+      console.log('3. Start working: just work <issue-number>');
+      console.log('\nExample:');
+      const examples = created.slice(0, 3);
+      examples.forEach(issue => {
+        console.log(`  just work ${issue.number}  # ${issue.title}`);
+      });
+    }
   }
 }
 
@@ -540,4 +437,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { parseSprintDoc, fetchExistingIssues, updateIssues, updateSprintDocuments, main }; 
+module.exports = { parseRoadmap, formatIssueBody, fetchExistingIssues };
