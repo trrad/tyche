@@ -385,7 +385,7 @@ export class InferenceEngine {
         return config.components > 1 ? 'lognormal-mixture' : 'lognormal';
       }
       if (config.type === 'normal') {
-        return config.components > 1 ? 'normal-mixture' : 'lognormal'; // Fallback to lognormal since normal isn't in ModelType
+        return config.components > 1 ? 'normal-mixture' : 'normal'; // Use 'normal' for single-component normal models
       }
     }
 
