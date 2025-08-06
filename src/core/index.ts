@@ -11,6 +11,6 @@ export * from './data';
 // Distributions
 export * from './distributions';
 
-// Other core utilities
-export { RandomVariable } from './RandomVariable';
-export { ComputationGraph } from './ComputationGraph';
+// Math utilities
+export { RNG } from './utils/math/random';
+export * from './utils/math/special';
