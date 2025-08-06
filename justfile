@@ -109,33 +109,74 @@ work issue-identifier:
     echo "- [ ] Documentation updated" >> .context/current-task.md
   fi
   
-  # Extract current phase from MIGRATION_STATUS.md
-  echo "# Active Development Phase" > .context/active-phase.md
-  echo "" >> .context/active-phase.md
-  if [ -f "MIGRATION_STATUS.md" ]; then
-    grep -A 20 "Phase.*⚠️\|Phase.*🚧" MIGRATION_STATUS.md >> .context/active-phase.md 2>/dev/null || \
-      echo "No active phase found in MIGRATION_STATUS.md" >> .context/active-phase.md
-  else
-    echo "No MIGRATION_STATUS.md file found" >> .context/active-phase.md
-  fi
+  # Detect if this is a roadmap issue (has phase label) and handle accordingly
+  phase_label=$(echo "$issue_json" | jq -r '.labels[]?.name | select(. | startswith("phase-")) // empty' | head -1)
   
-  # Create descriptive branch name
-  # Format: feat/42-add-mixture-weights or fix/43-handle-null-data
-  safe_title=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
-  branch_name="${safe_title%:*}/${issue_number}-${safe_title#*:}"
-  branch_name=$(echo "$branch_name" | sed 's/--*/-/g' | cut -c1-60)
+  if [ ! -z "$phase_label" ]; then
+    # ROADMAP ISSUE - use phase-based branch naming and context
+    phase_num=${phase_label#phase-}
+    
+    # Create branch name: phase0/123-core-error-handling
+    safe_title=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+    branch_name="phase${phase_num}/${issue_number}-${safe_title}"
+    branch_name=$(echo "$branch_name" | cut -c1-60)
+    
+    # Load phase-specific context from docs
+    echo "# Phase ${phase_num} Context" > .context/active-phase.md
+    echo "" >> .context/active-phase.md
+    
+    if [ -f "docs/phase-${phase_num}-context.md" ]; then
+      # Append the actual phase context document
+      cat "docs/phase-${phase_num}-context.md" >> .context/active-phase.md
+      echo -e "\033[32m✓ Loaded Phase ${phase_num} context\033[0m"
+    else
+      # Provide guidance on what should be in phase context
+      echo "## ⚠️ No detailed phase context found" >> .context/active-phase.md
+      echo "" >> .context/active-phase.md
+      echo "Create \`docs/phase-${phase_num}-context.md\` with:" >> .context/active-phase.md
+      echo "- Architectural goals and principles for this phase" >> .context/active-phase.md
+      echo "- Key patterns and conventions to follow" >> .context/active-phase.md
+      echo "- Common pitfalls and anti-patterns to avoid" >> .context/active-phase.md
+      echo "- Testing strategies specific to this phase" >> .context/active-phase.md
+      echo "- Dependencies and integration points" >> .context/active-phase.md
+    fi
+  else
+    # NON-ROADMAP ISSUE - use existing fix/feat branch naming
+    # No phase context needed - issue context is sufficient
+    safe_title=$(echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+    
+    # Try to detect fix/feat from title, default to feat
+    if [[ "$title" == fix:* ]] || [[ "$title" == Fix:* ]] || [[ "$title" == FIX:* ]]; then
+      branch_name="fix/${issue_number}-${safe_title#*:}"
+    elif [[ "$title" == feat:* ]] || [[ "$title" == Feat:* ]] || [[ "$title" == FEAT:* ]]; then
+      branch_name="feat/${issue_number}-${safe_title#*:}"
+    else
+      # Default to feat for regular issues
+      branch_name="feat/${issue_number}-${safe_title}"
+    fi
+    branch_name=$(echo "$branch_name" | sed 's/--*/-/g' | cut -c1-60)
+  fi
   
   git checkout -b "$branch_name"
   
+  # Display work context based on issue type
   echo -e "\033[32m✅ Ready to work on:\033[0m $title"
   echo -e "\033[33mIssue:\033[0m #${issue_number}"
-  echo -e "\033[33mBranch:\033[0m $branch_name" 
+  echo -e "\033[33mBranch:\033[0m $branch_name"
   echo -e "\033[33mContext:\033[0m .context/current-task.md"
+  
+  if [ ! -z "$phase_label" ]; then
+    echo -e "\033[33mPhase:\033[0m Phase ${phase_num} (see .context/active-phase.md)"
+  fi
+  
   echo ""
   echo -e "\033[36mIn your editor:\033[0m"
   echo "   Cursor: @.context/current-task.md"
+  if [ ! -z "$phase_label" ]; then
+    echo "           @.context/active-phase.md"
+  fi
   echo "   VS Code: Open .context/current-task.md"
-  echo "   Claude: Include context file in prompt"
+  echo "   Claude: Include context file(s) in prompt"
 
 # Quick shortcuts for common tasks  
 fix name:
@@ -150,10 +191,15 @@ context:
   echo -e "\033[1m\033[36mCurrent Task:\033[0m"
   echo "==============="
   cat .context/current-task.md 2>/dev/null || echo -e "\033[33mNo active task. Use 'just work <issue>' to start.\033[0m"
-  echo ""
-  echo -e "\033[1m\033[36mCurrent Phase:\033[0m"
-  echo "================"
-  cat .context/active-phase.md 2>/dev/null || echo -e "\033[33mNo phase information available.\033[0m"
+  
+  # Check if phase context exists (only for roadmap issues)
+  if [ -f ".context/active-phase.md" ]; then
+    echo ""
+    echo -e "\033[1m\033[36mPhase Context:\033[0m"
+    echo "================"
+    head -20 .context/active-phase.md 2>/dev/null
+    echo -e "\033[90m... (see .context/active-phase.md for full context)\033[0m"
+  fi
 
 # Update context (if issue changed)
 refresh-context:
@@ -169,6 +215,40 @@ refresh-context:
   else
     echo -e "\033[31m❌ No current task. Use 'just work <issue>' to start.\033[0m"
   fi
+
+# View roadmap issues by phase
+phase num:
+  @echo "📋 Phase {{num}} issues:"
+  @gh issue list --label "phase-{{num}}" --state open
+
+# View critical path (P0 issues)  
+critical:
+  @echo "🚨 Critical issues blocking other work:"
+  @gh issue list --label "P0" --state open
+
+# Quick roadmap status
+roadmap-status:
+  @echo "📊 Roadmap Status"
+  @echo "================"
+  @for phase in 0 1 2 3 4; do \
+    open=$$(gh issue list --label "phase-$$phase" --state open --json number -q '. | length'); \
+    closed=$$(gh issue list --label "phase-$$phase" --state closed --json number -q '. | length'); \
+    total=$$((open + closed)); \
+    if [ $$total -gt 0 ]; then \
+      percent=$$((closed * 100 / total)); \
+      echo "Phase $$phase: $$closed/$$total ($$percent%)"; \
+    fi \
+  done
+
+# Generate commit message with Claude
+commit:
+  bash ./.setup/scripts/generate-commit.sh
+
+# Create PR with Claude-generated body from commits
+pr:
+  bash ./.setup/scripts/generate-pr.sh
+
+
 
 # Close an issue (auto-detect from context or specify number)
 close *issue_number="":
@@ -259,40 +339,6 @@ update *issue_number="":
     exit 1
   fi
 
-# Run all checks
-check:
-  npm run check
-
-# Create PR for current branch
-pr:
-  #!/usr/bin/env bash
-  branch=$(git branch --show-current)
-  if [ "$branch" = "main" ]; then
-    echo -e "\033[31m❌ Cannot create PR from main branch\033[0m"
-    exit 1
-  fi
-  
-  # Try to get issue number from context first
-  issue_num=""
-  if [ -f ".context/current-task.md" ]; then
-    issue_num=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
-  fi
-  
-  # If no context, try extracting from branch name (e.g., feat/42-description)
-  if [ -z "$issue_num" ]; then
-    issue_num=$(echo "$branch" | grep -o '/[0-9]*-' | grep -o '[0-9]*' | head -1)
-  fi
-  
-  git push -u origin "$branch"
-  
-  if [ ! -z "$issue_num" ]; then
-    echo -e "\033[36mCreating PR linked to issue #$issue_num...\033[0m"
-    gh pr create --body "Addresses #$issue_num" --web || echo -e "\033[33mOpen PR manually on GitHub\033[0m"
-  else
-    echo -e "\033[36mCreating PR (no issue detected)...\033[0m"
-    gh pr create --web || echo -e "\033[33mOpen PR manually on GitHub\033[0m"
-  fi
-
 # Merge current branch's PR and clean up
 merge:
   #!/usr/bin/env bash
@@ -329,7 +375,7 @@ merge:
   
   echo "🚀 Merging PR #$pr_number..."
   
-  # Merge the PR (squash by default, but allow override)
+  # Merge the PR (squash by default)
   if gh pr merge $pr_number --squash --delete-branch; then
     echo -e "\033[32m✅ PR merged and remote branch deleted\033[0m"
     
@@ -338,34 +384,16 @@ merge:
     git checkout main
     git pull origin main
     
-    # Delete local branch (if it still exists - gh might have already done this)
+    # Delete local branch
     if git show-ref --verify --quiet refs/heads/"$branch"; then
       echo -e "\033[33mCleaning up local branch...\033[0m"
       git branch -d "$branch" || git branch -D "$branch"
-    else
-      echo -e "\033[32m✅ Local branch already cleaned up by GitHub CLI\033[0m"
     fi
     
     # Clean up remote references
     git remote prune origin
     
-    # Link to associated issue but don't close it
-    if [ -f ".context/current-task.md" ]; then
-      issue_number=$(grep "Issue: #" .context/current-task.md | grep -o '[0-9]*' | head -1)
-      if [ ! -z "$issue_number" ]; then
-        echo ""
-        echo -e "\033[36mLinking to issue #$issue_number...\033[0m"
-        gh issue comment $issue_number --body "✅ Completed PR #$pr_number - implementation merged to main"
-        echo -e "\033[33mIssue #$issue_number linked but remains open\033[0m"
-      fi
-    fi
-    
-    echo ""
     echo -e "\033[32mPR merged successfully!\033[0m"
-    echo -e "\033[1m\033[36mNext steps:\033[0m"
-    echo -e "   \033[93m• Run '\033[1mjust close\033[0m\033[93m' when issue is fully complete\033[0m"
-    echo -e "   \033[93m• Or run '\033[1mjust work <issue>\033[0m\033[93m' for next task\033[0m"
-    
   else
     echo "❌ Failed to merge PR"
     exit 1
@@ -388,6 +416,10 @@ report:
   @echo "\n\n## Files changed"
   @git diff --stat "@{1 week ago}"
 
+# Run all checks
+check:
+  npm run check
+
 # Setup commands
 setup:
   npm install
@@ -395,32 +427,16 @@ setup:
 
 # Setup GitHub project structure (labels, milestones, project)
 setup-github:
-  ./.setup/scripts/setup-github-project.sh
+  bash ./.setup/scripts/setup-github-project.sh
 
-# Migrate sprint documents to GitHub issues (dry run first!)
-migrate-issues:
-  node .setup/scripts/migrate-sprint-issues.cjs --dry-run
+# Bootstrap the entire roadmap setup
+bootstrap-roadmap:
+  @echo "🚀 Setting up Tyche roadmap..."
+  bash ./.setup/scripts/setup-github-project.sh
   @echo ""
-  @echo "This was a dry run. To create issues, run:"
-  @echo "  just create-issues"
+  @echo "📝 Creating roadmap issues..."
+  node ./.setup/scripts/migrate-roadmap-issues.js
 
-# Actually create the GitHub issues
-create-issues:
-  node .setup/scripts/migrate-sprint-issues.cjs
-
-# Show available commands
+# Help - show available commands
 help:
-  @bash .setup/scripts/quick-reference.sh
-
-# Clean everything
-clean:
-  rm -rf node_modules dist coverage
-  npm install
-
-# Advanced: Run tests in watch mode
-test-watch:
-  npm test -- --watch
-
-# Advanced: Run only tests related to current changes
-test-related:
-  npm test -- --related --passWithNoTests 
+  @just --list
