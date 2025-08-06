@@ -23,6 +23,9 @@ export {
   logit,
 } from './core/RandomVariable';
 
+// Error handling
+export { TycheError, ErrorCode, isTycheError, wrapError } from './core/errors';
+
 export {
   ComputationGraph,
   ComputationNode,
