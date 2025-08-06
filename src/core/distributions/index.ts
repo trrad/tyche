@@ -1,75 +1,67 @@
 /**
- * Distribution module exports
- * 
- * This module provides probability distributions with automatic differentiation
- * support for Bayesian inference.
+ * Pure Mathematical Distribution Module
+ *
+ * This module provides clean mathematical probability distributions
+ * without automatic differentiation coupling.
  */
 
 // Re-export the RNG for convenience
 export { RNG, defaultRNG } from '../utils/math/random';
 
-// Beta distribution
-export { BetaRV, beta } from './Beta';
+// Pure mathematical distributions
+export { BetaDistribution } from './BetaDistribution';
+export { GammaDistribution } from './GammaDistribution';
+export { LogNormalDistribution } from './LogNormalDistribution';
+export { NormalDistribution } from './NormalDistribution';
+export { HalfNormalDistribution } from './HalfNormalDistribution';
 
-// Binomial distribution (includes Bernoulli)
-export { BinomialRV, binomial, bernoulli } from './Binomial';
+// Import for factory functions
+import { BetaDistribution } from './BetaDistribution';
+import { NormalDistribution } from './NormalDistribution';
+import { HalfNormalDistribution } from './HalfNormalDistribution';
 
-export { GammaRV, gamma } from './Gamma';
-
-// Exponential distribution
-export { ExponentialRV, exponential } from './Exponential';
-
-// LogNormal distribution  
-export { LogNormalRV, logNormal } from './LogNormal';
-
-// Normal distribution (includes Half-Normal)
-export { 
-  NormalRV, 
-  normal, 
-  standardNormal,
-  HalfNormalRV,
-  halfNormal 
-} from './Normal';
-
-// Re-export RandomVariable types for convenience
-export type { RandomVariable, Shape, Tensor } from '../RandomVariable';
+// Re-export the canonical Distribution interface (when we define it)
+// export type { Distribution } from './Distribution';
 
 /**
- * Common distribution patterns for Bayesian modeling
+ * Common distribution factory functions for Bayesian modeling
+ * These provide convenient constructors for common priors
  */
-
-import { beta } from './Beta';
-import { RNG } from '../utils/math/random';
 
 /**
  * Weakly informative prior for probability parameters
  * Beta(2, 2) - slight preference for values away from 0 and 1
  */
-export function weaklyInformativeBeta(rng?: RNG) {
-  return beta(2, 2, rng);
+export function createWeaklyInformativeBeta(rng?: import('../utils/math/random').RNG) {
+  return new BetaDistribution(2, 2, rng);
 }
 
 /**
  * Jeffreys prior for probability parameters
  * Beta(0.5, 0.5) - invariant under reparameterization
  */
-export function jeffreysBeta(rng?: RNG) {
-  return beta(0.5, 0.5, rng);
+export function createJeffreysBeta(rng?: import('../utils/math/random').RNG) {
+  return new BetaDistribution(0.5, 0.5, rng);
 }
 
 /**
  * Uniform prior for probability parameters
  * Beta(1, 1) - all values equally likely
  */
-export function uniformBeta(rng?: RNG) {
-  return beta(1, 1, rng);
+export function createUniformBeta(rng?: import('../utils/math/random').RNG) {
+  return new BetaDistribution(1, 1, rng);
 }
 
 /**
- * Haldane prior (improper)
- * Beta(0, 0) - use with caution
+ * Standard normal distribution N(0, 1)
  */
-export function haldaneBeta(rng?: RNG) {
-  console.warn('Haldane prior Beta(0,0) is improper and may cause numerical issues');
-  return beta(1e-10, 1e-10, rng); // Small values to approximate
+export function createStandardNormal(rng?: import('../utils/math/random').RNG) {
+  return new NormalDistribution(0, 1, rng);
+}
+
+/**
+ * Unit half-normal distribution HalfNormal(1)
+ */
+export function createUnitHalfNormal(rng?: import('../utils/math/random').RNG) {
+  return new HalfNormalDistribution(1, rng);
 }
