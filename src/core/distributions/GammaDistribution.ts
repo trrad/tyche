@@ -5,6 +5,7 @@
 
 import { logGamma } from '../utils/math/special';
 import { RNG } from '../utils/math/random';
+import { Distribution } from './Distribution';
 
 /**
  * Pure mathematical Gamma distribution
@@ -13,7 +14,7 @@ import { RNG } from '../utils/math/random';
  * Uses shape-scale parameterization: Gamma(α, θ) where α is shape and θ is scale
  * Mean = α * θ, Variance = α * θ²
  */
-export class GammaDistribution {
+export class GammaDistribution implements Distribution {
   private rng: RNG;
 
   constructor(
@@ -100,21 +101,13 @@ export class GammaDistribution {
   }
 
   /**
-   * Sample from the Gamma distribution
-   * Returns single sample or array of samples
+   * Sample values from the distribution
    */
-  sample(n: number = 1, rng?: RNG): number | number[] {
-    const useRng = rng || this.rng;
-
-    if (n === 1) {
-      return useRng.gamma(this.shape, this.scale);
-    }
-
+  sample(n: number, rng?: () => number): number[] {
     const samples: number[] = new Array(n);
     for (let i = 0; i < n; i++) {
-      samples[i] = useRng.gamma(this.shape, this.scale);
+      samples[i] = this.rng.gamma(this.shape, this.scale);
     }
-
     return samples;
   }
 

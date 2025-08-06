@@ -5,12 +5,13 @@
 
 import { logBeta } from '../utils/math/special';
 import { RNG } from '../utils/math/random';
+import { Distribution } from './Distribution';
 
 /**
  * Pure mathematical Beta distribution
  * Implements the canonical Distribution interface from InterfaceStandards.md
  */
-export class BetaDistribution {
+export class BetaDistribution implements Distribution {
   private rng: RNG;
 
   constructor(
@@ -98,21 +99,13 @@ export class BetaDistribution {
   }
 
   /**
-   * Sample from the Beta distribution
-   * Returns single sample or array of samples
+   * Sample values from the distribution
    */
-  sample(n: number = 1, rng?: RNG): number | number[] {
-    const useRng = rng || this.rng;
-
-    if (n === 1) {
-      return useRng.beta(this.alpha, this.beta);
-    }
-
+  sample(n: number, rng?: () => number): number[] {
     const samples: number[] = new Array(n);
     for (let i = 0; i < n; i++) {
-      samples[i] = useRng.beta(this.alpha, this.beta);
+      samples[i] = this.rng.beta(this.alpha, this.beta);
     }
-
     return samples;
   }
 

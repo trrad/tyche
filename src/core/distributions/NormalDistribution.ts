@@ -5,6 +5,7 @@
 
 import { erf, erfInv } from '../utils/math/special';
 import { RNG } from '../utils/math/random';
+import { Distribution } from './Distribution';
 
 const LOG_TWO_PI = Math.log(2 * Math.PI);
 const SQRT_TWO = Math.sqrt(2);
@@ -14,7 +15,7 @@ const SQRT_TWO_PI = Math.sqrt(2 * Math.PI);
  * Pure mathematical Normal distribution
  * Implements the canonical Distribution interface from InterfaceStandards.md
  */
-export class NormalDistribution {
+export class NormalDistribution implements Distribution {
   private rng: RNG;
 
   constructor(
@@ -113,21 +114,13 @@ export class NormalDistribution {
   }
 
   /**
-   * Sample from the Normal distribution
-   * Returns single sample or array of samples
+   * Sample values from the distribution
    */
-  sample(n: number = 1, rng?: RNG): number | number[] {
-    const useRng = rng || this.rng;
-
-    if (n === 1) {
-      return this.meanValue + this.stdDevValue * useRng.normal();
-    }
-
+  sample(n: number, rng?: () => number): number[] {
     const samples: number[] = new Array(n);
     for (let i = 0; i < n; i++) {
-      samples[i] = this.meanValue + this.stdDevValue * useRng.normal();
+      samples[i] = this.meanValue + this.stdDevValue * this.rng.normal();
     }
-
     return samples;
   }
 

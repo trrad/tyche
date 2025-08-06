@@ -5,6 +5,7 @@
 
 import { erf, erfInv } from '../utils/math/special';
 import { RNG } from '../utils/math/random';
+import { Distribution } from './Distribution';
 
 const LOG_TWO_PI = Math.log(2 * Math.PI);
 const SQRT_TWO = Math.sqrt(2);
@@ -14,7 +15,7 @@ const SQRT_TWO_PI = Math.sqrt(2 * Math.PI);
  * Pure mathematical HalfNormal distribution
  * Implements the canonical Distribution interface from InterfaceStandards.md
  */
-export class HalfNormalDistribution {
+export class HalfNormalDistribution implements Distribution {
   private rng: RNG;
 
   constructor(
@@ -108,19 +109,11 @@ export class HalfNormalDistribution {
    * Sample from the HalfNormal distribution
    * Returns single sample or array of samples
    */
-  sample(n: number = 1, rng?: RNG): number | number[] {
-    const useRng = rng || this.rng;
-
-    if (n === 1) {
-      // Sample from normal and take absolute value
-      return Math.abs(this.stdDevValue * useRng.normal());
-    }
-
+  sample(n: number, rng?: () => number): number[] {
     const samples: number[] = new Array(n);
     for (let i = 0; i < n; i++) {
-      samples[i] = Math.abs(this.stdDevValue * useRng.normal());
+      samples[i] = Math.abs(this.stdDevValue * this.rng.normal());
     }
-
     return samples;
   }
 

@@ -14,6 +14,7 @@
 
 import { erf, erfInv } from '../utils/math/special';
 import { RNG } from '../utils/math/random';
+import { Distribution } from './Distribution';
 
 const LOG_TWO_PI = Math.log(2 * Math.PI);
 const SQRT_TWO = Math.sqrt(2);
@@ -23,7 +24,7 @@ const SQRT_TWO_PI = Math.sqrt(2 * Math.PI);
  * Pure mathematical LogNormal distribution
  * Implements the canonical Distribution interface from InterfaceStandards.md
  */
-export class LogNormalDistribution {
+export class LogNormalDistribution implements Distribution {
   private rng: RNG;
 
   constructor(
@@ -147,21 +148,12 @@ export class LogNormalDistribution {
    * Sample from the LogNormal distribution
    * Returns single sample or array of samples
    */
-  sample(n: number = 1, rng?: RNG): number | number[] {
-    const useRng = rng || this.rng;
-
-    if (n === 1) {
-      // Sample from underlying normal and exponentiate
-      const z = useRng.normal();
-      return Math.exp(this.muValue + this.sigmaValue * z);
-    }
-
+  sample(n: number, rng?: () => number): number[] {
     const samples: number[] = new Array(n);
     for (let i = 0; i < n; i++) {
-      const z = useRng.normal();
+      const z = this.rng.normal();
       samples[i] = Math.exp(this.muValue + this.sigmaValue * z);
     }
-
     return samples;
   }
 
