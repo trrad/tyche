@@ -167,7 +167,19 @@ work issue-identifier:
     branch_name=$(echo "$branch_name" | sed 's/--*/-/g' | cut -c1-60)
   fi
   
-  git checkout -b "$branch_name"
+  # Check if we're already on the target branch
+  current_branch=$(git branch --show-current)
+  if [ "$current_branch" = "$branch_name" ]; then
+    echo -e "\033[33m✓ Already on branch: $branch_name\033[0m"
+  elif git show-ref --verify --quiet refs/heads/"$branch_name"; then
+    # Branch exists but we're not on it - switch to it
+    echo -e "\033[33m✓ Switching to existing branch: $branch_name\033[0m"
+    git checkout "$branch_name"
+  else
+    # Branch doesn't exist - create it
+    echo -e "\033[32m✓ Creating new branch: $branch_name\033[0m"
+    git checkout -b "$branch_name"
+  fi
   
   # Display work context based on issue type
   echo -e "\033[32m✅ Ready to work on:\033[0m $title"
