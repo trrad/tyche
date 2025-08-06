@@ -9,7 +9,6 @@ import { beta } from '../../core/distributions/Beta';
 import { normal } from '../../core/distributions/Normal';
 import { gamma } from '../../core/distributions/Gamma';
 import { logNormal } from '../../core/distributions/LogNormal';
-import { binomial } from '../../core/distributions/Binomial';
 import { RNG } from '../../core/utils/math/random';
 
 /**
@@ -427,10 +426,10 @@ export class PowerSimulator {
 
 // Helper functions to create common distributions
 export function createBinaryConversion(rate: number, rng?: RNG): Distribution {
-  const dist = binomial(1, rate, rng);
+  const localRng = rng || new RNG();
 
   return {
-    sample: () => dist.sample(),
+    sample: () => (localRng.uniform() < rate ? 1 : 0),
     mean: () => rate,
   };
 }
@@ -466,11 +465,11 @@ export function createRevenueDistribution(
       break;
   }
 
-  const convDist = binomial(1, conversionRate, rng);
+  const localRng = rng || new RNG();
 
   return {
     sample: () => {
-      const converted = convDist.sample() > 0;
+      const converted = localRng.uniform() < conversionRate;
       return converted ? Math.max(0, valueDist.sample()) : 0;
     },
     mean: () => conversionRate * valueMean,
@@ -485,14 +484,13 @@ export function createMixtureRevenue(
   outlierMean: number,
   rng?: RNG
 ): Distribution {
-  const convDist = binomial(1, conversionRate, rng);
   const normalDist = normal(normalMean, normalStd, rng);
   const outlierDist = normal(outlierMean, outlierMean * 0.2, rng);
   const localRng = rng || new RNG();
 
   return {
     sample: () => {
-      const converted = convDist.sample() > 0;
+      const converted = localRng.uniform() < conversionRate;
       if (!converted) return 0;
 
       // Sample from mixture
