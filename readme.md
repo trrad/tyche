@@ -10,7 +10,7 @@ A Bayesian A/B testing tool that actually makes sense. Built because I was tired
 
 Instead of asking "In how many hypothetical worlds would we see an effect this large if there were no real difference?" (and then making decisions based on that backward question), Tyche asks: *"Given what we know about the world and what this experiment teaches us, what can we say about the effect?"*
 
-Genuine probabilistic understanding comes through interaction—not just reading about Bayes' theorem, but *feeling* how evidence updates beliefs as you change assumptions and watch the posterior dance in real time. Most web A/B test and power calculators force you into the frequentist straightjacket of "significant or not." Tyche shows you the full distribution of plausible effects, lets you explore what happens under different priors, and helps you understand what your data is actually telling you.
+Genuine probabilistic understanding comes through interaction—not just reading about Bayes' theorem, but *feeling* how evidence updates beliefs as you change assumptions and watch the distribution dance in real time. Most web A/B test and power calculators force you into the frequentist straightjacket of "significant or not." Tyche shows you the full distribution of plausible effects, lets you explore what happens under different priors, and helps you understand what your data is actually telling you.
 
 - **Bayesian throughout**: Full posterior distributions, not point estimates and p-values
 - **Automatic model selection**: Handles conversion, revenue, and compound metrics intelligently
