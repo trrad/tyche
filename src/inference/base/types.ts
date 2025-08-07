@@ -26,15 +26,15 @@ export interface Posterior {
 
   // Optional: analytical methods (only when tractable - for task 1.4)
   /** Get the posterior mean(s) - analytical when available, sample-based otherwise */
-  mean?(): number[] | Promise<number[]>;
+  mean?(): number[];
   /** Get the posterior variance(s) - analytical when available, sample-based otherwise */
-  variance?(): number[] | Promise<number[]>;
+  variance?(): number[];
   /** Get credible interval(s) at specified level */
-  credibleInterval?(level: number): Array<[number, number]> | Promise<Array<[number, number]>>;
+  credibleInterval?(level: number): Array<[number, number]>;
   /** Log probability density/mass function for WAIC and model selection */
-  logPdf?(data: any): number | Promise<number>;
+  logPdf?(data: any): number;
   /** Batch log PDF computation for efficiency */
-  logPdfBatch?(x: number[]): number[] | Promise<number[]>;
+  logPdfBatch?(x: number[]): number[];
 
   // Required: capability detection for routing (task 1.4)
   /** Returns true if this posterior has analytical forms available */

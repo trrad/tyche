@@ -139,14 +139,15 @@ describe('GammaDistribution', () => {
       const rng = new RNG(12345);
 
       // Single sample
-      const sample = gamma.sample(1, rng) as number;
-      expect(sample).toBeGreaterThan(0);
+      const samples = gamma.sample(1, rng);
+      expect(samples).toHaveLength(1);
+      expect(samples[0]).toBeGreaterThan(0);
 
       // Multiple samples
-      const samples = gamma.sample(100, rng) as number[];
-      expect(samples).toHaveLength(100);
+      const moreSamples = gamma.sample(100, rng);
+      expect(moreSamples).toHaveLength(100);
 
-      for (const s of samples) {
+      for (const s of moreSamples) {
         expect(s).toBeGreaterThan(0);
       }
     });

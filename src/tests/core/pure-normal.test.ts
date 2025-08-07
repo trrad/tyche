@@ -122,12 +122,14 @@ describe('NormalDistribution', () => {
       const rng = new RNG(12345);
 
       // Single sample
-      const sample = normal.sample(1, rng) as number;
-      expect(typeof sample).toBe('number');
+      const samples = normal.sample(1, rng);
+      expect(Array.isArray(samples)).toBe(true);
+      expect(samples).toHaveLength(1);
+      expect(typeof samples[0]).toBe('number');
 
       // Multiple samples
-      const samples = normal.sample(100, rng) as number[];
-      expect(samples).toHaveLength(100);
+      const moreSamples = normal.sample(100, rng);
+      expect(moreSamples).toHaveLength(100);
     });
 
     it('should generate samples with approximately correct mean', () => {
@@ -256,14 +258,15 @@ describe('HalfNormalDistribution', () => {
       const rng = new RNG(12345);
 
       // Single sample
-      const sample = halfNormal.sample(1, rng) as number;
-      expect(sample).toBeGreaterThanOrEqual(0);
+      const samples = halfNormal.sample(1, rng);
+      expect(samples).toHaveLength(1);
+      expect(samples[0]).toBeGreaterThanOrEqual(0);
 
       // Multiple samples
-      const samples = halfNormal.sample(100, rng) as number[];
-      expect(samples).toHaveLength(100);
+      const moreSamples = halfNormal.sample(100, rng);
+      expect(moreSamples).toHaveLength(100);
 
-      for (const s of samples) {
+      for (const s of moreSamples) {
         expect(s).toBeGreaterThanOrEqual(0);
       }
     });

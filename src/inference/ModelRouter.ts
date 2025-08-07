@@ -7,6 +7,7 @@ import {
 } from '../core/data/StandardData';
 import { ModelConfig, ModelStructure, ModelType, FitOptions } from './base/types';
 import { InferenceEngine } from './base/InferenceEngine';
+import { TycheError, ErrorCode } from '../core/errors';
 
 // Legacy imports for bridge pattern
 import { DataInput, CompoundDataInput } from './base/types';
@@ -65,7 +66,7 @@ export class ModelRouter {
     };
 
     // Import engine dynamically to avoid circular dependencies
-    const { BetaBinomialConjugate } = await import('./exact/BetaBinomial');
+    const { BetaBinomialConjugate } = await import('./exact/BetaBinomialConjugate');
     const engine = new BetaBinomialConjugate();
 
     return {
@@ -258,41 +259,75 @@ export class ModelRouter {
 
   /**
    * Select appropriate inference engine for configuration
-   * TODO: This will be replaced by proper engine selection once Phase 1 is complete
    */
   private static async selectEngine(config: ModelConfig): Promise<InferenceEngine> {
     try {
-      // Centralized engine imports with error handling
-      const engineModules = await Promise.all([
-        import('./exact/BetaBinomial').catch(() => null),
-        import('./exact/LogNormalInference').catch(() => null),
-        import('./exact/NormalNormal').catch(() => null),
-      ]);
-
-      const [betaBinomialModule, logNormalModule, normalModule] = engineModules;
-
-      // Engine selection logic with fallback
-      if (config.structure === 'simple' && config.type === 'beta' && betaBinomialModule) {
-        return new betaBinomialModule.BetaBinomialConjugate();
+      // Handle compound models
+      if (config.structure === 'compound') {
+        const compoundModule = await import('./compound/CompoundInferenceEngine').catch(() => null);
+        if (compoundModule) {
+          return new compoundModule.CompoundInferenceEngine('compound');
+        }
+        throw new TycheError(ErrorCode.NOT_IMPLEMENTED, 'CompoundInferenceEngine not available', {
+          config,
+        });
       }
 
-      if (config.structure === 'simple' && config.type === 'lognormal' && logNormalModule) {
-        return new logNormalModule.LogNormalInference();
+      // Handle simple models with potential mixtures
+      if (config.structure === 'simple') {
+        // For mixture models
+        if (config.components && config.components > 1) {
+          if (config.type === 'lognormal') {
+            const mixModule = await import('./approximate/em/LogNormalMixtureEM').catch(() => null);
+            if (mixModule) {
+              return new mixModule.LogNormalMixtureEM({ useFastMStep: true });
+            }
+          }
+          if (config.type === 'normal') {
+            const mixModule = await import('./approximate/em/NormalMixtureEM').catch(() => null);
+            if (mixModule) {
+              return new mixModule.NormalMixtureEM();
+            }
+          }
+        }
+
+        // For single component models
+        const engineModules = await Promise.all([
+          import('./exact/BetaBinomialConjugate').catch(() => null),
+          import('./exact/LogNormalConjugate').catch(() => null),
+          import('./exact/NormalConjugate').catch(() => null),
+        ]);
+
+        const [betaBinomialModule, logNormalModule, normalModule] = engineModules;
+
+        if (config.type === 'beta' && betaBinomialModule) {
+          return new betaBinomialModule.BetaBinomialConjugate();
+        }
+
+        if (config.type === 'lognormal' && logNormalModule) {
+          return new logNormalModule.LogNormalConjugate();
+        }
+
+        if (config.type === 'normal' && normalModule) {
+          return new normalModule.NormalConjugate();
+        }
       }
 
-      if (config.structure === 'simple' && config.type === 'normal' && normalModule) {
-        return new normalModule.NormalNormalConjugate();
-      }
-
-      // Fallback to LogNormal if available, otherwise throw error
-      if (logNormalModule) {
-        return new logNormalModule.LogNormalInference();
-      }
-
-      throw new Error('No suitable inference engine available');
+      throw new TycheError(
+        ErrorCode.MODEL_MISMATCH,
+        `No suitable inference engine for config: ${JSON.stringify(config)}`,
+        { config }
+      );
     } catch (error) {
       console.warn('Engine import failed:', error);
-      throw new Error(`Failed to load inference engine for config: ${JSON.stringify(config)}`);
+      if (error instanceof TycheError) {
+        throw error;
+      }
+      throw new TycheError(
+        ErrorCode.INTERNAL_ERROR,
+        `Failed to load inference engine for config: ${JSON.stringify(config)}`,
+        { config, originalError: error }
+      );
     }
   }
 

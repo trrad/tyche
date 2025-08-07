@@ -108,15 +108,16 @@ describe('BetaDistribution', () => {
       const rng = new RNG(12345); // Fixed seed for reproducibility
 
       // Single sample
-      const sample = beta.sample(1, rng) as number;
-      expect(sample).toBeGreaterThan(0);
-      expect(sample).toBeLessThan(1);
+      const samples = beta.sample(1, rng);
+      expect(samples).toHaveLength(1);
+      expect(samples[0]).toBeGreaterThan(0);
+      expect(samples[0]).toBeLessThan(1);
 
       // Multiple samples
-      const samples = beta.sample(100, rng) as number[];
-      expect(samples).toHaveLength(100);
+      const moreSamples = beta.sample(100, rng);
+      expect(moreSamples).toHaveLength(100);
 
-      for (const s of samples) {
+      for (const s of moreSamples) {
         expect(s).toBeGreaterThan(0);
         expect(s).toBeLessThan(1);
       }
