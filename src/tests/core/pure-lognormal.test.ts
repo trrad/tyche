@@ -185,12 +185,13 @@ describe('LogNormalDistribution', () => {
       expect(sampleMean).toBeCloseTo(lognormal.mean(), 1);
     });
 
-    it('should return single number when n=1', () => {
+    it('should return array with single element when n=1', () => {
       const lognormal = new LogNormalDistribution(0, 1);
-      const sample = lognormal.sample(1);
+      const samples = lognormal.sample(1);
 
-      expect(typeof sample).toBe('number');
-      expect(sample).toBeGreaterThan(0);
+      expect(Array.isArray(samples)).toBe(true);
+      expect(samples).toHaveLength(1);
+      expect(samples[0]).toBeGreaterThan(0);
     });
 
     it('should handle degenerate case in sampling', () => {

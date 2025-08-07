@@ -1,200 +1,373 @@
 // src/tests/inference/inference-engine.test.ts
 import { describe, test, expect } from 'vitest';
-import { InferenceEngine } from '../../inference/InferenceEngine';
-import { DataGenerator } from '../utilities/synthetic/DataGenerator';
-import { CompoundDataInput } from '../../inference/base/types';
-import { CompoundPosterior } from '../../models/compound/CompoundModel';
+import { BetaBinomialConjugate } from '../../inference/exact/BetaBinomialConjugate';
+import { LogNormalConjugate } from '../../inference/exact/LogNormalConjugate';
+import { NormalConjugate } from '../../inference/exact/NormalConjugate';
+import { NormalMixtureEM } from '../../inference/approximate/em/NormalMixtureEM';
+import { LogNormalMixtureEM } from '../../inference/approximate/em/LogNormalMixtureEM';
+import { StandardData } from '../../core/data/StandardData';
+import { ModelConfig } from '../../inference/base/types';
+import { TycheError } from '../../core/errors';
 
-describe('InferenceEngine - Unified API', () => {
-  const engine = new InferenceEngine();
+describe('InferenceEngine Base Class Tests', () => {
+  describe('BetaBinomialConjugate', () => {
+    test('should have correct capabilities', () => {
+      const engine = new BetaBinomialConjugate();
 
-  describe('Model Selection', () => {
-    test('auto-detects beta-binomial for conversion data', async () => {
-      const dataset = DataGenerator.presets.betaBinomial(0.03, 5000, 12345);
-      const result = await engine.fit('auto', { data: dataset.data });
-      
-      expect(result.posterior).toBeDefined();
-      expect(result.posterior.mean()[0]).toBeGreaterThan(0);
-      expect(result.posterior.mean()[0]).toBeLessThan(1);
-      
-      // Should be close to true value
-      const estimatedRate = result.posterior.mean()[0];
-      expect(Math.abs(estimatedRate - 0.03)).toBeLessThan(0.01);
+      expect(engine.capabilities.structures).toContain('simple');
+      expect(engine.capabilities.types).toContain('beta');
+      expect(engine.capabilities.dataTypes).toContain('binomial');
+      expect(engine.capabilities.components).toEqual([1]);
+      expect(engine.capabilities.exact).toBe(true);
+      expect(engine.capabilities.fast).toBe(true);
     });
-    
-    test('auto-detects lognormal for revenue data', async () => {
-      const dataset = DataGenerator.scenarios.revenue.realistic(3.5, 0.5, 1000, 12345);
-      const result = await engine.fit('auto', { data: dataset.data });
-      
-      expect(result.posterior).toBeDefined();
-      expect(result.posterior.mean()[0]).toBeGreaterThan(0);
-      
-      // Check it's in the right ballpark
-      const mean = result.posterior.mean()[0];
-      expect(mean).toBeGreaterThan(10); // LogNormal(3.5, 0.5) has mean ~45
-      expect(mean).toBeLessThan(100);
-    });
-    
-    test('handles compound models', async () => {
-      const dataset = DataGenerator.scenarios.ecommerce.realistic(500, 12345);
-      const result = await engine.fit('auto', { data: dataset.data } as CompoundDataInput) as { posterior: CompoundPosterior; diagnostics: any };
-      
-      expect(result.posterior).toHaveProperty('frequency');
-      expect(result.posterior).toHaveProperty('severity');
-      
-      // Check compound metrics
-      const rpu = result.posterior.expectedValuePerUser();
-      expect(rpu).toBeGreaterThan(0);
-      expect(rpu).toBeLessThan(10); // Sanity check for 5% conv, $75 AOV
-    });
-  });
-  
-  describe('Prior Specification', () => {
-    test('respects custom beta prior', async () => {
-      const strongPrior = {
-        type: 'beta' as const,
-        params: [80, 20] // Strong belief in 0.8
+
+    test('should handle binomial data correctly', async () => {
+      const engine = new BetaBinomialConjugate();
+
+      const data: StandardData = {
+        type: 'binomial',
+        n: 100,
+        binomial: { successes: 30, trials: 100 },
+        quality: {
+          hasZeros: false,
+          hasNegatives: false,
+          hasOutliers: false,
+          missingData: 0,
+        },
       };
-      
-      const weakData = { successes: 2, trials: 10 }; // Suggests 0.2
-      
-      const result = await engine.fit(
-        'beta-binomial',
-        { data: weakData },
-        { priorParams: strongPrior }
-      );
-      
-      // Prior should pull estimate toward 0.8
-      const mean = result.posterior.mean()[0];
-      expect(mean).toBeGreaterThan(0.4); // Should be pulled up from 0.2
-      expect(mean).toBeLessThan(0.8); // But not all the way to prior
-    });
-    
-    test('uses weak default priors', async () => {
-      const dataset = DataGenerator.presets.betaBinomial(0.15, 100, 12345);
-      
-      const resultDefault = await engine.fit('beta-binomial', { data: dataset.data });
-      const resultWeak = await engine.fit(
-        'beta-binomial',
-        { data: dataset.data },
-        { priorParams: { type: 'beta', params: [1, 1] } }
-      );
-      
-      // Should be very similar with weak prior
-      const meanDefault = resultDefault.posterior.mean()[0];
-      const meanWeak = resultWeak.posterior.mean()[0];
-      expect(Math.abs(meanDefault - meanWeak)).toBeLessThan(0.01);
-    });
-  });
-  
-  describe('Edge Cases', () => {
-    test('handles zero conversions', async () => {
-      const data = { successes: 0, trials: 100 };
-      const result = await engine.fit('beta-binomial', { data });
-      
-      const mean = result.posterior.mean()[0];
-      expect(mean).toBeGreaterThan(0); // Prior prevents exactly 0
-      expect(mean).toBeLessThan(0.05); // But should be very small
-    });
-    
-    test('handles all conversions', async () => {
-      const data = { successes: 100, trials: 100 };
-      const result = await engine.fit('beta-binomial', { data });
-      
-      const mean = result.posterior.mean()[0];
-      expect(mean).toBeLessThan(1); // Prior prevents exactly 1
-      expect(mean).toBeGreaterThan(0.95); // But should be very high
-    });
-    
-    test.skip('handles single data point', async () => {
-      const result = await engine.fit('lognormal', { data: [50] });
-      
-      // Should still return valid posterior
+
+      const config: ModelConfig = {
+        structure: 'simple',
+        type: 'beta',
+        components: 1,
+      };
+
+      const result = await engine.fit(data, config);
+
       expect(result.posterior).toBeDefined();
-      expect(result.posterior.mean()[0]).toBeGreaterThan(0);
-      
-      // But with high uncertainty
-      const ci = result.posterior.credibleInterval(0.95)[0];
-      const width = ci[1] - ci[0];
-      expect(width).toBeGreaterThan(10); // Wide interval
-    });
-    
-    test('detects and handles outliers gracefully', async () => {
-      // Generate clean data then add outliers
-      const gen = new DataGenerator(12345);
-      const cleanData = gen.continuous('normal', { mean: 100, std: 10 }, 100);
-      const noisyData = [...cleanData.data, 1000, 2000]; // Add extreme outliers
-      
-      const result = await engine.fit('auto', { data: noisyData });
-      
-      // Should still converge
       expect(result.diagnostics.converged).toBe(true);
-      
-      // Mean should be somewhat robust to outliers
+      expect(result.diagnostics.iterations).toBe(1);
+      expect(result.diagnostics.modelType).toBe('beta-binomial');
+
+      // Check posterior mean is reasonable (should be around 0.3)
       const mean = result.posterior.mean()[0];
-      expect(mean).toBeGreaterThan(90);
-      expect(mean).toBeLessThan(150); // Not pulled too far by outliers
+      expect(mean).toBeGreaterThan(0.25);
+      expect(mean).toBeLessThan(0.35);
+    });
+
+    test('should respect prior parameters', async () => {
+      const engine = new BetaBinomialConjugate();
+
+      const data: StandardData = {
+        type: 'binomial',
+        n: 10,
+        binomial: { successes: 2, trials: 10 }, // 20% success rate
+        quality: {
+          hasZeros: false,
+          hasNegatives: false,
+          hasOutliers: false,
+          missingData: 0,
+        },
+      };
+
+      const config: ModelConfig = {
+        structure: 'simple',
+        type: 'beta',
+        components: 1,
+      };
+
+      // Strong prior believing in 80% success rate
+      const options = {
+        priorParams: {
+          type: 'beta' as const,
+          params: [80, 20],
+        },
+      };
+
+      const result = await engine.fit(data, config, options);
+
+      // Prior should pull estimate up from 0.2
+      const mean = result.posterior.mean()[0];
+      expect(mean).toBeGreaterThan(0.4);
+      expect(mean).toBeLessThan(0.8);
+    });
+
+    test('should reject non-binomial data', async () => {
+      const engine = new BetaBinomialConjugate();
+
+      const data: StandardData = {
+        type: 'user-level',
+        n: 100,
+        userLevel: {
+          users: [{ value: 10, converted: true }],
+          empiricalStats: { mean: 10, variance: 0 },
+        },
+        quality: {
+          hasZeros: false,
+          hasNegatives: false,
+          hasOutliers: false,
+          missingData: 0,
+        },
+      };
+
+      const config: ModelConfig = {
+        structure: 'simple',
+        type: 'beta',
+        components: 1,
+      };
+
+      await expect(engine.fit(data, config)).rejects.toThrow(TycheError);
     });
   });
-  
-  describe('Mixture Model Detection', () => {
-    test('identifies clear mixture structure', async () => {
-      const dataset = DataGenerator.presets.fourSegments(5000, 12345);
-      
-      const result = await engine.fit('lognormal-mixture', { data: dataset.data });
-      
-      if ('getComponents' in result.posterior && typeof result.posterior.getComponents === 'function') {
-        const components = (result.posterior as any).getComponents();
-        expect(components.length).toBeGreaterThanOrEqual(2);
-        
-        // Check weights sum to 1
-        const totalWeight = components.reduce((sum: number, c: any) => sum + c.weight, 0);
-        expect(totalWeight).toBeCloseTo(1.0, 2);
-      }
+
+  describe('LogNormalConjugate', () => {
+    test('should have correct capabilities', () => {
+      const engine = new LogNormalConjugate();
+
+      expect(engine.capabilities.structures).toContain('simple');
+      expect(engine.capabilities.structures).toContain('compound');
+      expect(engine.capabilities.types).toContain('lognormal');
+      expect(engine.capabilities.dataTypes).toContain('user-level');
+      expect(engine.capabilities.components).toEqual([1]);
+      expect(engine.capabilities.exact).toBe(true);
     });
-    
-    test('falls back to single component when appropriate', async () => {
-      // Unimodal data
-      const dataset = DataGenerator.scenarios.revenue.clean(3.5, 0.5, 1000, 12345);
-      
-      const result = await engine.fit('lognormal-mixture', { data: dataset.data });
-      
-      // Should either have 1 component or highly dominant component
-      if ('getComponents' in result.posterior && typeof result.posterior.getComponents === 'function') {
-        const components = (result.posterior as any).getComponents();
-        if (components.length > 1) {
-          const maxWeight = Math.max(...components.map((c: any) => c.weight));
-          // Finding 2 components with roughly equal weights is acceptable for EM
-          expect(maxWeight).toBeGreaterThan(0.3); // Just check weights are reasonable
-        }
-      }
+
+    test('should handle positive continuous data', async () => {
+      const engine = new LogNormalConjugate();
+
+      const values = [10, 15, 20, 25, 30, 35, 40];
+      const data: StandardData = {
+        type: 'user-level',
+        n: values.length,
+        userLevel: {
+          users: values.map((v) => ({ value: v, converted: true })),
+          empiricalStats: {
+            mean: values.reduce((a, b) => a + b, 0) / values.length,
+            variance: 0,
+          },
+        },
+        quality: {
+          hasZeros: false,
+          hasNegatives: false,
+          hasOutliers: false,
+          missingData: 0,
+        },
+      };
+
+      const config: ModelConfig = {
+        structure: 'simple',
+        type: 'lognormal',
+        components: 1,
+      };
+
+      const result = await engine.fit(data, config);
+
+      expect(result.posterior).toBeDefined();
+      expect(result.diagnostics.converged).toBe(true);
+      expect(result.diagnostics.modelType).toBe('lognormal');
+
+      // Check posterior mean is reasonable
+      const mean = result.posterior.mean()[0];
+      expect(mean).toBeGreaterThan(15);
+      expect(mean).toBeLessThan(35);
     });
-  });
-  
-  describe('Performance and Diagnostics', () => {
-    test('completes inference within reasonable time', async () => {
-      const dataset = DataGenerator.scenarios.marketplace.realistic(10000, 12345);
-      
-      const start = Date.now();
-      const result = await engine.fit('auto', { data: dataset.data });
-      const elapsed = Date.now() - start;
-      
-      expect(elapsed).toBeLessThan(5000); // Should complete within 5 seconds
+
+    test('should filter out non-positive values', async () => {
+      const engine = new LogNormalConjugate();
+
+      const values = [10, 0, 20, -5, 30]; // Some invalid values
+      const data: StandardData = {
+        type: 'user-level',
+        n: values.length,
+        userLevel: {
+          users: values.map((v) => ({ value: v, converted: true })),
+          empiricalStats: {
+            mean: 20,
+            variance: 100,
+          },
+        },
+        quality: {
+          hasZeros: true,
+          hasNegatives: true,
+          hasOutliers: false,
+          missingData: 0,
+        },
+      };
+
+      const config: ModelConfig = {
+        structure: 'simple',
+        type: 'lognormal',
+        components: 1,
+      };
+
+      const result = await engine.fit(data, config);
+
+      // Should still work with only positive values
+      expect(result.posterior).toBeDefined();
       expect(result.diagnostics.converged).toBe(true);
     });
-    
-    test('provides useful diagnostics', async () => {
-      const dataset = DataGenerator.presets.fourSegments(1000, 12345);
-      
-      const result = await engine.fit('lognormal-mixture', { data: dataset.data });
-      
-      expect(result.diagnostics).toHaveProperty('converged');
-      expect(result.diagnostics).toHaveProperty('iterations');
-      
-      // Should have model-specific diagnostics
-      if (result.diagnostics.modelType) {
-        expect(result.diagnostics.modelType).toContain('mixture');
+  });
+
+  describe('NormalConjugate', () => {
+    test('should have correct capabilities', () => {
+      const engine = new NormalConjugate();
+
+      expect(engine.capabilities.structures).toContain('simple');
+      expect(engine.capabilities.types).toContain('normal');
+      expect(engine.capabilities.dataTypes).toContain('user-level');
+      expect(engine.capabilities.components).toEqual([1]);
+      expect(engine.capabilities.exact).toBe(true);
+    });
+
+    test('should handle continuous data including negatives', async () => {
+      const engine = new NormalConjugate();
+
+      const values = [-10, -5, 0, 5, 10];
+      const data: StandardData = {
+        type: 'user-level',
+        n: values.length,
+        userLevel: {
+          users: values.map((v) => ({ value: v, converted: true })),
+          empiricalStats: {
+            mean: 0,
+            variance: 50,
+          },
+        },
+        quality: {
+          hasZeros: true,
+          hasNegatives: true,
+          hasOutliers: false,
+          missingData: 0,
+        },
+      };
+
+      const config: ModelConfig = {
+        structure: 'simple',
+        type: 'normal',
+        components: 1,
+      };
+
+      const result = await engine.fit(data, config);
+
+      expect(result.posterior).toBeDefined();
+      expect(result.diagnostics.converged).toBe(true);
+      expect(result.diagnostics.modelType).toBe('normal');
+
+      // Check posterior mean is around 0
+      const mean = result.posterior.mean()[0];
+      expect(Math.abs(mean)).toBeLessThan(2);
+    });
+  });
+
+  describe('Mixture Models', () => {
+    test('NormalMixtureEM should support multiple components', () => {
+      const engine = new NormalMixtureEM();
+
+      expect(engine.capabilities.components).toEqual([1, 2, 3, 4]);
+      expect(engine.capabilities.exact).toBe(false);
+      expect(engine.algorithm).toBe('em');
+    });
+
+    test('LogNormalMixtureEM should handle mixture data', async () => {
+      const engine = new LogNormalMixtureEM({ useFastMStep: true });
+
+      // Create bimodal data
+      const values = [
+        ...Array(50)
+          .fill(0)
+          .map(() => 10 + Math.random() * 5),
+        ...Array(50)
+          .fill(0)
+          .map(() => 50 + Math.random() * 10),
+      ];
+
+      const data: StandardData = {
+        type: 'user-level',
+        n: values.length,
+        userLevel: {
+          users: values.map((v) => ({ value: v, converted: true })),
+          empiricalStats: {
+            mean: values.reduce((a, b) => a + b, 0) / values.length,
+            variance: 0,
+          },
+        },
+        quality: {
+          hasZeros: false,
+          hasNegatives: false,
+          hasOutliers: false,
+          missingData: 0,
+        },
+      };
+
+      const config: ModelConfig = {
+        structure: 'simple',
+        type: 'lognormal',
+        components: 2,
+      };
+
+      const result = await engine.fit(data, config);
+
+      expect(result.posterior).toBeDefined();
+      // With well-separated data, EM can converge very quickly
+      expect(result.diagnostics.iterations).toBeGreaterThanOrEqual(1);
+      expect(result.diagnostics.converged).toBe(true);
+
+      // Check if mixture components were found
+      const posterior = result.posterior as any;
+      if (posterior.getComponents) {
+        const components = posterior.getComponents();
+        expect(components.length).toBeGreaterThanOrEqual(1);
+        expect(components.length).toBeLessThanOrEqual(2);
       }
+    });
+  });
+
+  describe('canHandle method', () => {
+    test('engines should correctly identify what they can handle', () => {
+      const betaEngine = new BetaBinomialConjugate();
+      const logNormalEngine = new LogNormalConjugate();
+      const normalEngine = new NormalConjugate();
+
+      const binomialData: StandardData = {
+        type: 'binomial',
+        n: 100,
+        binomial: { successes: 30, trials: 100 },
+        quality: { hasZeros: false, hasNegatives: false, hasOutliers: false, missingData: 0 },
+      };
+
+      const userLevelData: StandardData = {
+        type: 'user-level',
+        n: 10,
+        userLevel: {
+          users: [{ value: 10, converted: true }],
+          empiricalStats: { mean: 10, variance: 0 },
+        },
+        quality: { hasZeros: false, hasNegatives: false, hasOutliers: false, missingData: 0 },
+      };
+
+      const betaConfig: ModelConfig = { structure: 'simple', type: 'beta', components: 1 };
+      const logNormalConfig: ModelConfig = {
+        structure: 'simple',
+        type: 'lognormal',
+        components: 1,
+      };
+      const normalConfig: ModelConfig = { structure: 'simple', type: 'normal', components: 1 };
+
+      // Beta engine should only handle binomial data with beta type
+      expect(betaEngine.canHandle(betaConfig, binomialData)).toBe(true);
+      expect(betaEngine.canHandle(betaConfig, userLevelData)).toBe(false);
+      expect(betaEngine.canHandle(logNormalConfig, binomialData)).toBe(false);
+
+      // LogNormal engine should only handle user-level data with lognormal type
+      expect(logNormalEngine.canHandle(logNormalConfig, userLevelData)).toBe(true);
+      expect(logNormalEngine.canHandle(logNormalConfig, binomialData)).toBe(false);
+      expect(logNormalEngine.canHandle(betaConfig, userLevelData)).toBe(false);
+
+      // Normal engine should only handle user-level data with normal type
+      expect(normalEngine.canHandle(normalConfig, userLevelData)).toBe(true);
+      expect(normalEngine.canHandle(normalConfig, binomialData)).toBe(false);
+      expect(normalEngine.canHandle(betaConfig, userLevelData)).toBe(false);
     });
   });
 });

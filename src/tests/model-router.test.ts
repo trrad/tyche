@@ -126,3 +126,88 @@ describe('ModelRouter - Bridge pattern compatibility', () => {
     }
   });
 });
+
+describe('ModelRouter - Compound model routing', () => {
+  it('should select CompoundInferenceEngine for zero-inflated data', async () => {
+    // Import to check instance type
+    const { CompoundInferenceEngine } = await import(
+      '../inference/compound/CompoundInferenceEngine'
+    );
+
+    // Create user-level data with zeros
+    const users = [
+      // 60% non-converters
+      ...Array(60)
+        .fill(0)
+        .map((_, i) => ({
+          userId: `u${i}`,
+          converted: false,
+          value: 0,
+        })),
+      // 40% converters with revenue
+      ...Array(40)
+        .fill(0)
+        .map((_, i) => ({
+          userId: `u${i + 60}`,
+          converted: true,
+          value: 20 + Math.random() * 30,
+        })),
+    ];
+
+    const data = StandardDataFactory.fromUserLevel(users);
+
+    // Route should detect zeros and choose compound model
+    const routeResult = await ModelRouter.route(data);
+
+    expect(routeResult.config.structure).toBe('compound');
+    expect(routeResult.config.frequencyType).toBe('beta');
+    expect(routeResult.config.valueType).toBe('lognormal');
+    expect(routeResult.engine).toBeInstanceOf(CompoundInferenceEngine);
+
+    // Check reasoning includes zero detection
+    expect(routeResult.reasoning).toContain('Data contains zeros, using compound model structure');
+  });
+
+  it('should fit compound model end-to-end through router', async () => {
+    // Create realistic e-commerce data
+    const users = [];
+
+    // 70% browse but don't buy
+    for (let i = 0; i < 70; i++) {
+      users.push({
+        userId: `u${i}`,
+        converted: false,
+        value: 0,
+      });
+    }
+
+    // 30% make purchases with varying amounts
+    for (let i = 0; i < 30; i++) {
+      // Log-normal distributed purchase amounts
+      const logValue = 3.5 + Math.random() * 1.5; // log($33) ± variation
+      users.push({
+        userId: `u${i + 70}`,
+        converted: true,
+        value: Math.exp(logValue),
+      });
+    }
+
+    const data = StandardDataFactory.fromUserLevel(users);
+
+    // Route and fit
+    const routeResult = await ModelRouter.route(data);
+    const fitResult = await routeResult.engine.fit(data, routeResult.config);
+
+    expect(fitResult.diagnostics.converged).toBe(true);
+    expect(fitResult.diagnostics.modelType).toBe('compound-beta-lognormal');
+
+    // Check posterior is compound
+    const posterior = fitResult.posterior as any;
+    expect(posterior.getDecomposition).toBeDefined();
+
+    // Decomposition should show ~30% conversion rate
+    const decomposition = posterior.getDecomposition();
+    const freqMean = await decomposition.frequency.mean();
+    expect(freqMean[0]).toBeCloseTo(0.3, 1);
+  });
+});
