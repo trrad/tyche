@@ -184,7 +184,7 @@ export class LogNormalMixturePosterior implements Posterior {
   logPdf(data: number): number {
     // Compute log-likelihood of data point under the mixture
     const logProbs = this.components.map((comp) => {
-      const logCompProb = comp.posterior.logPdf(data);
+      const logCompProb = comp.posterior.logPdf?.(data) ?? -Infinity;
       return Math.log(comp.weight) + logCompProb;
     });
 
@@ -228,7 +228,10 @@ export class LogNormalMixturePosterior implements Posterior {
    * Expected value of the mixture
    */
   expectedValue(): number {
-    return this.components.reduce((sum, comp) => sum + comp.weight * comp.posterior.mean()[0], 0);
+    return this.components.reduce((sum, comp) => {
+      const mean = comp.posterior.mean?.() ?? [0];
+      return sum + comp.weight * mean[0];
+    }, 0);
   }
 
   /**
@@ -236,8 +239,8 @@ export class LogNormalMixturePosterior implements Posterior {
    */
   getComponents(): { mean: number; variance: number; weight: number }[] {
     return this.components.map((c) => ({
-      mean: c.posterior.mean()[0],
-      variance: c.posterior.variance()[0],
+      mean: c.posterior.mean?.()?.[0] ?? 0,
+      variance: c.posterior.variance?.()?.[0] ?? 0,
       weight: c.weight,
     }));
   }
@@ -419,10 +422,19 @@ export class LogNormalMixtureEM extends InferenceEngine {
         type: 'user-level',
         n: clusterData.length,
         userLevel: {
-          users: clusterData.map((v) => ({ value: v, converted: true })),
+          users: clusterData.map((v, i) => ({
+            userId: `cluster_${i}`,
+            value: v,
+            converted: true,
+          })),
           empiricalStats: {
             mean: clusterData.reduce((a, b) => a + b, 0) / clusterData.length,
             variance: 0, // Will be computed if needed
+            min: Math.min(...clusterData),
+            max: Math.max(...clusterData),
+            q25: 0, // Will be computed if needed
+            q50: 0, // Will be computed if needed
+            q75: 0, // Will be computed if needed
           },
         },
         quality: {
@@ -583,7 +595,16 @@ export class LogNormalMixtureEM extends InferenceEngine {
           return [(Math.exp(weightedVar) - 1) * mean * mean];
         },
         credibleInterval: (level: number = 0.95) => {
-          const samples = mockPosterior.sample(10000);
+          // Generate samples directly for credible interval
+          const samples: number[] = [];
+          for (let i = 0; i < 10000; i++) {
+            const normal = new NormalDistribution(
+              weightedMean,
+              Math.sqrt(Math.max(weightedVar, 1e-10))
+            );
+            const logSample = normal.sample(1)[0];
+            samples.push(Math.exp(logSample));
+          }
           samples.sort((a, b) => a - b);
           const alpha = (1 - level) / 2;
           const lower = samples[Math.floor(samples.length * alpha)];
@@ -601,7 +622,18 @@ export class LogNormalMixtureEM extends InferenceEngine {
             0.5 * z * z
           );
         },
-        logPdfBatch: (data: number[]) => data.map((d) => mockPosterior.logPdf(d)),
+        logPdfBatch: (data: number[]) =>
+          data.map((d) => {
+            if (d <= 0) return -Infinity;
+            const logData = Math.log(d);
+            const z = (logData - weightedMean) / Math.sqrt(Math.max(weightedVar, 1e-10));
+            return (
+              -logData -
+              0.5 * Math.log(2 * Math.PI) -
+              0.5 * Math.log(Math.max(weightedVar, 1e-10)) -
+              0.5 * z * z
+            );
+          }),
         hasAnalyticalForm: () => false,
         getParameters: () => ({
           mu0: weightedMean,
@@ -645,10 +677,19 @@ export class LogNormalMixtureEM extends InferenceEngine {
           type: 'user-level',
           n: values.length,
           userLevel: {
-            users: values.map((v) => ({ value: v, converted: true })),
+            users: values.map((v, i) => ({
+              userId: `weighted_${i}`,
+              value: v,
+              converted: true,
+            })),
             empiricalStats: {
               mean: values.reduce((a, b) => a + b, 0) / values.length,
               variance: 0,
+              min: Math.min(...values),
+              max: Math.max(...values),
+              q25: 0, // Will be computed if needed
+              q50: 0, // Will be computed if needed
+              q75: 0, // Will be computed if needed
             },
           },
           quality: {

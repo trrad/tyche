@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Posterior } from '../../inference/base/types';
 import { PosteriorProxy, CompoundPosteriorProxy } from '../../workers/PosteriorProxy';
-import { hasMixtureComponents, CompoundPosterior } from '../../models/compound/CompoundModel';
+import type { CompoundPosterior } from '../../inference/base/types';
 import { MixtureComponentViz } from './MixtureComponentViz';
-import { MODEL_DESCRIPTIONS, ModelType } from '../../inference/InferenceEngine';
+import { getModelName } from '../constants/modelDescriptions';
 
 interface AsyncPosteriorSummaryProps {
   posterior: Posterior | PosteriorProxy | CompoundPosteriorProxy | any;
@@ -12,48 +12,55 @@ interface AsyncPosteriorSummaryProps {
 
 // Helper to check if posterior is compound
 function isCompoundPosterior(posterior: any): posterior is CompoundPosterior {
-  return posterior && 'frequency' in posterior && 'severity' in posterior;
+  return (
+    posterior &&
+    typeof posterior.getDecomposition === 'function' &&
+    typeof posterior.getSeverityComponents === 'function'
+  );
 }
 
 // Helper to check if object is a proxy
 function isPosteriorProxy(posterior: any): boolean {
-  return posterior && (posterior.constructor.name === 'PosteriorProxy' || 
-                      posterior.constructor.name === 'CompoundPosteriorProxy' ||
-                      '__isCompoundProxy' in posterior);
+  return (
+    posterior &&
+    (posterior.constructor.name === 'PosteriorProxy' ||
+      posterior.constructor.name === 'CompoundPosteriorProxy' ||
+      '__isCompoundProxy' in posterior)
+  );
 }
 
-export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({ 
-  posterior, 
-  modelType 
+export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
+  posterior,
+  modelType,
 }) => {
-  const [mixtureComponents, setMixtureComponents] = useState<Array<{ mean: number; variance: number; weight: number }> | null>(null);
-  const [severityComponents, setSeverityComponents] = useState<Array<{ mean: number; variance: number; weight: number }> | null>(null);
-  
+  const [mixtureComponents, setMixtureComponents] = useState<Array<{
+    mean: number;
+    variance: number;
+    weight: number;
+  }> | null>(null);
+  const [severityComponents, setSeverityComponents] = useState<Array<{
+    mean: number;
+    variance: number;
+    weight: number;
+  }> | null>(null);
+
   useEffect(() => {
     if (!posterior) return;
-    
+
     const loadComponents = async () => {
       // For compound posteriors
       if (isCompoundPosterior(posterior)) {
         // Try sync first (for non-proxy)
         if (posterior.getSeverityComponents && !isPosteriorProxy(posterior)) {
           setSeverityComponents(posterior.getSeverityComponents());
-        } 
+        }
         // Try async for proxy
         else if ('getSeverityComponents' in posterior) {
           const comps = await (posterior as any).getSeverityComponents();
           setSeverityComponents(comps);
         }
-        // Direct access to severity
-        else if ('getComponents' in posterior.severity) {
-          if (isPosteriorProxy(posterior.severity)) {
-            const comps = await (posterior.severity as any).getComponents();
-            setSeverityComponents(comps);
-          } else {
-            setSeverityComponents((posterior.severity as any).getComponents());
-          }
-        }
-      } 
+        // Note: In new architecture, severity components are accessed via getSeverityComponents()
+      }
       // For regular mixture posteriors
       else if ('getComponents' in posterior) {
         if (isPosteriorProxy(posterior)) {
@@ -64,10 +71,10 @@ export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
         }
       }
     };
-    
+
     loadComponents();
   }, [posterior]);
-  
+
   if (!posterior) return null;
 
   // Format helper functions
@@ -83,6 +90,7 @@ export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
 
   // Check if this is a compound posterior
   if (isCompoundPosterior(posterior)) {
+    const decomposition = posterior.getDecomposition();
     return (
       <div className="space-y-6">
         {/* Frequency (Conversion) Component */}
@@ -92,12 +100,18 @@ export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <span className="text-sm text-gray-600">Mean:</span>
-                <span className="ml-2 font-mono">{formatValue(posterior.frequency.mean()[0])}</span>
+                <span className="ml-2 font-mono">
+                  {formatValue(
+                    decomposition.frequency.mean ? decomposition.frequency.mean()[0] : 'Loading...'
+                  )}
+                </span>
               </div>
               <div>
                 <span className="text-sm text-gray-600">95% CI:</span>
                 <span className="ml-2 font-mono text-sm">
-                  {formatInterval(posterior.frequency.credibleInterval(0.95)[0])}
+                  {decomposition.frequency.credibleInterval
+                    ? formatInterval(decomposition.frequency.credibleInterval(0.95)[0])
+                    : 'Loading...'}
                 </span>
               </div>
             </div>
@@ -106,25 +120,34 @@ export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
 
         {/* Severity (Value) Component */}
         <div>
-          <h4 className="font-semibold text-gray-700 mb-2">Severity Component (Value | Converted)</h4>
+          <h4 className="font-semibold text-gray-700 mb-2">
+            Severity Component (Value | Converted)
+          </h4>
           <div className="bg-gray-50 p-4 rounded space-y-2">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <span className="text-sm text-gray-600">Mean:</span>
-                <span className="ml-2 font-mono">${posterior.severity.mean()[0].toFixed(2)}</span>
+                <span className="ml-2 font-mono">
+                  $
+                  {decomposition.severity.mean
+                    ? decomposition.severity.mean()[0].toFixed(2)
+                    : 'Loading...'}
+                </span>
               </div>
               <div>
                 <span className="text-sm text-gray-600">95% CI:</span>
                 <span className="ml-2 font-mono text-sm">
-                  {formatInterval(posterior.severity.credibleInterval(0.95)[0])}
+                  {decomposition.severity.credibleInterval
+                    ? formatInterval(decomposition.severity.credibleInterval(0.95)[0])
+                    : 'Loading...'}
                 </span>
               </div>
             </div>
-            
+
             {/* Show mixture components if available - use state variable */}
             {severityComponents && severityComponents.length > 1 && (
               <div className="mt-4">
-                <MixtureComponentViz 
+                <MixtureComponentViz
                   components={severityComponents}
                   title="Revenue Segments"
                   formatValue={(v) => `$${v.toFixed(2)}`}
@@ -141,7 +164,7 @@ export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
             <div>
               <span className="text-sm text-gray-600">Expected Revenue per User:</span>
               <span className="ml-2 font-mono font-semibold">
-                ${posterior.expectedValuePerUser().toFixed(2)}
+                ${(decomposition.frequency.mean()[0] * decomposition.severity.mean()[0]).toFixed(2)}
               </span>
             </div>
           </div>
@@ -159,22 +182,22 @@ export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
     <div className="space-y-4">
       {/* Show mixture components if available */}
       {mixtureComponents && mixtureComponents.length > 1 && (
-        <MixtureComponentViz 
+        <MixtureComponentViz
           components={mixtureComponents}
           title="Mixture Components"
           formatValue={modelType?.includes('lognormal') ? (v) => `$${v.toFixed(2)}` : undefined}
         />
       )}
-      
+
       {/* Main statistics */}
       <div className="grid grid-cols-2 gap-4">
         {means.map((mean: number, idx: number) => (
           <div key={`mean-${idx}`} className="bg-gray-50 p-3 rounded">
             <div className="text-sm text-gray-600">
-              {mixtureComponents && mixtureComponents.length > 1 
-                ? 'Overall Mean' 
-                : means.length > 1 
-                  ? `Parameter ${idx + 1}` 
+              {mixtureComponents && mixtureComponents.length > 1
+                ? 'Overall Mean'
+                : means.length > 1
+                  ? `Parameter ${idx + 1}`
                   : 'Mean'}
             </div>
             <div className="font-mono text-lg">{formatValue(mean)}</div>
@@ -204,10 +227,8 @@ export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
 
       {/* Model type info */}
       {modelType && (
-        <div className="text-xs text-gray-500 border-t pt-2">
-          Model: {MODEL_DESCRIPTIONS[modelType as ModelType]?.name || modelType}
-        </div>
+        <div className="text-xs text-gray-500 border-t pt-2">Model: {getModelName(modelType)}</div>
       )}
     </div>
   );
-}; 
+};

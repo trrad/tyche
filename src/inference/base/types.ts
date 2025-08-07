@@ -16,6 +16,25 @@ export interface Distribution {
 }
 
 /**
+ * Compound posterior interface from InterfaceStandards.md
+ * Represents joint distributions (e.g., revenue = frequency × severity)
+ */
+export interface CompoundPosterior extends Posterior {
+  // Access to component posteriors for decomposition analysis
+  getDecomposition(): {
+    frequency: Posterior; // Beta posterior for conversion
+    severity: Posterior; // Value posterior for when converted
+  };
+
+  // Optional method to get severity components if it's a mixture
+  getSeverityComponents?(): Array<{
+    mean: number;
+    variance: number;
+    weight: number;
+  }> | null;
+}
+
+/**
  * Base interface for posterior distributions with hybrid capabilities
  * Prepares for task 1.4 - supporting both sample-based and analytical methods
  */
@@ -153,6 +172,9 @@ export interface FitOptions {
   verbose?: boolean;
   seed?: number;
   onProgress?: (progress: FitProgress) => void;
+
+  /** Force a specific model configuration, overriding automatic selection */
+  forceConfig?: ModelConfig;
 }
 
 /**

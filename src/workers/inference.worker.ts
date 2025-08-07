@@ -1,405 +1,333 @@
-import { InferenceEngine } from '../inference/InferenceEngine';
-import type { ModelType } from '../inference/InferenceEngine';
-import type { DataInput, CompoundDataInput, FitOptions } from '../inference/base/types';
+/**
+ * Inference Worker - handles computationally intensive inference algorithms
+ *
+ * Following the worker contract from InterfaceStandards.md:
+ * - Workers operate only on primitive types and plain objects
+ * - No class instances cross worker boundaries
+ * - All posterior construction happens in main thread
+ *
+ * Used for:
+ * - EM algorithms (when data is large)
+ * - Future VBEM implementation
+ * - Future MCMC/HMC samplers
+ * - Bootstrap operations
+ * - Power analysis simulations
+ */
 
-const inferenceEngine = new InferenceEngine();
-
-// Store posteriors with their metadata
-interface StoredPosterior {
-  posterior: any;
-  type: string;
-  created: number;
-  lastAccessed: number;
+// Worker message types following the spec
+interface WorkerMessage<T = any> {
+  id: string;
+  type: 'execute' | 'result' | 'error' | 'progress';
+  operation?: string;
+  payload: T;
 }
 
-const posteriorStore = new Map<string, StoredPosterior>();
+interface WorkerProgress {
+  operation: string;
+  current: number;
+  total: number;
+  message?: string;
+}
 
-// Message types
-type WorkerRequest = 
-  | { id: string; type: 'fit'; payload: { modelType: ModelType; data: DataInput | CompoundDataInput; options?: FitOptions } }
-  | { id: string; type: 'sample'; payload: { posteriorId: string; n: number } }
-  | { id: string; type: 'mean'; payload: { posteriorId: string } }
-  | { id: string; type: 'variance'; payload: { posteriorId: string } }
-  | { id: string; type: 'credibleInterval'; payload: { posteriorId: string; level: number } }
-  | { id: string; type: 'getComponents'; payload: { posteriorId: string } }
-  | { id: string; type: 'getWaicInfo'; payload: { posteriorId: string } }
-  | { id: string; type: 'clear'; payload: { posteriorId: string } }
-  | { id: string; type: 'clearAll'; payload?: never }
-  | { id: string; type: 'getStats'; payload: { posteriorId: string } }
-  | { id: string; type: 'logPdf'; payload: { posteriorId: string; data: any } }
-  | { id: string; type: 'logPdfBatch'; payload: { posteriorId: string; dataArray: any[] } };
+// Parameter types for different algorithms
+interface EMParameters {
+  data: number[];
+  components: number;
+  initialMeans: number[];
+  initialStds: number[];
+  initialWeights: number[];
+  maxIterations: number;
+  tolerance: number;
+  modelType?: 'normal' | 'lognormal';
+}
 
-type WorkerResponse = 
-  | { id: string; type: 'result'; payload: { 
-      posteriorIds: any; 
-      diagnostics: any; 
-      summary: any;
-      waicInfo?: any;
-      routeInfo?: any;
-    } }
-  | { id: string; type: 'progress'; payload: any }
-  | { id: string; type: 'samples'; payload: number[] }
-  | { id: string; type: 'mean'; payload: number[] }
-  | { id: string; type: 'variance'; payload: number[] }
-  | { id: string; type: 'credibleInterval'; payload: Array<[number, number]> }
-  | { id: string; type: 'components'; payload: any }
-  | { id: string; type: 'waicInfo'; payload: any }
-  | { id: string; type: 'stats'; payload: any }
-  | { id: string; type: 'logPdf'; payload: number }
-  | { id: string; type: 'logPdfBatch'; payload: number[] }
-  | { id: string; type: 'error'; payload: string };
+interface EMResult {
+  components: Array<{
+    mu: number;
+    sigma: number;
+    weight: number;
+  }>;
+  converged: boolean;
+  iterations: number;
+  logLikelihood: number;
+}
 
-self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
-  console.log('🟡 [A] Worker received message');
-  const { id, type, payload } = event.data;
+// Future VBEM parameters (placeholder)
+interface VBEMParameters {
+  data: number[];
+  priorAlpha?: number;
+  priorBeta?: number;
+  maxIterations: number;
+  tolerance: number;
+}
+
+interface VBEMResult {
+  // Variational parameters
+  alpha: number;
+  beta: number;
+  converged: boolean;
+  iterations: number;
+  elbo: number; // Evidence lower bound
+}
+
+// Bootstrap parameters
+interface BootstrapParameters {
+  data: number[];
+  statistic: 'mean' | 'median' | 'quantile';
+  nBootstrap: number;
+  confidenceLevel: number;
+  quantile?: number;
+}
+
+interface BootstrapResult {
+  estimate: number;
+  confidenceInterval: [number, number];
+  bootstrapSamples: number[];
+}
+
+// EM Algorithm implementation for Normal mixture
+async function runNormalEM(params: EMParameters): Promise<EMResult> {
+  const { data, components, initialMeans, initialStds, initialWeights, maxIterations, tolerance } =
+    params;
+
+  // Initialize parameters
+  let means = [...initialMeans];
+  let stds = [...initialStds];
+  let weights = [...initialWeights];
+
+  let converged = false;
+  let iterations = 0;
+  let logLikelihood = -Infinity;
+  let prevLogLikelihood = -Infinity;
+
+  // Main EM loop
+  while (iterations < maxIterations && !converged) {
+    // E-step: Calculate responsibilities
+    const responsibilities: number[][] = [];
+    let newLogLikelihood = 0;
+
+    for (let i = 0; i < data.length; i++) {
+      const resp: number[] = [];
+      let totalDensity = 0;
+
+      // Calculate densities for each component
+      for (let k = 0; k < components; k++) {
+        const density = weights[k] * normalPdf(data[i], means[k], stds[k]);
+        resp[k] = density;
+        totalDensity += density;
+      }
+
+      // Normalize responsibilities
+      for (let k = 0; k < components; k++) {
+        resp[k] /= totalDensity;
+      }
+
+      responsibilities.push(resp);
+      newLogLikelihood += Math.log(totalDensity);
+    }
+
+    // M-step: Update parameters
+    for (let k = 0; k < components; k++) {
+      let weightSum = 0;
+      let meanSum = 0;
+      let varSum = 0;
+
+      for (let i = 0; i < data.length; i++) {
+        const r = responsibilities[i][k];
+        weightSum += r;
+        meanSum += r * data[i];
+      }
+
+      means[k] = meanSum / weightSum;
+
+      for (let i = 0; i < data.length; i++) {
+        const r = responsibilities[i][k];
+        varSum += r * Math.pow(data[i] - means[k], 2);
+      }
+
+      stds[k] = Math.sqrt(varSum / weightSum);
+      weights[k] = weightSum / data.length;
+    }
+
+    // Check convergence
+    if (Math.abs(newLogLikelihood - prevLogLikelihood) < tolerance) {
+      converged = true;
+    }
+
+    prevLogLikelihood = newLogLikelihood;
+    logLikelihood = newLogLikelihood;
+    iterations++;
+
+    // Report progress every 10 iterations
+    if (iterations % 10 === 0) {
+      self.postMessage({
+        id: 'progress',
+        type: 'progress',
+        payload: {
+          operation: 'em',
+          current: iterations,
+          total: maxIterations,
+          message: `EM iteration ${iterations}, log-likelihood: ${logLikelihood.toFixed(2)}`,
+        },
+      } as WorkerMessage<WorkerProgress>);
+    }
+  }
+
+  return {
+    components: means.map((mu, k) => ({
+      mu: means[k],
+      sigma: stds[k],
+      weight: weights[k],
+    })),
+    converged,
+    iterations,
+    logLikelihood,
+  };
+}
+
+// EM Algorithm implementation for LogNormal mixture
+async function runLogNormalEM(params: EMParameters): Promise<EMResult> {
+  // Transform to log space and run normal EM
+  const logData = params.data.map((x) => Math.log(x));
+  const result = await runNormalEM({
+    ...params,
+    data: logData,
+  });
+
+  // Results are already in log-space (mu, sigma for LogNormal)
+  return result;
+}
+
+// Helper: Normal PDF
+function normalPdf(x: number, mu: number, sigma: number): number {
+  const z = (x - mu) / sigma;
+  return Math.exp(-0.5 * z * z) / (sigma * Math.sqrt(2 * Math.PI));
+}
+
+// Bootstrap implementation
+async function runBootstrap(params: BootstrapParameters): Promise<BootstrapResult> {
+  const { data, statistic, nBootstrap, confidenceLevel, quantile } = params;
+  const n = data.length;
+  const bootstrapSamples: number[] = [];
+
+  // Calculate statistic function
+  const calculateStat = (sample: number[]): number => {
+    switch (statistic) {
+      case 'mean':
+        return sample.reduce((a, b) => a + b, 0) / sample.length;
+      case 'median':
+        const sorted = [...sample].sort((a, b) => a - b);
+        return sorted[Math.floor(sorted.length / 2)];
+      case 'quantile':
+        const sorted2 = [...sample].sort((a, b) => a - b);
+        const idx = Math.floor(sorted2.length * (quantile || 0.5));
+        return sorted2[idx];
+      default:
+        throw new Error(`Unknown statistic: ${statistic}`);
+    }
+  };
+
+  // Original estimate
+  const estimate = calculateStat(data);
+
+  // Bootstrap samples
+  for (let b = 0; b < nBootstrap; b++) {
+    const sample: number[] = [];
+
+    // Resample with replacement
+    for (let i = 0; i < n; i++) {
+      const idx = Math.floor(Math.random() * n);
+      sample.push(data[idx]);
+    }
+
+    bootstrapSamples.push(calculateStat(sample));
+
+    // Report progress
+    if (b % 100 === 0) {
+      self.postMessage({
+        id: 'progress',
+        type: 'progress',
+        payload: {
+          operation: 'bootstrap',
+          current: b,
+          total: nBootstrap,
+          message: `Bootstrap sample ${b}/${nBootstrap}`,
+        },
+      } as WorkerMessage<WorkerProgress>);
+    }
+  }
+
+  // Calculate confidence interval
+  bootstrapSamples.sort((a, b) => a - b);
+  const alpha = (1 - confidenceLevel) / 2;
+  const lowerIdx = Math.floor(nBootstrap * alpha);
+  const upperIdx = Math.floor(nBootstrap * (1 - alpha));
+
+  return {
+    estimate,
+    confidenceInterval: [bootstrapSamples[lowerIdx], bootstrapSamples[upperIdx]],
+    bootstrapSamples,
+  };
+}
+
+// Placeholder for future VBEM implementation
+async function runVBEM(params: VBEMParameters): Promise<VBEMResult> {
+  // TODO: Implement variational Bayes EM
+  throw new Error('VBEM not yet implemented');
+}
+
+// Message handler
+self.addEventListener('message', async (event: MessageEvent<WorkerMessage>) => {
+  const { id, type, operation, payload } = event.data;
+
+  if (type !== 'execute') {
+    self.postMessage({
+      id,
+      type: 'error',
+      payload: { message: 'Invalid message type' },
+    } as WorkerMessage);
+    return;
+  }
 
   try {
-    switch (type) {
-      case 'fit': {
-        console.log('🟡 [B] Starting inference');
-        const { modelType, data, options } = payload;
-        
-        // Run inference
-        const result = await inferenceEngine.fit(modelType, data, {
-          ...options,
-          onProgress: (progress) => {
-            self.postMessage({ id, type: 'progress', payload: progress });
-          }
-        });
-        
-        console.log('🟡 Worker result:', result);
-        console.log('🟡 Worker result keys:', Object.keys(result));
-        console.log('🟡 Worker result waicInfo:', (result as any).waicInfo);
-        console.log('🟡 Worker result routeInfo:', (result as any).routeInfo);
-        console.log('🟡 Worker result type:', typeof result);
-        console.log('🟡 Worker result constructor:', result.constructor?.name);
-        
-        // Store the posterior(s) and WAIC information
-        const posteriorIds = storePosteriorResult(id, result.posterior);
-        
-        // Compute summary statistics for immediate use
-        const summary = computePosteriorSummary(result.posterior);
-        
-        // Store WAIC information in the worker for later access
-        const waicInfo = (result as any).waicInfo;
-        const routeInfo = (result as any).routeInfo;
-        
-        if (waicInfo || routeInfo) {
-          // Store WAIC info with the posterior for later access
-          const storedPosterior = posteriorStore.get(posteriorIds.id || posteriorIds.frequency);
-          if (storedPosterior) {
-            (storedPosterior as any).waicInfo = waicInfo;
-            (storedPosterior as any).routeInfo = routeInfo;
-          }
-        }
-        
-        console.log('🟡 [C] Inference complete');
-        console.log('🟡 [D] About to send result');
-        self.postMessage({ 
-          id, 
-          type: 'result', 
-          payload: {
-            posteriorIds,
-            diagnostics: result.diagnostics,
-            summary,
-            waicInfo,
-            routeInfo
-          }
-        });
-        break;
-      }
-      
-      case 'sample': {
-        const { posteriorId, n } = payload;
-        const stored = posteriorStore.get(posteriorId);
-        
-        if (!stored) {
-          throw new Error(`Posterior ${posteriorId} not found`);
-        }
-        
-        stored.lastAccessed = Date.now();
-        
-        // Generate samples in batches to avoid blocking
-        const samples: number[] = [];
-        const batchSize = Math.min(n, 10000);
-        
-        for (let i = 0; i < n; i += batchSize) {
-          const currentBatch = Math.min(batchSize, n - i);
-          for (let j = 0; j < currentBatch; j++) {
-            samples.push(stored.posterior.sample(1)[0]);
-          }
-          
-          // Yield to message queue periodically
-          if (i + batchSize < n) {
-            await new Promise(resolve => setTimeout(resolve, 0));
-          }
-        }
-        
-        self.postMessage({ id, type: 'samples', payload: samples });
-        break;
-      }
-      
-      case 'mean': {
-        const { posteriorId } = payload;
-        const stored = posteriorStore.get(posteriorId);
-        
-        if (!stored) {
-          throw new Error(`Posterior ${posteriorId} not found`);
-        }
-        
-        stored.lastAccessed = Date.now();
-        self.postMessage({ 
-          id, 
-          type: 'mean', 
-          payload: stored.posterior.mean() 
-        });
-        break;
-      }
-      
-      case 'variance': {
-        const { posteriorId } = payload;
-        const stored = posteriorStore.get(posteriorId);
-        
-        if (!stored) {
-          throw new Error(`Posterior ${posteriorId} not found`);
-        }
-        
-        stored.lastAccessed = Date.now();
-        const variance = stored.posterior.variance ? 
-          stored.posterior.variance() : 
-          estimateVariance(stored.posterior);
-        
-        self.postMessage({ id, type: 'variance', payload: variance });
-        break;
-      }
-      
-      case 'credibleInterval': {
-        const { posteriorId, level } = payload;
-        const stored = posteriorStore.get(posteriorId);
-        
-        if (!stored) {
-          throw new Error(`Posterior ${posteriorId} not found`);
-        }
-        
-        stored.lastAccessed = Date.now();
-        self.postMessage({ 
-          id, 
-          type: 'credibleInterval', 
-          payload: stored.posterior.credibleInterval(level) 
-        });
-        break;
-      }
-      
-      case 'getComponents': {
-        const { posteriorId } = payload;
-        const stored = posteriorStore.get(posteriorId);
-        
-        if (!stored) {
-          throw new Error(`Posterior ${posteriorId} not found`);
-        }
-        
-        stored.lastAccessed = Date.now();
-        
-        // Check if posterior has getComponents method
-        if ('getComponents' in stored.posterior && typeof stored.posterior.getComponents === 'function') {
-          const components = stored.posterior.getComponents();
-          self.postMessage({ id, type: 'components', payload: components });
-        } else {
-          // Not a mixture posterior
-          self.postMessage({ id, type: 'components', payload: null });
-        }
-        break;
-      }
-      
-      case 'getWaicInfo': {
-        const { posteriorId } = payload;
-        const stored = posteriorStore.get(posteriorId);
-        
-        if (!stored) {
-          throw new Error(`Posterior ${posteriorId} not found`);
-        }
-        
-        stored.lastAccessed = Date.now();
-        
-        const waicInfo = (stored as any).waicInfo;
-        const routeInfo = (stored as any).routeInfo;
-        
-        self.postMessage({ 
-          id, 
-          type: 'waicInfo', 
-          payload: { waicInfo, routeInfo } 
-        });
-        break;
-      }
-      
-      case 'getStats': {
-        const { posteriorId } = payload;
-        const stored = posteriorStore.get(posteriorId);
-        
-        if (!stored) {
-          throw new Error(`Posterior ${posteriorId} not found`);
-        }
-        
-        stored.lastAccessed = Date.now();
-        const stats = computePosteriorSummary(stored.posterior);
-        
-        self.postMessage({ id, type: 'stats', payload: stats });
-        break;
-      }
-      
-      case 'logPdf': {
-        const { posteriorId, data } = payload;
-        const stored = posteriorStore.get(posteriorId);
-        if (!stored) {
-          throw new Error(`Posterior ${posteriorId} not found`);
-        }
-        // Check if posterior has logPdf method
-        if ('logPdf' in stored.posterior && typeof stored.posterior.logPdf === 'function') {
-          const logProb = stored.posterior.logPdf(data);
-          self.postMessage({ id, type: 'logPdf', payload: logProb });
-        } else {
-          throw new Error(`Posterior ${stored.type} does not implement logPdf`);
-        }
-        break;
-      }
+    let result: any;
 
-      case 'logPdfBatch': {
-        const { posteriorId, dataArray } = payload;
-        const stored = posteriorStore.get(posteriorId);
-        if (!stored) {
-          throw new Error(`Posterior ${posteriorId} not found`);
-        }
-        if ('logPdf' in stored.posterior && typeof stored.posterior.logPdf === 'function') {
-          const logProbs = dataArray.map(data => stored.posterior.logPdf(data));
-          self.postMessage({ id, type: 'logPdfBatch', payload: logProbs });
-        } else {
-          throw new Error(`Posterior ${stored.type} does not implement logPdf`);
-        }
+    switch (operation) {
+      case 'em-normal':
+        result = await runNormalEM(payload as EMParameters);
         break;
-      }
-      
-      case 'clear': {
-        const { posteriorId } = payload;
-        posteriorStore.delete(posteriorId);
-        self.postMessage({ id, type: 'cleared', payload: { posteriorId } });
+
+      case 'em-lognormal':
+        result = await runLogNormalEM(payload as EMParameters);
         break;
-      }
-      
-      case 'clearAll': {
-        posteriorStore.clear();
-        self.postMessage({ id, type: 'cleared', payload: { all: true } });
+
+      case 'bootstrap':
+        result = await runBootstrap(payload as BootstrapParameters);
         break;
-      }
+
+      case 'vbem':
+        result = await runVBEM(payload as VBEMParameters);
+        break;
+
+      default:
+        throw new Error(`Unsupported operation: ${operation}`);
     }
-  } catch (error: any) {
-    self.postMessage({ 
-      id, 
-      type: 'error', 
-      payload: { 
-        message: error.message,
-        stack: error.stack 
-      } 
-    });
-  }
-};
 
-// Helper functions
-function storePosteriorResult(requestId: string, posterior: any): any {
-  // Handle compound posteriors
-  if ('frequency' in posterior && 'severity' in posterior) {
-    const freqId = `${requestId}-frequency`;
-    const sevId = `${requestId}-severity`;
-    
-    posteriorStore.set(freqId, {
-      posterior: posterior.frequency,
-      type: 'frequency',
-      created: Date.now(),
-      lastAccessed: Date.now()
-    });
-    
-    posteriorStore.set(sevId, {
-      posterior: posterior.severity,
-      type: 'severity',
-      created: Date.now(),
-      lastAccessed: Date.now()
-    });
-    
-    return {
-      type: 'compound',
-      frequency: freqId,
-      severity: sevId
-    };
+    self.postMessage({
+      id,
+      type: 'result',
+      payload: result,
+    } as WorkerMessage);
+  } catch (error) {
+    self.postMessage({
+      id,
+      type: 'error',
+      payload: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      },
+    } as WorkerMessage);
   }
-  
-  // Simple posterior
-  const posteriorId = `${requestId}-posterior`;
-  posteriorStore.set(posteriorId, {
-    posterior,
-    type: 'simple',
-    created: Date.now(),
-    lastAccessed: Date.now()
-  });
-  
-  return {
-    type: 'simple',
-    id: posteriorId
-  };
-}
+});
 
-function computePosteriorSummary(posterior: any): any {
-  // Handle compound posteriors
-  if ('frequency' in posterior && 'severity' in posterior) {
-    return {
-      type: 'compound',
-      frequency: computePosteriorSummary(posterior.frequency),
-      severity: computePosteriorSummary(posterior.severity),
-      expectedValuePerUser: posterior.expectedValuePerUser ? 
-        posterior.expectedValuePerUser() : 
-        posterior.frequency.mean()[0] * posterior.severity.mean()[0]
-    };
-  }
-  
-  // Simple posterior
-  const summary: any = {
-    type: 'simple',
-    mean: posterior.mean(),
-    variance: posterior.variance ? posterior.variance() : null,
-    ci95: posterior.credibleInterval(0.95),
-    ci90: posterior.credibleInterval(0.90),
-    ci80: posterior.credibleInterval(0.80)
-  };
-  
-  // NEW: Add components if available
-  if ('getComponents' in posterior && typeof posterior.getComponents === 'function') {
-    summary.components = posterior.getComponents();
-    summary.numComponents = summary.components.length;
-  }
-  
-  return summary;
-}
-
-function estimateVariance(posterior: any): number[] {
-  // If posterior doesn't have variance method, estimate from samples
-  const samples: number[] = [];
-  for (let i = 0; i < 1000; i++) {
-            samples.push(posterior.sample(1)[0]);
-  }
-  
-  const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
-  const variance = samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / samples.length;
-  
-  return [variance];
-}
-
-// Optional: Clean up old posteriors periodically
-setInterval(() => {
-  const now = Date.now();
-  const maxAge = 30 * 60 * 1000; // 30 minutes
-  
-  for (const [id, stored] of posteriorStore.entries()) {
-    if (now - stored.lastAccessed > maxAge) {
-      posteriorStore.delete(id);
-      console.log(`Cleaned up old posterior: ${id}`);
-    }
-  }
-}, 60 * 1000); // Check every minute 
+export {}; // Make this a module
