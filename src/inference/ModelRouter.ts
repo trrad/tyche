@@ -38,6 +38,19 @@ export class ModelRouter {
   static async route(data: StandardData, fitOptions?: FitOptions): Promise<ModelRouteResult> {
     const reasoning: string[] = [];
 
+    // Check if user provided a forced configuration
+    if (fitOptions?.forceConfig) {
+      reasoning.push('Using user-specified model configuration');
+      const engine = await this.selectEngine(fitOptions.forceConfig);
+
+      return {
+        config: fitOptions.forceConfig,
+        engine,
+        confidence: 1.0, // User knows what they want
+        reasoning,
+      };
+    }
+
     // Route based on data type
     if (isBinomialData(data)) {
       return this.routeBinomial(data, reasoning);

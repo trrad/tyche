@@ -51,8 +51,5 @@ export {
 // Data structures
 export * from './core/data';
 
-// Model implementations
-export * from './models';
-
 // Version
 export const VERSION = '0.1.0';

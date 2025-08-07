@@ -43,8 +43,7 @@ export class LogNormalMixturePosterior implements Posterior {
     private readonly components: LogNormalComponent[],
     private readonly sampleSize: number
   ) {
-    // Pre-cache samples for synchronous mean/variance/credibleInterval
-    this.ensureSamples();
+    // Don't pre-cache samples - components might not be fully initialized yet
   }
 
   /**
@@ -94,6 +93,9 @@ export class LogNormalMixturePosterior implements Posterior {
    * Sample from the mixture distribution
    */
   sample(n: number = 1): number[] {
+    // Ensure we have samples
+    this.ensureSamples(n);
+
     // Use cached samples if we have enough
     if (this.cachedSamples && n <= this.cachedSamples.length) {
       // Return random subset to avoid bias

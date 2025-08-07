@@ -12,19 +12,19 @@ interface UseDistributionStatesOptions {
 
 export function useDistributionStates({
   distributions,
-  nSamples = 10000,  // Default to 10k samples - it's fast!
+  nSamples = 10000, // Default to 10k samples - it's fast!
   cacheSamples = true,
-  adaptiveSampling = false  // Usually not needed with 10k default
+  adaptiveSampling = false, // Usually not needed with 10k default
 }: UseDistributionStatesOptions): DistributionState[] {
   const [states, setStates] = useState<Map<string, DistributionState>>(new Map());
   const sampleCache = useRef<Map<string, number[]>>(new Map());
   const generationId = useRef(0);
-  
+
   // Initialize states for all distributions
   useEffect(() => {
     const newStates = new Map<string, DistributionState>();
-    
-    distributions.forEach(dist => {
+
+    distributions.forEach((dist) => {
       const existing = states.get(dist.id);
       newStates.set(dist.id, {
         ...dist,
@@ -34,63 +34,61 @@ export function useDistributionStates({
         progress: 0,
         stats: existing?.stats,
         kde: existing?.kde,
-        histogram: existing?.histogram
+        histogram: existing?.histogram,
       });
     });
-    
+
     setStates(newStates);
     generationId.current++;
   }, [distributions]);
-  
+
   // Generate samples for distributions with posteriors
   useEffect(() => {
     const currentGenId = generationId.current;
-    
+
     distributions.forEach(async (dist) => {
       if (dist.samples || !dist.posterior) return;
-      
+
       // Check cache
       if (cacheSamples && sampleCache.current.has(dist.id)) {
         const cachedSamples = sampleCache.current.get(dist.id)!;
         updateDistState(dist.id, {
           samples: cachedSamples,
           loading: false,
-          progress: 100
+          progress: 100,
         });
         return;
       }
-      
+
       try {
         // Start loading
         updateDistState(dist.id, { loading: true, progress: 0 });
-        
+
         // Determine sample size
-        const effectiveNSamples = adaptiveSampling 
+        const effectiveNSamples = adaptiveSampling
           ? getAdaptiveSampleSize(dist, nSamples)
           : nSamples;
-        
+
         // Generate samples
         let samples: number[];
-        
+
         // Check if the posterior exists
         if (!dist.posterior) {
           throw new Error(`Distribution ${dist.id} does not have a posterior`);
         }
-        
-        // Special handling for compound proxy posteriors
-        if ((dist.posterior as any).__isCompoundProxy) {
-          const compound = dist.posterior as any;
-          
-          // For revenue distributions, sample from both components
-          if (dist.label?.toLowerCase().includes('revenue')) {
-            const [freqSamples, sevSamples] = await Promise.all([
-              compound.frequency.sample(effectiveNSamples),
-              compound.severity.sample(effectiveNSamples)
-            ]);
-            samples = freqSamples.map((f: number, i: number) => f * sevSamples[i]);
-          } else {
-            throw new Error('Cannot sample from compound posterior directly. Use frequency or severity components.');
-          }
+
+        // Check if it's a CompoundPosterior (has getDecomposition method)
+        if (
+          (dist.posterior as any).getDecomposition &&
+          typeof (dist.posterior as any).getDecomposition === 'function'
+        ) {
+          // This is a CompoundPosterior - it has its own sample method that properly
+          // handles the joint distribution (frequency × severity with zero-inflation)
+          const result = dist.posterior.sample(effectiveNSamples);
+          samples = result instanceof Promise ? await result : result;
+        } else if ((dist.posterior as any).__isCompoundProxy) {
+          // Legacy CompoundPosteriorProxy handling - to be removed after worker migration
+          throw new Error('CompoundPosteriorProxy is deprecated. Use CompoundPosterior directly.');
         } else if (dist.posterior instanceof PosteriorProxy) {
           // Regular proxy posterior
           samples = await dist.posterior.sample(effectiveNSamples);
@@ -102,69 +100,66 @@ export function useDistributionStates({
           // Sync posterior - generate in batches
           samples = [];
           const batchSize = 1000;
-          
+
           for (let i = 0; i < effectiveNSamples; i += batchSize) {
             if (currentGenId !== generationId.current) return; // Cancelled
-            
+
             const batch = Math.min(batchSize, effectiveNSamples - i);
-            for (let j = 0; j < batch; j++) {
-              const sampleResult = dist.posterior.sample(1);
-              
-              // Handle compound posteriors that return [convRate, value, revenue]
-              if (Array.isArray(sampleResult) && sampleResult.length === 3) {
-                // For compound posteriors showing revenue, use the 3rd element (revenue per user)
-                samples.push(sampleResult[2]);
-              } else if (Array.isArray(sampleResult)) {
-                // Regular posteriors return array with single element
-                samples.push(sampleResult[0]);
-              } else {
-                // Fallback for any other format
-                samples.push(sampleResult);
-              }
+            // Get samples in batch for efficiency
+            const batchSamples = dist.posterior.sample(batch);
+
+            // Handle both sync and async results
+            const resolvedSamples =
+              batchSamples instanceof Promise ? await batchSamples : batchSamples;
+
+            // Add samples to array
+            if (Array.isArray(resolvedSamples)) {
+              samples.push(...resolvedSamples);
+            } else {
+              samples.push(resolvedSamples);
             }
-            
+
             // Update progress
-            const progress = Math.min(99, (i + batch) / effectiveNSamples * 100);
+            const progress = Math.min(99, ((i + batch) / effectiveNSamples) * 100);
             updateDistState(dist.id, { progress });
-            
+
             // Yield to UI
-            await new Promise(resolve => setTimeout(resolve, 0));
+            await new Promise((resolve) => setTimeout(resolve, 0));
           }
         }
-        
+
         if (currentGenId !== generationId.current) return; // Cancelled
-        
+
         // Cache samples
         if (cacheSamples) {
           sampleCache.current.set(dist.id, samples);
         }
-        
+
         // Calculate statistics
         const stats = calculateStats(samples);
-        
+
         // Update state
         updateDistState(dist.id, {
           samples,
           stats,
           loading: false,
           progress: 100,
-          error: null
+          error: null,
         });
-        
       } catch (err) {
         if (currentGenId !== generationId.current) return; // Cancelled
-        
+
         updateDistState(dist.id, {
           loading: false,
-          error: err instanceof Error ? err.message : String(err)
+          error: err instanceof Error ? err.message : String(err),
         });
       }
     });
   }, [distributions, nSamples, cacheSamples, adaptiveSampling]);
-  
+
   // Helper to update a distribution's state
   function updateDistState(id: string, updates: Partial<DistributionState>) {
-    setStates(prev => {
+    setStates((prev) => {
       const newStates = new Map(prev);
       const existing = newStates.get(id);
       if (existing) {
@@ -173,11 +168,11 @@ export function useDistributionStates({
       return newStates;
     });
   }
-  
+
   // Convert map to array in distribution order
   return useMemo(() => {
     return distributions
-      .map(d => states.get(d.id))
+      .map((d) => states.get(d.id))
       .filter((s): s is DistributionState => s !== undefined);
   }, [distributions, states]);
 }
@@ -186,14 +181,14 @@ export function useDistributionStates({
 function calculateStats(samples: number[]) {
   const sorted = [...samples].sort((a, b) => a - b);
   const n = sorted.length;
-  
+
   const mean = samples.reduce((sum, x) => sum + x, 0) / n;
   const variance = samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / (n - 1);
   const std = Math.sqrt(variance);
-  
+
   // Calculate multiple quantiles for flexible uncertainty visualization
   const quantile = (q: number) => sorted[Math.floor(n * q)];
-  
+
   return {
     mean,
     median: quantile(0.5),
@@ -212,10 +207,10 @@ function calculateStats(samples: number[]) {
       q75: quantile(0.75),
       q90: quantile(0.9),
       q95: quantile(0.95),
-      q99: quantile(0.99)
+      q99: quantile(0.99),
     },
     min: sorted[0],
-    max: sorted[n - 1]
+    max: sorted[n - 1],
   };
 }
 
@@ -226,4 +221,4 @@ function getAdaptiveSampleSize(dist: Distribution, baseSamples: number): number 
     return Math.min(baseSamples, 2000); // Less samples for observed
   }
   return baseSamples;
-} 
+}
