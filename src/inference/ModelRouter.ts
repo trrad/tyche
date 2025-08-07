@@ -261,27 +261,39 @@ export class ModelRouter {
    * TODO: This will be replaced by proper engine selection once Phase 1 is complete
    */
   private static async selectEngine(config: ModelConfig): Promise<InferenceEngine> {
-    // Placeholder - will use bridge pattern to legacy engines
-    // This maintains compatibility until Phase 1 engine updates are complete
+    try {
+      // Centralized engine imports with error handling
+      const engineModules = await Promise.all([
+        import('./exact/BetaBinomial').catch(() => null),
+        import('./exact/LogNormalInference').catch(() => null),
+        import('./exact/NormalNormal').catch(() => null),
+      ]);
 
-    if (config.structure === 'simple' && config.type === 'beta') {
-      const { BetaBinomialConjugate } = await import('./exact/BetaBinomial');
-      return new BetaBinomialConjugate();
+      const [betaBinomialModule, logNormalModule, normalModule] = engineModules;
+
+      // Engine selection logic with fallback
+      if (config.structure === 'simple' && config.type === 'beta' && betaBinomialModule) {
+        return new betaBinomialModule.BetaBinomialConjugate();
+      }
+
+      if (config.structure === 'simple' && config.type === 'lognormal' && logNormalModule) {
+        return new logNormalModule.LogNormalInference();
+      }
+
+      if (config.structure === 'simple' && config.type === 'normal' && normalModule) {
+        return new normalModule.NormalNormalConjugate();
+      }
+
+      // Fallback to LogNormal if available, otherwise throw error
+      if (logNormalModule) {
+        return new logNormalModule.LogNormalInference();
+      }
+
+      throw new Error('No suitable inference engine available');
+    } catch (error) {
+      console.warn('Engine import failed:', error);
+      throw new Error(`Failed to load inference engine for config: ${JSON.stringify(config)}`);
     }
-
-    if (config.structure === 'simple' && config.type === 'lognormal') {
-      const { LogNormalInference } = await import('./exact/LogNormalInference');
-      return new LogNormalInference();
-    }
-
-    if (config.structure === 'simple' && config.type === 'normal') {
-      const { NormalNormalConjugate } = await import('./exact/NormalNormal');
-      return new NormalNormalConjugate();
-    }
-
-    // Fallback
-    const { LogNormalInference } = await import('./exact/LogNormalInference');
-    return new LogNormalInference();
   }
 
   // =============================================================================

@@ -16,19 +16,29 @@ export interface Distribution {
 }
 
 /**
- * Base interface for posterior distributions with consistent API
+ * Base interface for posterior distributions with hybrid capabilities
+ * Prepares for task 1.4 - supporting both sample-based and analytical methods
  */
 export interface Posterior {
-  /** Get the posterior mean(s) */
-  mean(): number[];
-  /** Get the posterior variance(s) */
-  variance(): number[];
+  // Required: sample-based interface (always available)
   /** Sample from the posterior - returns array for consistency */
-  sample(n?: number): number[];
+  sample(n?: number): number[] | Promise<number[]>;
+
+  // Optional: analytical methods (only when tractable - for task 1.4)
+  /** Get the posterior mean(s) - analytical when available, sample-based otherwise */
+  mean?(): number[] | Promise<number[]>;
+  /** Get the posterior variance(s) - analytical when available, sample-based otherwise */
+  variance?(): number[] | Promise<number[]>;
   /** Get credible interval(s) at specified level */
-  credibleInterval(level: number): Array<[number, number]>;
+  credibleInterval?(level: number): Array<[number, number]> | Promise<Array<[number, number]>>;
   /** Log probability density/mass function for WAIC and model selection */
-  logPdf(data: any): number;
+  logPdf?(data: any): number | Promise<number>;
+  /** Batch log PDF computation for efficiency */
+  logPdfBatch?(x: number[]): number[] | Promise<number[]>;
+
+  // Required: capability detection for routing (task 1.4)
+  /** Returns true if this posterior has analytical forms available */
+  hasAnalyticalForm(): boolean;
 }
 
 /**
