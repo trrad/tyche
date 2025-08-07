@@ -33,7 +33,8 @@ export class CompoundPosterior implements Posterior {
     private readonly severity: Posterior,
     private readonly sampleSize: number
   ) {
-    // Don't pre-cache samples - component posteriors might not be ready yet
+    // Pre-cache samples for synchronous operations
+    this.ensureSamples();
   }
 
   /**
