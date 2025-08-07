@@ -19,7 +19,7 @@ Genuine probabilistic understanding comes through interaction—not just reading
 - **Segment discovery**: Find who responds differently (HTE analysis, Causal Trees)
 - **Extensible**: Clean interfaces for custom models and priors, inspired by a mix of PyMC3, WebPPL and Edward
 
-*Stop throwing away the rich detail in your data to make a largely meaningless statment like p=0.03. Start asking what your data can teach you about the world you actually live in, and learn to reason correctly by accepting uncertainty as a fundemental part of belief*
+*Stop throwing away the rich detail in your data to make a largely meaningless statment like p=0.03. Start asking what your data can teach you about the world you actually live in, and about the complex patterns and dynamics in your conversion data.
 
 ## Quick Start
 
