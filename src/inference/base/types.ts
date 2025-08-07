@@ -57,32 +57,6 @@ export interface InferenceResult {
     runtime?: number;
     modelType?: string;
   };
-
-  // Enhanced metadata for standardized engines
-  metadata: {
-    algorithm: 'conjugate' | 'em' | 'vi' | 'mcmc';
-    computeTime: number;
-    warnings?: string[];
-
-    // Engine information
-    engineName: string;
-    engineCapabilities?: {
-      exact: boolean;
-      fast: boolean;
-      stable: boolean;
-    };
-
-    // Model configuration used
-    modelConfig?: ModelConfig;
-
-    // Data quality indicators used for routing
-    dataQuality?: {
-      hasZeros: boolean;
-      hasNegatives: boolean;
-      hasOutliers: boolean;
-      missingData: number;
-    };
-  };
 }
 
 /**
