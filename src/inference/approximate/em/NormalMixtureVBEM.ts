@@ -1,56 +1,47 @@
 /**
- * LogNormal Mixture Model using Variational Bayes EM (VBEM)
+ * Normal Mixture Model using Variational Bayes EM (VBEM)
  *
- * This replaces the dual-pathway approach with proper Bayesian treatment:
- * - Always uses LogNormalConjugate for component posteriors
- * - Dirichlet posterior for mixture weights
- * - Full ELBO-based convergence
- * - No point estimates anywhere
+ * Implements full Bayesian treatment for Normal mixtures:
+ * - Dirichlet prior on mixture weights
+ * - Normal-Inverse-Gamma conjugate priors on component parameters
+ * - ELBO-based convergence checking
  */
 
 import { MixtureEMBase, MixtureComponent } from './MixtureEMBase';
-import { EngineCapabilities } from '../../base/InferenceEngine';
+import { StandardData } from '../../../core/data/StandardData';
 import {
+  ModelConfig,
   FitOptions,
   InferenceResult,
   Posterior,
-  ModelConfig,
-  ModelStructure,
   ModelType,
+  ModelStructure,
 } from '../../base/types';
-import { StandardData, DataType } from '../../../core/data/StandardData';
+import { DataType } from '../../../core/data/StandardData';
+import { EngineCapabilities } from '../../base/InferenceEngine';
 import { TycheError, ErrorCode } from '../../../core/errors';
+import { NormalConjugate } from '../../exact/NormalConjugate';
 import { DirichletDistribution } from '../../../core/distributions/DirichletDistribution';
-import { LogNormalConjugate, LogNormalPosterior } from '../../exact/LogNormalConjugate';
+import { StandardDataFactory } from '../../../core/data/StandardData';
+import { NormalPosterior } from '../../exact/NormalConjugate';
 
 /**
- * Parameters for Normal-Inverse-Gamma prior
+ * Component type for Normal mixture models
  */
-interface NormalInverseGammaParams {
-  mu0: number;
-  lambda: number;
-  alpha: number;
-  beta: number;
+interface NormalMixtureComponent extends MixtureComponent {
+  posterior: NormalPosterior;
+  prior?: any; // NormalInverseGamma parameters
 }
 
 /**
- * LogNormal component with conjugate inference
+ * Posterior for Normal mixture model with full uncertainty
  */
-interface LogNormalMixtureComponent extends MixtureComponent {
-  posterior: LogNormalPosterior;
-  prior: NormalInverseGammaParams;
-  inference: LogNormalConjugate;
-}
-
-/**
- * Unified posterior for LogNormal mixture with weight uncertainty
- */
-export class LogNormalMixturePosterior implements Posterior {
+export class NormalMixturePosterior implements Posterior {
   private cachedSamples: number[] | null = null;
   private readonly defaultSampleSize: number = 10000;
 
   constructor(
-    private readonly components: LogNormalMixtureComponent[],
+    private readonly components: NormalMixtureComponent[],
     private readonly weightPosterior: DirichletDistribution,
     private readonly sampleSize: number
   ) {
@@ -69,7 +60,7 @@ export class LogNormalMixturePosterior implements Posterior {
   }
 
   /**
-   * Generate samples from the mixture with weight uncertainty
+   * Generate samples from the mixture with full uncertainty
    */
   private generateSamples(n: number): number[] {
     const samples: number[] = [];
@@ -78,7 +69,7 @@ export class LogNormalMixturePosterior implements Posterior {
       // Sample weights from Dirichlet posterior
       const weights = this.weightPosterior.sample(1)[0];
 
-      // Select component using sampled weights
+      // Sample component based on weights
       const u = Math.random();
       let cumWeight = 0;
       let selectedIdx = 0;
@@ -93,6 +84,9 @@ export class LogNormalMixturePosterior implements Posterior {
 
       // Sample from selected component's posterior
       const componentSample = this.components[selectedIdx].posterior.sample(1);
+      if (componentSample instanceof Promise) {
+        throw new Error('Async sampling not supported in mixture components');
+      }
       samples.push(componentSample[0]);
     }
 
@@ -124,7 +118,7 @@ export class LogNormalMixturePosterior implements Posterior {
     const expectedWeights = this.weightPosterior.mean();
 
     const mixtureMean = this.components.reduce((sum, comp, k) => {
-      const compMean = comp.posterior.mean();
+      const compMean = comp.posterior.mean!();
       return sum + expectedWeights[k] * compMean[0];
     }, 0);
 
@@ -242,15 +236,15 @@ export class LogNormalMixturePosterior implements Posterior {
 }
 
 /**
- * LogNormal mixture model using VBEM
+ * Normal mixture model using VBEM
  */
-export class LogNormalMixtureVBEM extends MixtureEMBase {
+export class NormalMixtureVBEM extends MixtureEMBase {
   /**
    * Declare capabilities for routing
    */
   readonly capabilities: EngineCapabilities = {
     structures: ['simple', 'compound'] as ModelStructure[],
-    types: ['lognormal'] as ModelType[],
+    types: ['normal'] as ModelType[],
     dataTypes: ['user-level'] as DataType[],
     components: [1, 2, 3, 4], // Support 1-4 components
     exact: false, // Approximate inference
@@ -264,103 +258,70 @@ export class LogNormalMixtureVBEM extends MixtureEMBase {
   readonly algorithm = 'vi' as const;
 
   constructor() {
-    super('LogNormal Mixture VBEM');
+    super('Normal Mixture VBEM');
   }
 
   /**
-   * Initialize components using k-means++ on log values
+   * Initialize components using k-means++ on the data
    */
   protected async initializeComponents(
     values: number[],
     numComponents: number,
     options?: FitOptions
-  ): Promise<LogNormalMixtureComponent[]> {
-    // Transform to log scale for clustering
-    const logValues = values.map((x) => Math.log(x));
-
+  ): Promise<NormalMixtureComponent[]> {
     // Use k-means++ initialization
-    const centers = this.kMeansPlusPlus(logValues, numComponents);
+    const centers = this.kMeansPlusPlus(values, numComponents);
 
-    // Initialize components
-    const components: LogNormalMixtureComponent[] = [];
+    // Initialize components around these centers
+    const components: NormalMixtureComponent[] = [];
 
     for (let i = 0; i < centers.length; i++) {
       // Get points closest to this center
-      const assignments = this.assignToCenters(logValues, centers);
+      const assignments = this.assignToCenters(values, centers);
       const clusterData = values.filter((_, j) => assignments[j] === i);
 
       if (clusterData.length === 0) {
         // Empty cluster, use center point
-        clusterData.push(Math.exp(centers[i]));
+        clusterData.push(centers[i]);
       }
 
-      // Create inference engine for this component
-      const inference = new LogNormalConjugate();
-
-      // Set up prior (weakly informative)
+      // Calculate cluster statistics for prior
       const clusterMean = clusterData.reduce((a, b) => a + b, 0) / clusterData.length;
-      const clusterLogMean = Math.log(clusterMean);
       const clusterVar =
         clusterData.length > 1
-          ? clusterData.reduce((sum, x) => sum + Math.pow(x - clusterMean, 2), 0) /
+          ? clusterData.reduce((sum, v) => sum + Math.pow(v - clusterMean, 2), 0) /
             clusterData.length
-          : 1;
+          : 1.0; // Default variance for single point
 
-      // Handle case where all values in cluster are identical
-      const clusterLogValues = clusterData.map((v) => Math.log(v));
-      const clusterLogVar =
-        clusterLogValues.length > 1
-          ? clusterLogValues.reduce((sum, logV, _, arr) => {
-              const logMean = arr.reduce((a, b) => a + b, 0) / arr.length;
-              return sum + Math.pow(logV - logMean, 2);
-            }, 0) / clusterLogValues.length
-          : 0;
-
-      const prior: NormalInverseGammaParams = {
-        mu0: clusterLogMean,
+      // Set Normal-Inverse-Gamma prior parameters
+      const prior = {
+        mu0: clusterMean,
         lambda: 1, // Weak confidence in prior mean
         alpha: 2, // Minimum for finite variance
-        beta: Math.max(0.1, clusterLogVar * 2), // Ensure positive, even for identical values
+        beta: Math.max(0.1, clusterVar * 2), // Ensure positive
       };
+
+      // Create conjugate engine for this component
+      const conjugate = new NormalConjugate();
 
       // Fit initial model to cluster data
-      const clusterStandardData: StandardData = {
-        type: 'user-level',
-        n: clusterData.length,
-        userLevel: {
-          users: clusterData.map((v, i) => ({
-            userId: `init_${i}`,
-            value: v,
-            converted: true,
-          })),
-          empiricalStats: {
-            mean: clusterMean,
-            variance: clusterVar,
-            min: Math.min(...clusterData),
-            max: Math.max(...clusterData),
-            q25: 0,
-            q50: 0,
-            q75: 0,
-          },
-        },
-        quality: {
-          hasZeros: false,
-          hasNegatives: false,
-          hasOutliers: false,
-          missingData: 0,
-        },
-      };
+      const clusterStandardData = StandardDataFactory.fromUserLevel(
+        clusterData.map((v, idx) => ({
+          userId: `init_${i}_${idx}`,
+          value: v,
+          converted: true,
+        }))
+      );
 
-      const result = await inference.fit(
+      const result = await conjugate.fit(
         clusterStandardData,
-        { structure: 'simple', type: 'lognormal', components: 1 },
+        { structure: 'simple', type: 'normal', components: 1 },
         options
       );
 
       components.push({
+        posterior: result.posterior as NormalPosterior,
         weight: clusterData.length / values.length,
-        inference: inference,
-        posterior: result.posterior as LogNormalPosterior,
         prior: prior,
       });
     }
@@ -369,114 +330,82 @@ export class LogNormalMixtureVBEM extends MixtureEMBase {
   }
 
   /**
-   * VBEM M-step: Update both component and weight posteriors
+   * VBEM M-step: Update component posteriors and weight posterior
    */
   protected async mStepVBEM(
     values: number[],
     responsibilities: number[][],
-    currentComponents: LogNormalMixtureComponent[],
+    currentComponents: NormalMixtureComponent[],
     options?: FitOptions
   ): Promise<{
-    components: LogNormalMixtureComponent[];
+    components: NormalMixtureComponent[];
     weightPosterior: DirichletDistribution;
   }> {
-    const n = values.length;
     const K = currentComponents.length;
+    const updatedComponents: NormalMixtureComponent[] = [];
 
-    // Update weight posterior using Dirichlet-Multinomial conjugacy
+    // Update weight posterior using responsibilities
     const weightPosterior = this.updateWeightPosterior(responsibilities, this.priorAlpha);
 
-    // Update component posteriors
-    const components: LogNormalMixtureComponent[] = [];
-
+    // Update each component's posterior
     for (let k = 0; k < K; k++) {
-      // Compute effective sample size
+      // Get effective sample size for this component
       const Nk = responsibilities.reduce((sum, r) => sum + r[k], 0);
 
       if (Nk < 1e-10) {
-        // Keep current component if degenerate
-        components.push(currentComponents[k]);
+        // Component has no responsibility, keep current posterior
+        updatedComponents.push(currentComponents[k]);
         continue;
       }
 
-      // Get responsibilities for this component
+      // Create weighted data for this component
       const weights = responsibilities.map((r) => r[k]);
 
-      // Use weighted fit with LogNormalConjugate
-      const weightedData: StandardData = {
-        type: 'user-level',
-        n: values.length,
-        userLevel: {
-          users: values.map((v, i) => ({
-            userId: `weighted_${i}`,
-            value: v,
-            converted: true,
-          })),
-          empiricalStats: {
-            mean: values.reduce((a, b) => a + b, 0) / values.length,
-            variance: 0,
-            min: Math.min(...values),
-            max: Math.max(...values),
-            q25: 0,
-            q50: 0,
-            q75: 0,
-          },
-        },
-        quality: {
-          hasZeros: false,
-          hasNegatives: false,
-          hasOutliers: false,
-          missingData: 0,
-        },
-      };
+      // Use NormalConjugate for Bayesian update
+      const conjugate = new NormalConjugate();
 
-      // Keep the same prior throughout
-      const componentOptions: FitOptions = {
-        ...options,
-        priorParams: {
-          type: 'normal-inverse-gamma',
-          params: [
-            currentComponents[k].prior.mu0,
-            currentComponents[k].prior.lambda,
-            currentComponents[k].prior.alpha,
-            currentComponents[k].prior.beta,
-          ],
-        },
-      };
-
-      const result = await currentComponents[k].inference.fitWeighted(
-        weightedData,
-        weights,
-        componentOptions
+      // Create StandardData for weighted fitting
+      const weightedData = StandardDataFactory.fromUserLevel(
+        values.map((v, i) => ({
+          userId: `vbem_${k}_${i}`,
+          value: v,
+          converted: true,
+        }))
       );
 
-      components.push({
-        weight: Nk / n, // This is just for tracking, actual weights come from Dirichlet
-        inference: currentComponents[k].inference,
-        posterior: result.posterior as LogNormalPosterior,
-        prior: currentComponents[k].prior, // Keep the same prior
+      // Perform weighted fit to get updated posterior
+      const result = await conjugate.fitWeighted(weightedData, weights, options);
+
+      updatedComponents.push({
+        posterior: result.posterior as NormalPosterior,
+        weight: Nk / values.length, // This is for reference only
+        prior: currentComponents[k].prior, // Preserve prior for KL computation
       });
     }
 
-    return { components, weightPosterior };
+    return {
+      components: updatedComponents,
+      weightPosterior,
+    };
   }
 
   /**
-   * Compute log probability under a component
+   * Compute log probability of a data point under a component
    */
-  protected computeComponentLogProb(value: number, component: LogNormalMixtureComponent): number {
+  protected computeComponentLogProb(value: number, component: NormalMixtureComponent): number {
     return component.posterior.logPdf(value);
   }
 
   /**
-   * Compute KL divergence for a component
+   * Compute KL divergence between component posterior and prior
    */
-  protected computeComponentKL(component: LogNormalMixtureComponent): number {
+  protected computeComponentKL(component: NormalMixtureComponent): number {
+    // NormalPosterior has klDivergenceFromPrior method
     return component.posterior.klDivergenceFromPrior(component.prior);
   }
 
   /**
-   * Helper to assign points to centers
+   * Helper to assign data points to nearest centers
    */
   private assignToCenters(data: number[], centers: number[]): number[] {
     return data.map((x) => {
@@ -494,7 +423,7 @@ export class LogNormalMixtureVBEM extends MixtureEMBase {
   }
 
   /**
-   * Main fitting method
+   * Main fit method
    */
   async fit(
     data: StandardData,
@@ -506,61 +435,56 @@ export class LogNormalMixtureVBEM extends MixtureEMBase {
     // Validate data
     this.validateStandardData(data);
 
-    // Extract positive values
+    // Extract values
     let values: number[];
-
     if (data.type === 'user-level' && data.userLevel) {
-      values = data.userLevel.users.map((u) => u.value).filter((v) => v > 0);
-
-      if (values.length === 0) {
-        throw new TycheError(
-          ErrorCode.INSUFFICIENT_DATA,
-          'No positive values found in user-level data'
-        );
-      }
+      values = data.userLevel.users.map((u) => u.value);
     } else {
-      throw new TycheError(
-        ErrorCode.INVALID_DATA,
-        'LogNormalMixtureVBEM requires user-level data with positive values',
-        { actualType: data.type }
-      );
+      throw new TycheError(ErrorCode.INVALID_DATA, 'NormalMixtureVBEM requires user-level data', {
+        actualType: data.type,
+      });
     }
 
-    // Get number of components
-    const requestedComponents = config.valueComponents || config.components || 2;
-    const maxViableComponents = Math.floor(values.length / 10); // ~10 points minimum per component
+    const n = values.length;
+
+    // Determine number of components
+    const requestedComponents = config.components || 2;
+    const maxViableComponents = Math.floor(n / 10); // Need ~10 points minimum per component
     const actualComponents = Math.min(requestedComponents, maxViableComponents);
 
+    // Log if we reduced components
     if (actualComponents < requestedComponents) {
       console.warn(
-        `LogNormalMixtureVBEM: Reduced components from ${requestedComponents} to ${actualComponents} due to data size (${values.length} points)`
+        `NormalMixtureVBEM: Reduced components from ${requestedComponents} to ${actualComponents} due to data size (${n} points)`
       );
     }
 
-    // If we can't support multiple components, fallback to single LogNormal
+    // Fallback for insufficient data
     if (actualComponents <= 1) {
-      const singleComponent = new LogNormalConjugate();
+      console.warn(
+        `NormalMixtureVBEM: Insufficient data for mixture (${n} points), falling back to single Normal`
+      );
+      const singleComponent = new NormalConjugate();
       return singleComponent.fit(data, config, options);
     }
 
     // Run VBEM algorithm
-    const result = await this.runVBEM(values, actualComponents, options);
+    const vbemResult = await this.runVBEM(values, actualComponents, options);
 
     const runtime = performance.now() - start;
 
     return {
-      posterior: new LogNormalMixturePosterior(
-        result.components as LogNormalMixtureComponent[],
-        result.weightPosterior,
-        values.length
+      posterior: new NormalMixturePosterior(
+        vbemResult.components as NormalMixtureComponent[],
+        vbemResult.weightPosterior,
+        n
       ),
       diagnostics: {
-        converged: result.converged,
-        iterations: result.iterations,
+        converged: vbemResult.converged,
+        iterations: vbemResult.iterations,
         runtime,
-        finalELBO: result.elboHistory[result.elboHistory.length - 1],
-        elboHistory: result.elboHistory,
-        modelType: 'lognormal-mixture-vbem',
+        elboHistory: vbemResult.elboHistory,
+        modelType: 'normal-mixture-vbem',
       },
     };
   }
@@ -574,24 +498,17 @@ export class LogNormalMixtureVBEM extends MixtureEMBase {
       return false;
     }
 
-    // For simple models
-    if (config.structure === 'simple' && config.type !== 'lognormal') {
+    // Additional checks specific to Normal mixture
+    if (config.structure === 'simple' && config.type !== 'normal') {
       return false;
     }
 
-    // For compound models, check value type
-    if (config.structure === 'compound' && config.valueType !== 'lognormal') {
+    if (config.structure === 'compound' && config.valueType !== 'normal') {
       return false;
     }
 
-    // Must have user-level data with positive values
+    // Must have user-level data
     if (data.type !== 'user-level' || !data.userLevel) {
-      return false;
-    }
-
-    // Check for positive values
-    const hasPositiveValues = data.userLevel.users.some((u) => u.value > 0);
-    if (!hasPositiveValues) {
       return false;
     }
 

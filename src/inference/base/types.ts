@@ -41,7 +41,7 @@ export interface CompoundPosterior extends Posterior {
 export interface Posterior {
   // Required: sample-based interface (always available)
   /** Sample from the posterior - returns array for consistency */
-  sample(n?: number): number[] | Promise<number[]>;
+  sample(n?: number): number[];
 
   // Optional: analytical methods (only when tractable - for task 1.4)
   /** Get the posterior mean(s) - analytical when available, sample-based otherwise */

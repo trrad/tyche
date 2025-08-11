@@ -47,13 +47,6 @@ describe('Component Comparison', () => {
     // First model should have deltaWAIC = 0
     const sortedByWAIC = [...comparisonResult.models].sort((a, b) => a.waic - b.waic);
     expect(sortedByWAIC[0].deltaWAIC).toBe(0);
-
-    console.log('Component comparison result:', {
-      selectedK: comparisonResult.selectedK,
-      optimalK: comparisonResult.optimalK,
-      confidence: comparisonResult.confidence,
-      models: comparisonResult.models,
-    });
   });
 
   it('should not run comparison for small datasets', async () => {
@@ -106,12 +99,6 @@ describe('Component Comparison', () => {
 
       if (routeResult.componentComparison) {
         const comparisonResult = await routeResult.componentComparison.promise;
-
-        console.log('Compound model comparison:', {
-          selectedK: comparisonResult.selectedK,
-          optimalK: comparisonResult.optimalK,
-          models: comparisonResult.models,
-        });
 
         // Should be comparing value distribution components
         expect(comparisonResult.models.length).toBeGreaterThan(0);

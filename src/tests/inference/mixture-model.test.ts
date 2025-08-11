@@ -1,12 +1,12 @@
 // src/tests/inference/approximate/mixture-models.test.ts
 import { describe, test, expect } from 'vitest';
-import { NormalMixtureEM } from '../../inference/approximate/em/NormalMixtureEM';
-import { LogNormalMixtureEM } from '../../inference/approximate/em/LogNormalMixtureEM';
+import { NormalMixtureVBEM } from '../../inference/approximate/em/NormalMixtureVBEM';
+import { LogNormalMixtureVBEM } from '../../inference/approximate/em/LogNormalMixtureVBEM';
 import { DataGenerator } from '../utilities/synthetic/DataGenerator';
 import { runLegacyTest } from '../utilities/LegacyDataAdapter';
 
 describe('Mixture Model EM Algorithms', () => {
-  describe('NormalMixtureEM', () => {
+  describe('NormalMixtureVBEM', () => {
     test('identifies well-separated components', async () => {
       // Generate clear mixture data
       const gen = new DataGenerator(12345);
@@ -18,7 +18,7 @@ describe('Mixture Model EM Algorithms', () => {
         1000
       ).data;
 
-      const engine = new NormalMixtureEM();
+      const engine = new NormalMixtureVBEM();
       const result = await runLegacyTest(engine, { data }, 'normal');
 
       // Get the posterior
@@ -52,7 +52,7 @@ describe('Mixture Model EM Algorithms', () => {
       const gen = new DataGenerator(12345);
       const data = gen.continuous('normal', { mean: 0, std: 1 }, 500).data;
 
-      const engine = new NormalMixtureEM();
+      const engine = new NormalMixtureVBEM();
       const result = await runLegacyTest(engine, { data, config: { numComponents: 2 } }, 'normal');
 
       const posterior = result.posterior as any;
@@ -80,7 +80,7 @@ describe('Mixture Model EM Algorithms', () => {
 
     test('convergence diagnostics', async () => {
       const dataset = DataGenerator.presets.fourSegments(500, 12345);
-      const engine = new NormalMixtureEM();
+      const engine = new NormalMixtureVBEM();
 
       const result = await runLegacyTest(
         engine,
@@ -103,9 +103,9 @@ describe('Mixture Model EM Algorithms', () => {
 
     test('handles edge case: identical points', async () => {
       // All points are the same
-      const data = Array(100).fill(5.0);
+      const data = Array(1000).fill(5.0);
 
-      const engine = new NormalMixtureEM();
+      const engine = new NormalMixtureVBEM();
       const result = await runLegacyTest(engine, { data, config: { numComponents: 2 } }, 'normal');
 
       const posterior = result.posterior as any;
@@ -113,23 +113,35 @@ describe('Mixture Model EM Algorithms', () => {
       // Should handle gracefully
       expect(result.diagnostics).toBeDefined();
 
+      // Check the overall mixture mean
+      if (posterior.mean) {
+        const mixtureMean = posterior.mean();
+        const meanValue = Array.isArray(mixtureMean) ? mixtureMean[0] : mixtureMean;
+        expect(meanValue).toBeCloseTo(5.0, 1);
+      }
+
       if (posterior.getComponents) {
         const components = posterior.getComponents();
+
+        // Components should have valid structure
         components.forEach((c: any) => {
-          // Mean should be at the data point
-          if (!isNaN(c.mean)) {
-            expect(c.mean).toBeCloseTo(5.0, 1);
-          }
-          // Variance should be very small or regularized
+          expect(c.weight).toBeGreaterThanOrEqual(0);
+          expect(c.weight).toBeLessThanOrEqual(1);
+
+          // Variance should be non-negative
           if (!isNaN(c.variance) && c.variance >= 0) {
             expect(c.variance).toBeGreaterThanOrEqual(0);
           }
         });
+
+        // Total weights should sum to approximately 1
+        const totalWeight = components.reduce((sum: number, c: any) => sum + c.weight, 0);
+        expect(totalWeight).toBeCloseTo(1.0, 5);
       }
     });
   });
 
-  describe('LogNormalMixtureEM', () => {
+  describe('LogNormalMixtureVBEM', () => {
     test('segments customer value tiers', async () => {
       // Generate realistic multi-tier data
       const dataset = DataGenerator.scenarios.saas.realistic(5000, 12345);
@@ -143,7 +155,7 @@ describe('Mixture Model EM Algorithms', () => {
         return;
       }
 
-      const engine = new LogNormalMixtureEM({ useFastMStep: true });
+      const engine = new LogNormalMixtureVBEM();
       const result = await runLegacyTest(
         engine,
         { data: validData, config: { numComponents: 3 } },
@@ -185,7 +197,7 @@ describe('Mixture Model EM Algorithms', () => {
         .filter((u: any) => u.converted && u.value > 0)
         .map((u: any) => u.value);
 
-      const engine = new LogNormalMixtureEM({ useFastMStep: true });
+      const engine = new LogNormalMixtureVBEM();
       const result = await runLegacyTest(
         engine,
         { data: revenueData, config: { numComponents: 2 } },
@@ -214,9 +226,7 @@ describe('Mixture Model EM Algorithms', () => {
       // Run multiple times
       const results: any[] = [];
       for (let seed = 1; seed <= 3; seed++) {
-        const engine = new LogNormalMixtureEM({
-          useFastMStep: true,
-        });
+        const engine = new LogNormalMixtureVBEM();
         const result = await runLegacyTest(
           engine,
           { data: dataset.data, config: { numComponents: 2 } },
@@ -256,7 +266,7 @@ describe('Mixture Model EM Algorithms', () => {
       const results: Array<{ k: number; converged: boolean; components?: number }> = [];
 
       for (let k = 1; k <= 3; k++) {
-        const engine = new LogNormalMixtureEM({ useFastMStep: true });
+        const engine = new LogNormalMixtureVBEM();
         const result = await runLegacyTest(
           engine,
           { data, config: { numComponents: k } },

@@ -4,8 +4,8 @@ import { ModelRouter } from '../../inference/ModelRouter';
 import { StandardDataFactory } from '../../core/data/StandardData';
 import { BetaBinomialConjugate } from '../../inference/exact/BetaBinomialConjugate';
 import { LogNormalConjugate } from '../../inference/exact/LogNormalConjugate';
-import { LogNormalMixtureEM } from '../../inference/approximate/em/LogNormalMixtureEM';
-import { NormalMixtureEM } from '../../inference/approximate/em/NormalMixtureEM';
+import { LogNormalMixtureVBEM } from '../../inference/approximate/em/LogNormalMixtureVBEM';
+import { NormalMixtureVBEM } from '../../inference/approximate/em/NormalMixtureVBEM';
 import type { UserData, ModelConfig } from '../../inference/base/types';
 
 // Helper to generate binomial data
@@ -73,7 +73,7 @@ describe('WAIC basic functionality', () => {
     const config1: ModelConfig = { structure: 'simple', type: 'lognormal', components: 1 };
     const result1 = await engine1.fit(standardData, config1);
 
-    const engine2 = new NormalMixtureEM();
+    const engine2 = new NormalMixtureVBEM();
     const config2: ModelConfig = { structure: 'simple', type: 'normal', components: 2 };
     const result2 = await engine2.fit(standardData, config2);
 
@@ -129,11 +129,11 @@ describe('WAIC basic functionality', () => {
     const standardData = StandardDataFactory.fromContinuous(rawData);
 
     // Fit models with k=1 and k=2 components
-    const engine1 = new LogNormalMixtureEM({ useFastMStep: true });
+    const engine1 = new LogNormalMixtureVBEM();
     const config1: ModelConfig = { structure: 'simple', type: 'lognormal', components: 1 };
     const result1 = await engine1.fit(standardData, config1);
 
-    const engine2 = new LogNormalMixtureEM({ useFastMStep: true });
+    const engine2 = new LogNormalMixtureVBEM();
     const config2: ModelConfig = { structure: 'simple', type: 'lognormal', components: 2 };
     const result2 = await engine2.fit(standardData, config2);
 
@@ -176,7 +176,7 @@ describe('WAIC basic functionality', () => {
     const models: ModelCandidate[] = [];
 
     for (let k = 1; k <= 4; k++) {
-      const engine = new LogNormalMixtureEM({ useFastMStep: true });
+      const engine = new LogNormalMixtureVBEM();
       const config: ModelConfig = { structure: 'simple', type: 'lognormal', components: k };
       const result = await engine.fit(standardData, config);
 

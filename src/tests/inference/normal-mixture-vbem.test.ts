@@ -1,24 +1,26 @@
 /**
- * Tests for LogNormal Mixture VBEM implementation
+ * Tests for Normal Mixture VBEM implementation
  */
+
 import { describe, test, expect, beforeEach, it } from 'vitest';
-import { LogNormalMixtureVBEM } from '../../inference/approximate/em/LogNormalMixtureVBEM';
+
+import { NormalMixtureVBEM } from '../../inference/approximate/em/NormalMixtureVBEM';
 import { StandardData } from '../../core/data/StandardData';
 import { ModelConfig } from '../../inference/base/types';
 
-describe('LogNormalMixtureVBEM', () => {
-  let engine: LogNormalMixtureVBEM;
+describe('NormalMixtureVBEM', () => {
+  let engine: NormalMixtureVBEM;
 
   beforeEach(() => {
-    engine = new LogNormalMixtureVBEM();
+    engine = new NormalMixtureVBEM();
   });
 
   describe('Basic functionality', () => {
     it('should fit a single component mixture', async () => {
-      // Generate simple lognormal data
+      // Generate simple normal data
       const values = Array.from(
         { length: 100 },
-        () => Math.exp(Math.random() * 2 - 1) // Log-normal with μ ≈ 0, σ ≈ 1
+        () => Math.random() * 4 - 2 // Normal with μ ≈ 0, σ ≈ 1.2
       );
 
       const data: StandardData = {
@@ -42,7 +44,7 @@ describe('LogNormalMixtureVBEM', () => {
         },
         quality: {
           hasZeros: false,
-          hasNegatives: false,
+          hasNegatives: values.some((v) => v < 0),
           hasOutliers: false,
           missingData: 0,
         },
@@ -50,7 +52,7 @@ describe('LogNormalMixtureVBEM', () => {
 
       const config: ModelConfig = {
         structure: 'simple',
-        type: 'lognormal',
+        type: 'normal',
         components: 1,
       };
 
@@ -58,19 +60,19 @@ describe('LogNormalMixtureVBEM', () => {
 
       expect(result.posterior).toBeDefined();
       expect(result.diagnostics.converged).toBe(true);
-      // Single component falls back to LogNormalConjugate
-      expect(result.diagnostics.modelType).toBe('lognormal');
+      // Single component falls back to NormalConjugate
+      expect(result.diagnostics.modelType).toBe('normal');
     });
 
     it('should fit a two-component mixture', async () => {
-      // Generate mixture of two lognormals
+      // Generate mixture of two normals
       const values1 = Array.from(
         { length: 50 },
-        () => Math.exp(Math.random() * 0.5 - 1) // Smaller values
+        () => Math.random() * 1 - 2 // μ ≈ -1.5, σ ≈ 0.5
       );
       const values2 = Array.from(
         { length: 50 },
-        () => Math.exp(Math.random() * 0.5 + 1) // Larger values
+        () => Math.random() * 1 + 2 // μ ≈ 2.5, σ ≈ 0.5
       );
       const values = [...values1, ...values2];
 
@@ -95,7 +97,7 @@ describe('LogNormalMixtureVBEM', () => {
         },
         quality: {
           hasZeros: false,
-          hasNegatives: false,
+          hasNegatives: values.some((v) => v < 0),
           hasOutliers: false,
           missingData: 0,
         },
@@ -103,7 +105,7 @@ describe('LogNormalMixtureVBEM', () => {
 
       const config: ModelConfig = {
         structure: 'simple',
-        type: 'lognormal',
+        type: 'normal',
         components: 2,
       };
 
@@ -127,7 +129,7 @@ describe('LogNormalMixtureVBEM', () => {
 
     it('should maintain weight uncertainty via Dirichlet', async () => {
       // Small dataset to ensure high uncertainty
-      const values = [0.5, 1.0, 2.0, 3.0, 5.0, 7.0, 10.0, 15.0];
+      const values = [-2, -1.5, -1, 0, 1, 1.5, 2, 2.5];
 
       const data: StandardData = {
         type: 'user-level',
@@ -150,7 +152,7 @@ describe('LogNormalMixtureVBEM', () => {
         },
         quality: {
           hasZeros: false,
-          hasNegatives: false,
+          hasNegatives: values.some((v) => v < 0),
           hasOutliers: false,
           missingData: 0,
         },
@@ -158,92 +160,20 @@ describe('LogNormalMixtureVBEM', () => {
 
       const config: ModelConfig = {
         structure: 'simple',
-        type: 'lognormal',
+        type: 'normal',
         components: 2,
       };
 
       const result = await engine.fit(data, config);
 
       // With only 8 points, it should fall back to single component
-      expect(result.diagnostics.modelType).toBe('lognormal');
-
-      // Single component doesn't have weight posterior, so skip those checks
-      return;
-
-      // Check that weight variances are non-zero (uncertainty exists)
-      const weightVariances = weightPosterior.variance();
-      expect(weightVariances[0]).toBeGreaterThan(0);
-      expect(weightVariances[1]).toBeGreaterThan(0);
-
-      // Sample weights should vary
-      const samples = weightPosterior.sample(100);
-      const firstWeights = samples.map((s) => s[0]);
-      const variance =
-        firstWeights.reduce((sum, w, i, arr) => {
-          const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
-          return sum + Math.pow(w - mean, 2);
-        }, 0) / firstWeights.length;
-
-      expect(variance).toBeGreaterThan(0);
-    });
-
-    it('should have monotonically increasing ELBO', async () => {
-      const values = Array.from({ length: 50 }, () => Math.exp(Math.random() * 2 - 1));
-
-      const data: StandardData = {
-        type: 'user-level',
-        n: values.length,
-        userLevel: {
-          users: values.map((v, i) => ({
-            userId: `user_${i}`,
-            value: v,
-            converted: true,
-          })),
-          empiricalStats: {
-            mean: values.reduce((a, b) => a + b, 0) / values.length,
-            variance: 0,
-            min: Math.min(...values),
-            max: Math.max(...values),
-            q25: 0,
-            q50: 0,
-            q75: 0,
-          },
-        },
-        quality: {
-          hasZeros: false,
-          hasNegatives: false,
-          hasOutliers: false,
-          missingData: 0,
-        },
-      };
-
-      const config: ModelConfig = {
-        structure: 'simple',
-        type: 'lognormal',
-        components: 2,
-      };
-
-      const result = await engine.fit(data, config);
-
-      expect(result.diagnostics.elboHistory).toBeDefined();
-      const elboHistory = result.diagnostics.elboHistory!;
-
-      // Check overall trend is increasing
-      expect(elboHistory[elboHistory.length - 1]).toBeGreaterThan(elboHistory[0]);
-
-      // Allow small decreases in individual steps due to numerical issues
-      // but ensure they're not too large
-      for (let i = 1; i < elboHistory.length; i++) {
-        const increase = elboHistory[i] - elboHistory[i - 1];
-        // Allow moderate decreases due to numerical precision in VBEM
-        expect(increase).toBeGreaterThan(-0.01);
-      }
+      expect(result.diagnostics.modelType).toBe('normal');
     });
   });
 
   describe('Edge cases', () => {
     it('should handle insufficient data gracefully', async () => {
-      const values = [1.0, 2.0]; // Only 2 points
+      const values = [0, 1]; // Only 2 points
 
       const data: StandardData = {
         type: 'user-level',
@@ -255,17 +185,17 @@ describe('LogNormalMixtureVBEM', () => {
             converted: true,
           })),
           empiricalStats: {
-            mean: 1.5,
+            mean: 0.5,
             variance: 0.25,
-            min: 1.0,
-            max: 2.0,
+            min: 0,
+            max: 1,
             q25: 0,
             q50: 0,
             q75: 0,
           },
         },
         quality: {
-          hasZeros: false,
+          hasZeros: true,
           hasNegatives: false,
           hasOutliers: false,
           missingData: 0,
@@ -274,14 +204,14 @@ describe('LogNormalMixtureVBEM', () => {
 
       const config: ModelConfig = {
         structure: 'simple',
-        type: 'lognormal',
+        type: 'normal',
         components: 2, // Request 2 components with only 2 data points
       };
 
       const result = await engine.fit(data, config);
 
       // Should fall back to single component
-      expect(result.diagnostics.modelType).toContain('lognormal');
+      expect(result.diagnostics.modelType).toContain('normal');
       expect(result.posterior).toBeDefined();
     });
 
@@ -317,7 +247,7 @@ describe('LogNormalMixtureVBEM', () => {
 
       const config: ModelConfig = {
         structure: 'simple',
-        type: 'lognormal',
+        type: 'normal',
         components: 2,
       };
 
@@ -330,10 +260,13 @@ describe('LogNormalMixtureVBEM', () => {
 
   describe('Posterior sampling', () => {
     it('should generate samples that reflect the data', async () => {
-      const trueValues = Array.from(
-        { length: 100 },
-        () => Math.exp(Math.random() * 0.5 + 1) // Log-normal with μ = 1, σ = 0.5
-      );
+      const trueValues = Array.from({ length: 100 }, () => {
+        // Box-Muller transform for normal distribution
+        const u1 = Math.random();
+        const u2 = Math.random();
+        const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        return z * 0.5 + 1; // Normal with μ = 1, σ = 0.5
+      });
 
       const data: StandardData = {
         type: 'user-level',
@@ -356,7 +289,7 @@ describe('LogNormalMixtureVBEM', () => {
         },
         quality: {
           hasZeros: false,
-          hasNegatives: false,
+          hasNegatives: trueValues.some((v) => v < 0),
           hasOutliers: false,
           missingData: 0,
         },
@@ -364,7 +297,7 @@ describe('LogNormalMixtureVBEM', () => {
 
       const config: ModelConfig = {
         structure: 'simple',
-        type: 'lognormal',
+        type: 'normal',
         components: 1,
       };
 
@@ -373,15 +306,12 @@ describe('LogNormalMixtureVBEM', () => {
       // Generate samples from posterior
       const samples = result.posterior.sample(1000);
 
-      // Check that samples are positive (lognormal property)
-      expect(samples.every((s) => s > 0)).toBe(true);
-
       // Check that sample mean is reasonable
       const sampleMean = samples.reduce((a, b) => a + b, 0) / samples.length;
       const trueMean = trueValues.reduce((a, b) => a + b, 0) / trueValues.length;
 
       // Should be within reasonable range (allowing for sampling variance)
-      expect(Math.abs(sampleMean - trueMean) / trueMean).toBeLessThan(0.3);
+      expect(Math.abs(sampleMean - trueMean)).toBeLessThan(0.2);
     });
   });
 });

@@ -341,9 +341,9 @@ export class ModelRouter {
             }
           }
           if (config.type === 'normal') {
-            const mixModule = await import('./approximate/em/NormalMixtureEM').catch(() => null);
+            const mixModule = await import('./approximate/em/NormalMixtureVBEM').catch(() => null);
             if (mixModule) {
-              return new mixModule.NormalMixtureEM();
+              return new mixModule.NormalMixtureVBEM();
             }
           }
         }

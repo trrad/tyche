@@ -17,7 +17,7 @@ import { BetaBinomialConjugate } from '../exact/BetaBinomialConjugate';
 import { LogNormalConjugate } from '../exact/LogNormalConjugate';
 import { NormalConjugate } from '../exact/NormalConjugate';
 import { LogNormalMixtureVBEM } from '../approximate/em/LogNormalMixtureVBEM';
-import { NormalMixtureEM } from '../approximate/em/NormalMixtureEM';
+import { NormalMixtureVBEM } from '../approximate/em/NormalMixtureVBEM';
 import { StandardDataFactory } from '../../core/data/StandardData';
 
 /**
@@ -56,31 +56,13 @@ export class CompoundPosterior implements Posterior {
   /**
    * Generate samples from the compound distribution
    */
-  private generateSamples(n: number): number[] | Promise<number[]> {
+  private generateSamples(n: number): number[] {
     // Sample conversion rates from frequency model
     const freqSamples = this.frequency.sample(n);
     // Sample values from severity model
     const sevSamples = this.severity.sample(n);
 
-    // Handle both sync and async cases
-    if (freqSamples instanceof Promise || sevSamples instanceof Promise) {
-      return this.generateSamplesAsync(n);
-    }
-
     // Synchronous case
-    const samples: number[] = [];
-    for (let i = 0; i < n; i++) {
-      // Each sample is frequency × severity (expected revenue per user)
-      samples.push((freqSamples as number[])[i] * (sevSamples as number[])[i]);
-    }
-
-    return samples;
-  }
-
-  private async generateSamplesAsync(n: number): Promise<number[]> {
-    const freqSamples = await this.frequency.sample(n);
-    const sevSamples = await this.severity.sample(n);
-
     const samples: number[] = [];
     for (let i = 0; i < n; i++) {
       // Each sample is frequency × severity (expected revenue per user)
@@ -93,7 +75,7 @@ export class CompoundPosterior implements Posterior {
   /**
    * Sample from the joint distribution (frequency × severity)
    */
-  sample(n: number = 1000): number[] | Promise<number[]> {
+  sample(n: number = 1000): number[] {
     // Use cached samples if available and sufficient
     if (this.cachedSamples && n <= this.cachedSamples.length) {
       // Return random subset to avoid bias
@@ -360,7 +342,7 @@ export class CompoundInferenceEngine extends InferenceEngine {
         return valueComponents > 1 ? new LogNormalMixtureVBEM() : new LogNormalConjugate();
 
       case 'normal':
-        return valueComponents > 1 ? new NormalMixtureEM() : new NormalConjugate();
+        return valueComponents > 1 ? new NormalMixtureVBEM() : new NormalConjugate();
 
       case 'gamma':
         // TODO: Implement GammaConjugate and GammaMixtureEM

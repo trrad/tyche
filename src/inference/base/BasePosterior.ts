@@ -21,7 +21,7 @@ export abstract class BasePosterior implements Posterior {
    * Abstract method that derived classes must implement
    * This is where the actual sampling logic lives
    */
-  protected abstract generateSamples(n: number): number[] | Promise<number[]>;
+  protected abstract generateSamples(n: number): number[];
 
   /**
    * Ensure we have cached samples, generating them if needed
@@ -44,7 +44,7 @@ export abstract class BasePosterior implements Posterior {
   /**
    * Get samples, using cache when possible
    */
-  sample(n: number = 1000): number[] | Promise<number[]> {
+  sample(n: number = 1000): number[] {
     // If we're asking for fewer samples than cached, return subset
     if (this.cachedSamples && n <= this.cachedSamples.length) {
       // Return a random subset to avoid bias
@@ -58,7 +58,7 @@ export abstract class BasePosterior implements Posterior {
     const samples = this.generateSamples(n);
 
     // Update cache if we generated more than we had
-    if (!(samples instanceof Promise) && n >= this.defaultSampleSize) {
+    if (n >= this.defaultSampleSize) {
       this.cachedSamples = samples;
     }
 
