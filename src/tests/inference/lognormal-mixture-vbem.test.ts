@@ -169,22 +169,6 @@ describe('LogNormalMixtureVBEM', () => {
 
       // Single component doesn't have weight posterior, so skip those checks
       return;
-
-      // Check that weight variances are non-zero (uncertainty exists)
-      const weightVariances = weightPosterior.variance();
-      expect(weightVariances[0]).toBeGreaterThan(0);
-      expect(weightVariances[1]).toBeGreaterThan(0);
-
-      // Sample weights should vary
-      const samples = weightPosterior.sample(100);
-      const firstWeights = samples.map((s) => s[0]);
-      const variance =
-        firstWeights.reduce((sum, w, i, arr) => {
-          const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
-          return sum + Math.pow(w - mean, 2);
-        }, 0) / firstWeights.length;
-
-      expect(variance).toBeGreaterThan(0);
     });
 
     it('should have monotonically increasing ELBO', async () => {
