@@ -333,9 +333,11 @@ export class ModelRouter {
         // For mixture models
         if (config.components && config.components > 1) {
           if (config.type === 'lognormal') {
-            const mixModule = await import('./approximate/em/LogNormalMixtureEM').catch(() => null);
+            const mixModule = await import('./approximate/em/LogNormalMixtureVBEM').catch(
+              () => null
+            );
             if (mixModule) {
-              return new mixModule.LogNormalMixtureEM({ useFastMStep: true });
+              return new mixModule.LogNormalMixtureVBEM();
             }
           }
           if (config.type === 'normal') {

@@ -217,7 +217,12 @@ export abstract class MixtureEMBase extends InferenceEngine {
     const elbo = expectedLogLikelihood + expectedLogPriorZ - klWeights - klComponents + entropyZ;
 
     // Debug logging (can be removed later)
-    if (process.env.NODE_ENV === 'test' && elbo < -1000) {
+    // Only log in development/test environments
+    if (
+      typeof globalThis !== 'undefined' &&
+      (globalThis as any).NODE_ENV === 'test' &&
+      elbo < -1000
+    ) {
       console.log('ELBO components:', {
         expectedLogLikelihood,
         expectedLogPriorZ,

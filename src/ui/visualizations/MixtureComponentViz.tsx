@@ -5,6 +5,7 @@ interface MixtureComponent {
   mean: number;
   variance: number;
   weight: number;
+  weightCI?: [number, number]; // Optional weight confidence interval
 }
 
 interface MixtureComponentVizProps {
@@ -21,14 +22,15 @@ const COLORS = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981']; // Purple, Pink, Am
 export const MixtureComponentViz: React.FC<MixtureComponentVizProps> = ({
   components,
   title = 'Mixture Components',
-  formatValue = (v) => v.toFixed(2)
+  formatValue = (v) => v.toFixed(2),
 }) => {
   // Prepare data for pie chart
   const pieData = components.map((comp, idx) => ({
     name: `Comp ${idx + 1}`,
     value: comp.weight * 100, // Convert to percentage
     mean: comp.mean,
-    std: Math.sqrt(comp.variance)
+    std: Math.sqrt(comp.variance),
+    weightCI: comp.weightCI ? comp.weightCI.map((w: number) => w * 100) : undefined,
   }));
 
   // Custom label function
@@ -39,7 +41,7 @@ export const MixtureComponentViz: React.FC<MixtureComponentVizProps> = ({
   return (
     <div className="mixture-component-viz bg-white p-4 rounded-lg shadow-sm">
       <h4 className="text-sm font-semibold text-gray-700 mb-3">{title}</h4>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Pie Chart for Weights */}
         <div>
@@ -60,8 +62,17 @@ export const MixtureComponentViz: React.FC<MixtureComponentVizProps> = ({
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip 
-                formatter={(value: number) => `${value.toFixed(1)}%`}
+              <Tooltip
+                formatter={(value: number, name: string, props: any) => {
+                  const formatted = `${value.toFixed(1)}%`;
+                  if (props.payload.weightCI) {
+                    return [
+                      `${formatted} [${props.payload.weightCI[0].toFixed(0)}-${props.payload.weightCI[1].toFixed(0)}%]`,
+                      name,
+                    ];
+                  }
+                  return [formatted, name];
+                }}
                 contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb' }}
               />
             </PieChart>
@@ -73,21 +84,33 @@ export const MixtureComponentViz: React.FC<MixtureComponentVizProps> = ({
           <h5 className="text-xs text-gray-600 mb-2">Parameters</h5>
           <div className="space-y-1">
             {components.map((comp, idx) => (
-              <div 
-                key={idx} 
+              <div
+                key={idx}
                 className="flex items-center space-x-2 p-1.5 rounded text-xs"
                 style={{ backgroundColor: `${COLORS[idx % COLORS.length]}10` }}
               >
-                <div 
+                <div
                   className="w-2 h-2 rounded-full flex-shrink-0"
                   style={{ backgroundColor: COLORS[idx % COLORS.length] }}
                 />
                 <div className="flex-1">
                   <span className="font-medium">C{idx + 1}:</span>
-                  <span className="ml-1">μ={formatValue(comp.mean)}, σ={formatValue(Math.sqrt(comp.variance))}</span>
+                  <span className="ml-1">
+                    μ={formatValue(comp.mean)}, σ={formatValue(Math.sqrt(comp.variance))}
+                  </span>
                 </div>
-                <div className="font-medium">
-                  {(comp.weight * 100).toFixed(0)}%
+                <div className="font-medium text-right">
+                  {comp.weightCI ? (
+                    <div className="flex flex-col">
+                      <span>{(comp.weight * 100).toFixed(0)}%</span>
+                      <span className="text-gray-500 text-[10px]">
+                        [{(comp.weightCI[0] * 100).toFixed(0)}-{(comp.weightCI[1] * 100).toFixed(0)}
+                        %]
+                      </span>
+                    </div>
+                  ) : (
+                    <span>{(comp.weight * 100).toFixed(0)}%</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -103,21 +126,21 @@ export const MixtureComponentViz: React.FC<MixtureComponentVizProps> = ({
  */
 function calculateSeparation(components: MixtureComponent[]): string {
   if (components.length < 2) return 'N/A';
-  
+
   // Sort by mean
   const sorted = [...components].sort((a, b) => a.mean - b.mean);
-  
+
   // Calculate minimum separation in standard deviations
   let minSeparation = Infinity;
   for (let i = 1; i < sorted.length; i++) {
-    const gap = sorted[i].mean - sorted[i-1].mean;
-    const avgStd = Math.sqrt((sorted[i].variance + sorted[i-1].variance) / 2);
+    const gap = sorted[i].mean - sorted[i - 1].mean;
+    const avgStd = Math.sqrt((sorted[i].variance + sorted[i - 1].variance) / 2);
     const separation = gap / avgStd;
     minSeparation = Math.min(minSeparation, separation);
   }
-  
+
   if (minSeparation < 1) return 'Poor';
   if (minSeparation < 2) return 'Moderate';
   if (minSeparation < 3) return 'Good';
   return 'Excellent';
-} 
+}

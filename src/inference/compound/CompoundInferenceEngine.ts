@@ -16,7 +16,7 @@ import { TycheError, ErrorCode } from '../../core/errors';
 import { BetaBinomialConjugate } from '../exact/BetaBinomialConjugate';
 import { LogNormalConjugate } from '../exact/LogNormalConjugate';
 import { NormalConjugate } from '../exact/NormalConjugate';
-import { LogNormalMixtureEM } from '../approximate/em/LogNormalMixtureEM';
+import { LogNormalMixtureVBEM } from '../approximate/em/LogNormalMixtureVBEM';
 import { NormalMixtureEM } from '../approximate/em/NormalMixtureEM';
 import { StandardDataFactory } from '../../core/data/StandardData';
 
@@ -205,7 +205,12 @@ export class CompoundPosterior implements Posterior {
   /**
    * Get severity components if the value model is a mixture
    */
-  getSeverityComponents(): Array<{ mean: number; variance: number; weight: number }> | null {
+  getSeverityComponents(): Array<{
+    mean: number;
+    variance: number;
+    weight: number;
+    weightCI?: [number, number];
+  }> | null {
     // Check if severity posterior has getComponents method
     if ('getComponents' in this.severity && typeof this.severity.getComponents === 'function') {
       return (this.severity as any).getComponents();
@@ -352,9 +357,7 @@ export class CompoundInferenceEngine extends InferenceEngine {
 
     switch (valueType) {
       case 'lognormal':
-        return valueComponents > 1
-          ? new LogNormalMixtureEM({ useFastMStep: true })
-          : new LogNormalConjugate();
+        return valueComponents > 1 ? new LogNormalMixtureVBEM() : new LogNormalConjugate();
 
       case 'normal':
         return valueComponents > 1 ? new NormalMixtureEM() : new NormalConjugate();
