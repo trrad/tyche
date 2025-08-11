@@ -57,7 +57,7 @@ export class CompoundPosterior implements Posterior {
    * Generate samples from the compound distribution
    */
   private generateSamples(n: number): number[] | Promise<number[]> {
-    // Sample conversion indicators from frequency model
+    // Sample conversion rates from frequency model
     const freqSamples = this.frequency.sample(n);
     // Sample values from severity model
     const sevSamples = this.severity.sample(n);
@@ -70,8 +70,8 @@ export class CompoundPosterior implements Posterior {
     // Synchronous case
     const samples: number[] = [];
     for (let i = 0; i < n; i++) {
-      const converted = Math.random() < (freqSamples as number[])[i];
-      samples.push(converted ? (sevSamples as number[])[i] : 0);
+      // Each sample is frequency × severity (expected revenue per user)
+      samples.push((freqSamples as number[])[i] * (sevSamples as number[])[i]);
     }
 
     return samples;
@@ -83,8 +83,8 @@ export class CompoundPosterior implements Posterior {
 
     const samples: number[] = [];
     for (let i = 0; i < n; i++) {
-      const converted = Math.random() < freqSamples[i];
-      samples.push(converted ? sevSamples[i] : 0);
+      // Each sample is frequency × severity (expected revenue per user)
+      samples.push(freqSamples[i] * sevSamples[i]);
     }
 
     return samples;
