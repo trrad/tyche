@@ -463,18 +463,61 @@ return { ...base, data: new DataGenerator(seed).applyNoiseLevel(base.data, '${no
       // Use ModelRouter to determine the best model and engine
       let finalConfig: ModelConfig | undefined;
 
+      let routeResult;
+
       if (selectedModelKey === 'auto') {
         // Auto-detection: let ModelRouter decide
-        const routeResult = await ModelRouter.route(standardData, fitOptions);
+        routeResult = await ModelRouter.route(standardData, fitOptions);
         finalConfig = routeResult.config;
         setRouteInfo({
           selectedModel: routeResult.config,
           reasoning: routeResult.reasoning,
           confidence: routeResult.confidence,
         });
+
+        // Handle async component comparison if available
+        if (routeResult.componentComparison) {
+          // Clear previous WAIC info
+          setWaicInfo(null);
+
+          // Set up async handling for component comparison
+          routeResult.componentComparison.promise
+            .then((comparisonResult) => {
+              console.log('Component comparison completed:', comparisonResult);
+              setWaicInfo(comparisonResult);
+            })
+            .catch((err) => {
+              console.warn('Component comparison failed:', err);
+            });
+        }
       } else if (modelConfig) {
         // Manual model selection: use the config from ModelSelector
         finalConfig = modelConfig;
+
+        // For manual mixture model selection, still run component comparison
+        // but without forcing the config initially
+        routeResult = await ModelRouter.route(standardData, fitOptions);
+
+        // Handle async component comparison if available
+        if (routeResult.componentComparison) {
+          setWaicInfo(null);
+          routeResult.componentComparison.promise
+            .then((comparisonResult) => {
+              console.log('Component comparison completed (manual):', comparisonResult);
+              // Update selectedK to reflect the manual selection
+              const manualK =
+                finalConfig.structure === 'simple'
+                  ? finalConfig.components || 1
+                  : finalConfig.valueComponents || 1;
+              setWaicInfo({
+                ...comparisonResult,
+                selectedK: manualK,
+              });
+            })
+            .catch((err) => {
+              console.warn('Component comparison failed:', err);
+            });
+        }
       } else {
         setError('No model configuration selected');
         return;
@@ -490,11 +533,6 @@ return { ...base, data: new DataGenerator(seed).applyNoiseLevel(base.data, '${no
 
       setInferenceResult(result);
       setModelConfig(config);
-
-      // Get WAIC info if available
-      if ('waicInfo' in result) {
-        setWaicInfo((result as any).waicInfo);
-      }
 
       // Reset comparison state when new inference is run
       setShowComparison(false);
@@ -857,6 +895,7 @@ return { ...base, data: new DataGenerator(seed).applyNoiseLevel(base.data, '${no
             disabled={isAnalyzing}
             dataSize={getDataSize()}
             inferenceResult={inferenceResult}
+            modelConfig={modelConfig}
           />
 
           <InferenceButton />
