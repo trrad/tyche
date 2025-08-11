@@ -1,24 +1,12 @@
 import React from 'react';
-import { getModelName } from '../constants/modelDescriptions';
+import { ComponentComparisonResult } from '../../inference/ModelRouter';
 
 interface ModelQualityProps {
-  waicInfo?: {
-    waic: number;
-    components?: Array<{
-      name?: string;
-      k?: number;
-      waic: number;
-      deltaWAIC: number;
-      weight: number;
-    }>;
-  };
+  waicInfo?: ComponentComparisonResult | null;
   routeInfo?: {
     reasoning: string[];
-    recommendedModel?: string;
-    modelParams?: {
-      numComponents?: number;
-      waicComparison?: any[];
-    };
+    selectedModel?: any;
+    confidence?: number;
   };
 }
 
@@ -30,130 +18,109 @@ export const ModelQualityIndicator: React.FC<ModelQualityProps> = ({ waicInfo, r
 
   return (
     <div className="model-quality-indicator p-4 bg-gray-50 rounded-lg">
-      {/* Relative Model Performance */}
-      {waicInfo && waicInfo.components && waicInfo.components.length > 0 && (
+      {/* Component Comparison Results */}
+      {waicInfo && waicInfo.models && (
         <div className="mb-4">
-          <h4 className="text-sm font-semibold text-gray-700 mb-2">Model Selection Results</h4>
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">
+            Component Selection (WAIC Comparison)
+          </h4>
 
-          {/* Winner Summary */}
-          {(() => {
-            const sorted = [...waicInfo.components].sort((a, b) => a.deltaWAIC - b.deltaWAIC);
-            const winner = sorted[0];
-            const runnerUp = sorted[1];
-
-            return (
-              <div className="bg-green-50 p-3 rounded-lg border border-green-200">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="font-medium text-green-900">
-                      🏆 {winner.name || `Model (${winner.k || '?'})`}
-                    </div>
-                    <div className="text-sm text-green-700">
-                      {(winner.weight * 100).toFixed(1)}% probability of being best among candidate
-                      models
-                    </div>
-                    {runnerUp && runnerUp.deltaWAIC > 0 && (
-                      <div className="text-xs text-green-600 mt-1">
-                        Runner-up: {runnerUp.name || `Model (${runnerUp.k || '?'})`} (ΔWAIC: +
-                        {runnerUp.deltaWAIC.toFixed(1)})
-                      </div>
-                    )}
-                  </div>
-                  <ModelQualityBadge waic={waicInfo.waic} components={waicInfo.components} />
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
-
-      {/* Fallback for when no comparison data */}
-      {waicInfo && (!waicInfo.components || waicInfo.components.length === 0) && (
-        <div className="mb-4">
-          <h4 className="text-sm font-semibold text-gray-700 mb-2">Model Performance</h4>
-          <div className="bg-blue-50 p-3 rounded-lg">
-            <div className="flex justify-between items-center">
-              <div>
-                <div className="font-medium text-blue-900">
-                  {routeInfo?.recommendedModel
-                    ? getModelName(routeInfo.recommendedModel)
-                    : 'Selected Model'}
-                </div>
-                <div className="text-sm text-blue-700">WAIC: {waicInfo.waic.toFixed(1)}</div>
-              </div>
-              <div className="text-sm text-gray-600">No comparison data</div>
+          {/* Summary */}
+          <div
+            className={`p-3 rounded-lg border ${
+              waicInfo.selectedK === waicInfo.optimalK
+                ? 'bg-green-50 border-green-200'
+                : 'bg-amber-50 border-amber-200'
+            }`}
+          >
+            <div
+              className="font-medium mb-1 ${
+              waicInfo.selectedK === waicInfo.optimalK 
+                ? 'text-green-900' 
+                : 'text-amber-900'
+            }"
+            >
+              {waicInfo.selectedK === waicInfo.optimalK
+                ? `✓ Component selection confirmed (k=${waicInfo.selectedK})`
+                : `ℹ️ Consider k=${waicInfo.optimalK} instead of k=${waicInfo.selectedK}`}
             </div>
+
+            {/* Show confidence */}
+            <div className="text-sm text-gray-700">
+              Confidence: {(waicInfo.confidence * 100).toFixed(1)}%
+            </div>
+
+            {/* Show ΔWAIC if not optimal */}
+            {waicInfo.selectedK !== waicInfo.optimalK && (
+              <div className="text-sm text-amber-700 mt-1">
+                ΔWAIC:{' '}
+                {waicInfo.models.find((m) => m.k === waicInfo.optimalK)?.deltaWAIC.toFixed(1) ||
+                  '?'}
+              </div>
+            )}
           </div>
-          <p className="text-xs text-gray-500 mt-2">
-            WAIC values are relative - compare with other models for interpretation
-          </p>
+
+          {/* Detailed comparison table */}
+          <div className="mt-3">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-600">
+                  <th className="pb-1">Components</th>
+                  <th className="pb-1">WAIC</th>
+                  <th className="pb-1">ΔWAIC</th>
+                  <th className="pb-1">Weight</th>
+                </tr>
+              </thead>
+              <tbody>
+                {waicInfo.models.map((model) => (
+                  <tr
+                    key={model.k}
+                    className={`${model.k === waicInfo.selectedK ? 'font-semibold' : ''} ${
+                      model.k === waicInfo.optimalK ? 'text-green-700' : ''
+                    }`}
+                  >
+                    <td className="py-1">
+                      k={model.k}
+                      {model.k === waicInfo.selectedK && ' (selected)'}
+                      {model.k === waicInfo.optimalK &&
+                        model.k !== waicInfo.selectedK &&
+                        ' (optimal)'}
+                    </td>
+                    <td className="py-1">{model.waic.toFixed(1)}</td>
+                    <td className="py-1">{model.deltaWAIC.toFixed(1)}</td>
+                    <td className="py-1">{(model.weight * 100).toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Computation time */}
+          <div className="text-xs text-gray-500 mt-2">Computed in {waicInfo.computeTimeMs}ms</div>
         </div>
       )}
-    </div>
-  );
-};
 
-/**
- * Quality indicator based on WAIC relative to alternatives
- */
-const ModelQualityBadge: React.FC<{
-  waic: number;
-  components?: Array<{
-    name?: string;
-    k?: number;
-    waic: number;
-    deltaWAIC: number;
-    weight: number;
-  }>;
-}> = ({ waic, components }) => {
-  if (!components || components.length === 0) {
-    return (
-      <div className="flex items-center space-x-2">
-        <span className="w-2 h-2 rounded-full bg-gray-400" />
-        <span className="text-sm font-medium text-gray-600">No comparison</span>
-      </div>
-    );
-  }
+      {/* Loading state */}
+      {!waicInfo && routeInfo && (
+        <div className="text-sm text-gray-600">
+          <div className="animate-pulse">Comparing component options...</div>
+        </div>
+      )}
 
-  // Find the best model (lowest WAIC)
-  const bestWaic = Math.min(...components.map((c) => c.waic));
-  const bestModel = components.find((c) => c.waic === bestWaic);
-  const currentModel = components.find((c) => Math.abs(c.waic - waic) < 0.1); // Allow small floating point differences
-
-  if (!currentModel) {
-    return (
-      <div className="flex items-center space-x-2">
-        <span className="w-2 h-2 rounded-full bg-gray-400" />
-        <span className="text-sm font-medium text-gray-600">Unknown</span>
-      </div>
-    );
-  }
-
-  // Quality based on relative performance
-  const getQuality = (deltaWAIC: number, weight: number) => {
-    if (deltaWAIC === 0) {
-      // Best model
-      if (weight > 0.8) return { label: 'Excellent', color: 'bg-green-500' };
-      if (weight > 0.5) return { label: 'Good', color: 'bg-blue-500' };
-      return { label: 'Fair', color: 'bg-yellow-500' };
-    } else if (deltaWAIC < 4) {
-      // Practically equivalent
-      return { label: 'Good', color: 'bg-blue-500' };
-    } else if (deltaWAIC < 10) {
-      // Some evidence against
-      return { label: 'Fair', color: 'bg-yellow-500' };
-    } else {
-      // Strong evidence against
-      return { label: 'Poor', color: 'bg-red-500' };
-    }
-  };
-
-  const quality = getQuality(currentModel.deltaWAIC, currentModel.weight);
-
-  return (
-    <div className="flex items-center space-x-2">
-      <span className={`w-2 h-2 rounded-full ${quality.color}`} />
-      <span className="text-sm font-medium">{quality.label}</span>
+      {/* Routing reasoning */}
+      {routeInfo?.reasoning && routeInfo.reasoning.length > 0 && (
+        <div className="mt-4">
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">Model Selection Reasoning</h4>
+          <ul className="text-sm text-gray-600 space-y-1">
+            {routeInfo.reasoning.map((reason, idx) => (
+              <li key={idx} className="flex items-start">
+                <span className="text-gray-400 mr-2">•</span>
+                <span>{reason}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };

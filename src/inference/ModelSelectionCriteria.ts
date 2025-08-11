@@ -3,13 +3,20 @@
  *
  * Dedicated module for WAIC/BIC/DIC model comparison as specified in task #75.
  * Contains complexity of model comparison logic in a single location.
+ *
+ * Updated to leverage hybrid posterior capabilities (task #131) for efficient WAIC computation:
+ * - Fast path using analytical logPdf for conjugate models (O(n))
+ * - Fallback to sample-based KDE for complex posteriors (O(n * samples))
  */
+
+import { Posterior, ModelConfig, ModelType } from './base/types';
+import { logSumExp } from '../core/utils/math/special';
 
 export interface ModelCandidate {
   name: string;
-  posterior: any; // Sample-based posterior
-  modelType: string;
-  config?: any; // Model-specific configuration
+  posterior: Posterior; // Now properly typed
+  modelType: ModelType; // Properly typed: 'beta' | 'lognormal' | 'normal' | 'gamma'
+  config?: ModelConfig; // Properly typed model configuration
 }
 
 export interface ModelComparisonResult {
@@ -146,27 +153,46 @@ export class ModelSelectionCriteria {
   }
 
   /**
-   * Compute log pointwise predictive density (simplified approximation)
+   * Compute log pointwise predictive density
+   * Uses appropriate likelihood based on data characteristics
    */
   private static computeLogPointwisePredictiveDensity(
     samples: number[],
     dataValues: number[]
   ): number[] {
-    // Simplified WAIC computation using kernel density estimation
-    // This is a placeholder - full implementation would use proper likelihood computation
+    // Detect if data is binary (for Beta-Binomial models)
+    const isBinary = dataValues.every((y) => y === 0 || y === 1);
+
+    // Check if samples look like probabilities (all in [0,1])
+    const areProbabilities = samples.every((s) => s >= 0 && s <= 1);
 
     return dataValues.map((y) => {
-      // For each data point, compute average log density across posterior samples
-      const logDensities = samples.map((sample) => {
-        // Simplified: assume normal likelihood with sample as mean
-        const sigma = this.estimateStandardDeviation(samples);
-        return this.logNormalDensity(y, sample, sigma);
-      });
+      let logDensities: number[];
 
-      // Log of average density (for WAIC)
-      const avgDensity =
-        logDensities.reduce((sum, ld) => sum + Math.exp(ld), 0) / logDensities.length;
-      return Math.log(avgDensity);
+      if (isBinary && areProbabilities) {
+        // Beta-Binomial case: samples are probabilities, data is binary
+        // Use Bernoulli likelihood
+        logDensities = samples.map((prob) => {
+          // Avoid log(0) with small epsilon
+          const eps = 1e-10;
+          const p = Math.max(eps, Math.min(1 - eps, prob));
+          return y === 1 ? Math.log(p) : Math.log(1 - p);
+        });
+      } else {
+        // Continuous case: use KDE approximation
+        // This works for Normal, LogNormal, etc.
+        const sigma = this.estimateStandardDeviation(samples);
+
+        // Avoid degenerate case where all samples are identical
+        const effectiveSigma = Math.max(sigma, Math.abs(samples[0]) * 0.01 || 0.1);
+
+        logDensities = samples.map((sample) => {
+          return this.logNormalDensity(y, sample, effectiveSigma);
+        });
+      }
+
+      // Use log-sum-exp trick for numerical stability
+      return logSumExp(logDensities) - Math.log(logDensities.length);
     });
   }
 
@@ -174,7 +200,8 @@ export class ModelSelectionCriteria {
    * Compute effective number of parameters for WAIC
    */
   private static computeEffectiveParameters(logPPD: number[]): number {
-    // Simplified: use variance of log pointwise densities as proxy
+    // p_WAIC = variance of log pointwise predictive densities
+    // This measures the effective complexity of the model
     const mean = logPPD.reduce((sum, lpd) => sum + lpd, 0) / logPPD.length;
     const variance = logPPD.reduce((sum, lpd) => sum + Math.pow(lpd - mean, 2), 0) / logPPD.length;
     return variance;

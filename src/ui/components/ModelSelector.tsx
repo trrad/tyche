@@ -82,6 +82,7 @@ interface ModelSelectorProps {
   dataSize?: number; // For data-driven component recommendations
   showQualityFeedback?: boolean; // Show quality indicators
   inferenceResult?: any; // Result containing WAIC info
+  modelConfig?: ModelConfig | null; // Current model config to sync component state
 }
 
 /**
@@ -95,14 +96,34 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   dataSize,
   showQualityFeedback = true,
   inferenceResult,
+  modelConfig,
 }) => {
   // Find current model option
   const currentOption = MODEL_OPTIONS.find((opt) => opt.value === value) || MODEL_OPTIONS[0];
 
-  // Local state for component count
-  const [numComponents, setNumComponents] = useState(
-    currentOption.config?.components || currentOption.config?.valueComponents || 2
-  );
+  // Get component count from the actual modelConfig if available, otherwise from defaults
+  const getComponentCount = () => {
+    if (modelConfig) {
+      // Use the actual config's component count
+      if (modelConfig.structure === 'simple') {
+        return modelConfig.components || 1;
+      } else if (modelConfig.structure === 'compound') {
+        return modelConfig.valueComponents || 1;
+      }
+    }
+    // Fall back to option defaults
+    if (currentOption.supportsMixture && currentOption.config) {
+      if (currentOption.config.structure === 'simple') {
+        return currentOption.config.components || 2;
+      } else if (currentOption.config.structure === 'compound') {
+        return currentOption.config.valueComponents || 2;
+      }
+    }
+    return 2;
+  };
+
+  // Use the actual component count from config
+  const numComponents = getComponentCount();
 
   // Determine if we should show component selector
   const showComponentSelector = currentOption.supportsMixture || false;
@@ -127,8 +148,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   };
 
   const handleComponentChange = (newComponents: number) => {
-    setNumComponents(newComponents);
-
     // Update config with new component count
     if (currentOption.config && currentOption.supportsMixture) {
       const updatedConfig = {
