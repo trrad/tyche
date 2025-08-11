@@ -3,8 +3,8 @@ import { describe, test, expect } from 'vitest';
 import { BetaBinomialConjugate } from '../../inference/exact/BetaBinomialConjugate';
 import { LogNormalConjugate } from '../../inference/exact/LogNormalConjugate';
 import { NormalConjugate } from '../../inference/exact/NormalConjugate';
-import { NormalMixtureEM } from '../../inference/approximate/em/NormalMixtureEM';
-import { LogNormalMixtureEM } from '../../inference/approximate/em/LogNormalMixtureEM';
+import { NormalMixtureVBEM } from '../../inference/approximate/em/NormalMixtureVBEM';
+import { LogNormalMixtureVBEM } from '../../inference/approximate/em/LogNormalMixtureVBEM';
 import { StandardData } from '../../core/data/StandardData';
 import { ModelConfig } from '../../inference/base/types';
 import { TycheError } from '../../core/errors';
@@ -261,16 +261,16 @@ describe('InferenceEngine Base Class Tests', () => {
   });
 
   describe('Mixture Models', () => {
-    test('NormalMixtureEM should support multiple components', () => {
-      const engine = new NormalMixtureEM();
+    test('NormalMixtureVBEM should support multiple components', () => {
+      const engine = new NormalMixtureVBEM();
 
       expect(engine.capabilities.components).toEqual([1, 2, 3, 4]);
       expect(engine.capabilities.exact).toBe(false);
-      expect(engine.algorithm).toBe('em');
+      expect(engine.algorithm).toBe('vi'); // VBEM uses variational inference
     });
 
-    test('LogNormalMixtureEM should handle mixture data', async () => {
-      const engine = new LogNormalMixtureEM({ useFastMStep: true });
+    test('LogNormalMixtureVBEM should handle mixture data', async () => {
+      const engine = new LogNormalMixtureVBEM();
 
       // Create bimodal data
       const values = [

@@ -121,3 +121,32 @@ export function logSumExp(logValues: number[]): number {
 
   return maxVal + Math.log(sumExp);
 }
+
+/**
+ * Digamma function (logarithmic derivative of gamma function)
+ * ψ(x) = d/dx log Γ(x) = Γ'(x)/Γ(x)
+ *
+ * Uses asymptotic expansion for x > 6 and recurrence for smaller values
+ * Needed for Dirichlet distributions and Normal-Inverse-Gamma KL divergence
+ */
+export function digamma(x: number): number {
+  if (x <= 0) {
+    throw new Error('Digamma is undefined for non-positive values');
+  }
+
+  // For small x, use recurrence relation: ψ(x) = ψ(x+1) - 1/x
+  let result = 0;
+  while (x < 6) {
+    result -= 1 / x;
+    x += 1;
+  }
+
+  // Asymptotic expansion for large x
+  // ψ(x) ≈ ln(x) - 1/(2x) - 1/(12x²) + 1/(120x⁴) - ...
+  const xInv = 1 / x;
+  const xInv2 = xInv * xInv;
+
+  result += Math.log(x) - 0.5 * xInv - xInv2 / 12 + (xInv2 * xInv2) / 120;
+
+  return result;
+}

@@ -37,11 +37,13 @@ export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
     mean: number;
     variance: number;
     weight: number;
+    weightCI?: [number, number];
   }> | null>(null);
   const [severityComponents, setSeverityComponents] = useState<Array<{
     mean: number;
     variance: number;
     weight: number;
+    weightCI?: [number, number];
   }> | null>(null);
 
   useEffect(() => {

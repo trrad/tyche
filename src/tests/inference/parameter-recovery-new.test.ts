@@ -7,8 +7,8 @@ import { DataGenerator } from '../utilities/synthetic/DataGenerator';
 import { BetaBinomialConjugate } from '../../inference/exact/BetaBinomialConjugate';
 import { LogNormalConjugate } from '../../inference/exact/LogNormalConjugate';
 import { NormalConjugate } from '../../inference/exact/NormalConjugate';
-import { NormalMixtureEM } from '../../inference/approximate/em/NormalMixtureEM';
-import { LogNormalMixtureEM } from '../../inference/approximate/em/LogNormalMixtureEM';
+import { NormalMixtureVBEM } from '../../inference/approximate/em/NormalMixtureVBEM';
+import { LogNormalMixtureVBEM } from '../../inference/approximate/em/LogNormalMixtureVBEM';
 import { StandardData } from '../../core/data/StandardData';
 import { ModelConfig } from '../../inference/base/types';
 import { LegacyDataAdapter } from '../utilities/LegacyDataAdapter';
@@ -156,7 +156,7 @@ describe('Parameter Recovery - New Architecture', () => {
     });
   });
 
-  describe('NormalMixtureEM', () => {
+  describe('NormalMixtureVBEM', () => {
     test('recovers mixture components', async () => {
       // Generate clear bimodal data
       const gen = new DataGenerator(12345);
@@ -170,7 +170,7 @@ describe('Parameter Recovery - New Architecture', () => {
 
       const standardData = LegacyDataAdapter.toStandardData(data);
 
-      const engine = new NormalMixtureEM();
+      const engine = new NormalMixtureVBEM();
       const config: ModelConfig = {
         structure: 'simple',
         type: 'normal',
@@ -207,7 +207,7 @@ describe('Parameter Recovery - New Architecture', () => {
 
       const standardData = LegacyDataAdapter.toStandardData(data);
 
-      const engine = new NormalMixtureEM();
+      const engine = new NormalMixtureVBEM();
       const config: ModelConfig = {
         structure: 'simple',
         type: 'normal',
@@ -238,7 +238,7 @@ describe('Parameter Recovery - New Architecture', () => {
     });
   });
 
-  describe('LogNormalMixtureEM', () => {
+  describe('LogNormalMixtureVBEM', () => {
     test('recovers revenue tiers', async () => {
       // Generate multi-tier revenue data
       const gen = new DataGenerator(12345);
@@ -248,7 +248,7 @@ describe('Parameter Recovery - New Architecture', () => {
 
       const standardData = LegacyDataAdapter.toStandardData(data);
 
-      const engine = new LogNormalMixtureEM({ useFastMStep: true });
+      const engine = new LogNormalMixtureVBEM();
       const config: ModelConfig = {
         structure: 'simple',
         type: 'lognormal',
@@ -288,24 +288,19 @@ describe('Parameter Recovery - New Architecture', () => {
         components: 2,
       };
 
-      // Test with fast M-step
-      const fastEngine = new LogNormalMixtureEM({ useFastMStep: true });
-      const fastResult = await fastEngine.fit(standardData, config);
+      // Test with VBEM (always uses Bayesian approach)
+      const vbemEngine = new LogNormalMixtureVBEM();
+      const vbemResult = await vbemEngine.fit(standardData, config);
 
-      // Test with Bayesian M-step
-      const bayesEngine = new LogNormalMixtureEM({ useFastMStep: false });
-      const bayesResult = await bayesEngine.fit(standardData, config);
+      // Should converge
+      expect(vbemResult.diagnostics.converged).toBe(true);
 
-      // Both should converge
-      expect(fastResult.diagnostics.converged).toBe(true);
-      expect(bayesResult.diagnostics.converged).toBe(true);
+      // Get results
+      const vbemMeans = vbemResult.posterior.mean?.();
 
-      // Results should be similar (not necessarily identical)
-      const fastMeans = fastResult.posterior.mean?.();
-      const bayesMeans = bayesResult.posterior.mean?.();
-
-      // At least the number of components should match
-      expect(fastMeans?.length).toBe(bayesMeans?.length);
+      // Check that we got a proper result
+      expect(vbemMeans).toBeDefined();
+      expect(vbemMeans?.length).toBeGreaterThan(0);
     });
   });
 });
