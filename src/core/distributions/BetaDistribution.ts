@@ -6,6 +6,7 @@
 import { logBeta } from '../utils/math/special';
 import { RNG } from '../utils/math/random';
 import { Distribution } from './Distribution';
+import jStat from 'jstat';
 
 /**
  * Pure mathematical Beta distribution
@@ -118,6 +119,18 @@ export class BetaDistribution implements Distribution {
     }
 
     return (this.alpha - 1) / (this.alpha + this.beta - 2);
+  }
+
+  /**
+   * Credible interval for the Beta distribution
+   * Uses jStat's Beta inverse CDF (quantile function)
+   */
+  credibleInterval(level: number = 0.95): [number, number] {
+    const alpha = (1 - level) / 2;
+    return [
+      jStat.beta.inv(alpha, this.alpha, this.beta),
+      jStat.beta.inv(1 - alpha, this.alpha, this.beta),
+    ];
   }
 
   /**

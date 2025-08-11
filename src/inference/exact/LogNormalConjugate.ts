@@ -19,6 +19,7 @@ import { TycheError, ErrorCode } from '../../core/errors';
 import { LogNormalDistribution } from '../../core/distributions/LogNormalDistribution';
 import { NormalDistribution } from '../../core/distributions/NormalDistribution';
 import { GammaDistribution } from '../../core/distributions/GammaDistribution';
+import { logGamma, digamma } from '../../core/utils/math/special';
 
 /**
  * Parameters for Normal-Inverse-Gamma distribution
@@ -178,6 +179,43 @@ export class LogNormalPosterior implements Posterior {
     };
   }
 
+  /**
+   * Compute KL divergence from a prior Normal-Inverse-Gamma distribution
+   * KL(q||p) where q is this posterior and p is the prior
+   *
+   * Note: Since LogNormal uses NIG on the log scale, this is the same formula
+   * as for Normal posteriors.
+   *
+   * Formula for KL(NIG(μ₁,λ₁,α₁,β₁) || NIG(μ₀,λ₀,α₀,β₀)):
+   * = (α₁ - α₀)ψ(α₁) - log Γ(α₁) + log Γ(α₀)
+   *   + α₀(log β₁ - log β₀) + α₁(β₀/β₁ - 1)
+   *   + λ₁(μ₁ - μ₀)²/(2β₁) + 1/2(log λ₀ - log λ₁)
+   *   + (λ₀/λ₁ - 1)/2
+   */
+  klDivergenceFromPrior(prior: NormalInverseGammaParams): number {
+    const q = this.params; // Posterior (this)
+    const p = prior; // Prior
+
+    // KL divergence components
+    let kl = 0;
+
+    // Shape parameter terms (alpha)
+    kl += (q.alpha - p.alpha) * digamma(q.alpha);
+    kl -= logGamma(q.alpha);
+    kl += logGamma(p.alpha);
+
+    // Scale parameter terms (beta)
+    kl += p.alpha * (Math.log(q.beta) - Math.log(p.beta));
+    kl += q.alpha * (p.beta / q.beta - 1);
+
+    // Location parameter terms (mu, lambda)
+    kl += (q.lambda * Math.pow(q.mu0 - p.mu0, 2)) / (2 * q.beta);
+    kl += 0.5 * (Math.log(p.lambda) - Math.log(q.lambda));
+    kl += (p.lambda / q.lambda - 1) / 2;
+
+    return kl;
+  }
+
   private getMCSamples(): number[] {
     if (!this._mcSamples) {
       this._mcSamples = this.sample(this.MC_SAMPLES);
@@ -279,10 +317,10 @@ export class LogNormalConjugate extends InferenceEngine {
 
     // Update for beta is more complex
     const priorSS = prior.beta;
-    const dataSS = sumX2 - n * xBar * xBar;
+    const dataSS = Math.max(0, sumX2 - n * xBar * xBar); // Ensure non-negative (handles numerical errors)
     const shrinkageSS = ((prior.lambda * n) / posteriorLambda) * Math.pow(xBar - prior.mu0, 2);
 
-    const posteriorBeta = priorSS + 0.5 * dataSS + 0.5 * shrinkageSS;
+    const posteriorBeta = Math.max(1e-10, priorSS + 0.5 * dataSS + 0.5 * shrinkageSS); // Ensure positive
 
     const posteriorParams: NormalInverseGammaParams = {
       mu0: posteriorMu0,
@@ -351,11 +389,11 @@ export class LogNormalConjugate extends InferenceEngine {
 
     // Update for beta
     const priorSS = prior.beta;
-    const dataSS = stats.sumLogSq - stats.n * stats.meanLog * stats.meanLog;
+    const dataSS = Math.max(0, stats.sumLogSq - stats.n * stats.meanLog * stats.meanLog); // Ensure non-negative
     const shrinkageSS =
       ((prior.lambda * stats.n) / posteriorLambda) * Math.pow(stats.meanLog - prior.mu0, 2);
 
-    const posteriorBeta = priorSS + 0.5 * dataSS + 0.5 * shrinkageSS;
+    const posteriorBeta = Math.max(1e-10, priorSS + 0.5 * dataSS + 0.5 * shrinkageSS); // Ensure positive
 
     const posteriorParams: NormalInverseGammaParams = {
       mu0: posteriorMu0,
