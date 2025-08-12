@@ -353,6 +353,7 @@ export class NormalConjugate extends InferenceEngine {
         iterations: 1,
         runtime,
         modelType: 'normal',
+        parameterCount: 2, // mu and sigma^2
       },
     };
   }
@@ -423,6 +424,7 @@ export class NormalConjugate extends InferenceEngine {
         iterations: 1,
         runtime,
         modelType: 'normal',
+        parameterCount: 2, // mu and sigma^2
       },
     };
   }

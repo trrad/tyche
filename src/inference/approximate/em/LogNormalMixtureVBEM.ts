@@ -632,6 +632,8 @@ export class LogNormalMixtureVBEM extends MixtureEMBase {
         finalELBO: result.elboHistory[result.elboHistory.length - 1],
         elboHistory: result.elboHistory,
         modelType: 'lognormal-mixture-vbem',
+        parameterCount: actualComponents * 2 + (actualComponents - 1), // K components × (mu, sigma) + K-1 weights
+        effectiveParameters: actualComponents * 2 + (actualComponents - 1), // Could be refined based on posterior uncertainty
       },
     };
   }

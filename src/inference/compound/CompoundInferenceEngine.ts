@@ -337,6 +337,12 @@ export class CompoundInferenceEngine extends InferenceEngine {
         ),
         runtime,
         modelType: `compound-beta-${config.valueType}`,
+        parameterCount:
+          freqResult.diagnostics.parameterCount + valueResult.diagnostics.parameterCount,
+        effectiveParameters:
+          freqResult.diagnostics.effectiveParameters ||
+          freqResult.diagnostics.parameterCount +
+            (valueResult.diagnostics.effectiveParameters || valueResult.diagnostics.parameterCount),
       },
     };
   }

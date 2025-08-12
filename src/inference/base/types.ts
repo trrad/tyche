@@ -75,6 +75,8 @@ export interface InferenceResult {
     acceptanceRate?: number; // For MCMC
     runtime?: number;
     modelType?: string;
+    parameterCount: number; // Number of free parameters in the model (REQUIRED)
+    effectiveParameters?: number; // Effective parameters (for regularized/Bayesian models)
   };
 }
 

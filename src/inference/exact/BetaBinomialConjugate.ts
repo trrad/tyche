@@ -301,6 +301,7 @@ export class BetaBinomialConjugate extends InferenceEngine {
         iterations: 1, // Single update
         runtime,
         modelType: 'beta-binomial',
+        parameterCount: 2, // alpha and beta
       },
     };
   }
