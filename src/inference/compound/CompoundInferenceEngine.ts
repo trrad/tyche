@@ -199,6 +199,66 @@ export class CompoundPosterior implements Posterior {
     }
     return null;
   }
+
+  /**
+   * Sample parameters from both frequency and severity posteriors
+   * This enables WAIC computation for compound models
+   */
+  sampleParameters(): {
+    frequencyParams: any;
+    severityParams: any;
+  } {
+    // Check if both posteriors support parameter sampling
+    const freqHasSampling = typeof (this.frequency as any).sampleParameters === 'function';
+    const sevHasSampling = typeof (this.severity as any).sampleParameters === 'function';
+
+    if (!freqHasSampling || !sevHasSampling) {
+      throw new Error('Both frequency and severity posteriors must support parameter sampling');
+    }
+
+    return {
+      frequencyParams: (this.frequency as any).sampleParameters(),
+      severityParams: (this.severity as any).sampleParameters(),
+    };
+  }
+
+  /**
+   * Compute log likelihood of compound data given specific parameters
+   * For revenue model: p(revenue | params) = p(converted) * p(value | converted) + p(not converted) * δ(value=0)
+   */
+  logLikelihood(
+    data: { converted: boolean; value: number } | { converted: boolean; value: number }[],
+    params: { frequencyParams: any; severityParams: any }
+  ): number {
+    const dataArray = Array.isArray(data) ? data : [data];
+    let totalLogLik = 0;
+
+    // Check if posteriors support log likelihood computation
+    const freqHasLikelihood = typeof (this.frequency as any).logLikelihood === 'function';
+    const sevHasLikelihood = typeof (this.severity as any).logLikelihood === 'function';
+
+    if (!freqHasLikelihood || !sevHasLikelihood) {
+      throw new Error('Both posteriors must support logLikelihood computation');
+    }
+
+    for (const obs of dataArray) {
+      if (obs.converted && obs.value > 0) {
+        // User converted with positive value
+        // log p(converted) + log p(value | converted)
+        const p = params.frequencyParams.p;
+        const logPConverted = Math.log(p);
+        const logPValue = (this.severity as any).logLikelihood(obs.value, params.severityParams);
+        totalLogLik += logPConverted + logPValue;
+      } else if (!obs.converted || obs.value === 0) {
+        // User didn't convert or has zero value
+        // log p(not converted)
+        const p = params.frequencyParams.p;
+        totalLogLik += Math.log(1 - p);
+      }
+    }
+
+    return totalLogLik;
+  }
 }
 
 /**

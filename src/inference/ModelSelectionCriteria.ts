@@ -82,33 +82,89 @@ export class ModelSelectionCriteria {
   }
 
   /**
-   * Compute WAIC for a sample-based posterior
+   * Compute WAIC for a posterior
+   * WAIC = -2 * (lppd - p_waic)
+   * where lppd = log pointwise predictive density
+   * and p_waic = effective number of parameters (variance penalty)
    */
   private static async computeWAIC(posterior: any, data: any): Promise<number> {
-    // For now, implement a simplified WAIC approximation
-    // TODO: Replace with full WAIC implementation once sample-based posteriors are standardized
+    // Check what methods the posterior supports
+    const hasParameterSampling =
+      typeof posterior.sampleParameters === 'function' &&
+      typeof posterior.logLikelihood === 'function';
+    const hasLogPdf = typeof posterior.logPdf === 'function';
 
-    if (!posterior || typeof posterior.sample !== 'function') {
-      throw new Error('Posterior must have sample() method for WAIC computation');
+    if (!hasParameterSampling && !hasLogPdf) {
+      throw new Error(
+        'Posterior must implement either (sampleParameters + logLikelihood) or logPdf for WAIC'
+      );
     }
 
-    // Get samples from posterior
-    const nSamples = 1000;
-    const samples = await posterior.sample(nSamples);
-
-    if (!Array.isArray(samples) || samples.length === 0) {
-      throw new Error('Posterior returned invalid samples');
+    // Prepare data in appropriate format
+    let dataArray: any[];
+    if (typeof data === 'object' && 'successes' in data && 'trials' in data) {
+      // Single binomial observation - keep in original format
+      dataArray = [data];
+    } else if (Array.isArray(data)) {
+      // Array of observations
+      dataArray = data;
+    } else {
+      // Try to extract data values for continuous data
+      dataArray = this.extractDataValues(data);
     }
 
-    // Compute log pointwise predictive density (simplified)
-    const dataArray = Array.isArray(data) ? data : this.extractDataValues(data);
-    const logPPD = this.computeLogPointwisePredictiveDensity(samples, dataArray);
+    if (dataArray.length === 0) {
+      throw new Error('No data points for WAIC computation');
+    }
 
-    // Compute WAIC components
-    const lppd = logPPD.reduce((sum, lpd) => sum + lpd, 0); // Log pointwise predictive density
-    const pWAIC = this.computeEffectiveParameters(logPPD); // Effective number of parameters
+    let lppd = 0;
+    let pWaic = 0;
 
-    const waic = -2 * (lppd - pWAIC);
+    if (hasParameterSampling) {
+      // Full WAIC with parameter sampling (for mixture models and other complex posteriors)
+      const S = 200; // Number of parameter samples for computing variance
+      const logLikelihoodSamples: number[][] = [];
+
+      // For each data point, compute log likelihood under S parameter samples
+      for (const dataPoint of dataArray) {
+        const pointLogLiks: number[] = [];
+
+        for (let s = 0; s < S; s++) {
+          // Sample parameters from posterior
+          const params = posterior.sampleParameters();
+          // Compute log likelihood at this data point with these parameters
+          const logLik = posterior.logLikelihood(dataPoint, params);
+          pointLogLiks.push(logLik);
+        }
+
+        // Compute lppd for this point using log-sum-exp
+        const pointLppd = logSumExp(pointLogLiks) - Math.log(S);
+        lppd += pointLppd;
+
+        // Compute variance for p_waic
+        const mean = pointLogLiks.reduce((sum, ll) => sum + ll, 0) / S;
+        const variance = pointLogLiks.reduce((sum, ll) => sum + Math.pow(ll - mean, 2), 0) / S;
+        pWaic += variance;
+
+        logLikelihoodSamples.push(pointLogLiks);
+      }
+    } else {
+      // Fallback: use logPdf (integrated over parameters) without variance correction
+      // This gives a simplified WAIC but is still useful for model comparison
+      for (const dataPoint of dataArray) {
+        const logProb = posterior.logPdf(dataPoint);
+        if (!isFinite(logProb)) {
+          console.warn(`Non-finite log probability for data point ${dataPoint}`);
+          continue;
+        }
+        lppd += logProb;
+      }
+      // Without parameter samples, we can't compute proper p_waic
+      pWaic = 0;
+    }
+
+    // Compute final WAIC
+    const waic = -2 * (lppd - pWaic);
 
     if (!isFinite(waic)) {
       throw new Error('WAIC computation resulted in non-finite value');
@@ -150,79 +206,6 @@ export class ModelSelectionCriteria {
     }
 
     throw new Error('Unable to extract data values for WAIC computation');
-  }
-
-  /**
-   * Compute log pointwise predictive density
-   * Uses appropriate likelihood based on data characteristics
-   */
-  private static computeLogPointwisePredictiveDensity(
-    samples: number[],
-    dataValues: number[]
-  ): number[] {
-    // Detect if data is binary (for Beta-Binomial models)
-    const isBinary = dataValues.every((y) => y === 0 || y === 1);
-
-    // Check if samples look like probabilities (all in [0,1])
-    const areProbabilities = samples.every((s) => s >= 0 && s <= 1);
-
-    return dataValues.map((y) => {
-      let logDensities: number[];
-
-      if (isBinary && areProbabilities) {
-        // Beta-Binomial case: samples are probabilities, data is binary
-        // Use Bernoulli likelihood
-        logDensities = samples.map((prob) => {
-          // Avoid log(0) with small epsilon
-          const eps = 1e-10;
-          const p = Math.max(eps, Math.min(1 - eps, prob));
-          return y === 1 ? Math.log(p) : Math.log(1 - p);
-        });
-      } else {
-        // Continuous case: use KDE approximation
-        // This works for Normal, LogNormal, etc.
-        const sigma = this.estimateStandardDeviation(samples);
-
-        // Avoid degenerate case where all samples are identical
-        const effectiveSigma = Math.max(sigma, Math.abs(samples[0]) * 0.01 || 0.1);
-
-        logDensities = samples.map((sample) => {
-          return this.logNormalDensity(y, sample, effectiveSigma);
-        });
-      }
-
-      // Use log-sum-exp trick for numerical stability
-      return logSumExp(logDensities) - Math.log(logDensities.length);
-    });
-  }
-
-  /**
-   * Compute effective number of parameters for WAIC
-   */
-  private static computeEffectiveParameters(logPPD: number[]): number {
-    // p_WAIC = variance of log pointwise predictive densities
-    // This measures the effective complexity of the model
-    const mean = logPPD.reduce((sum, lpd) => sum + lpd, 0) / logPPD.length;
-    const variance = logPPD.reduce((sum, lpd) => sum + Math.pow(lpd - mean, 2), 0) / logPPD.length;
-    return variance;
-  }
-
-  /**
-   * Estimate standard deviation from samples
-   */
-  private static estimateStandardDeviation(samples: number[]): number {
-    const mean = samples.reduce((sum, x) => sum + x, 0) / samples.length;
-    const variance =
-      samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / (samples.length - 1);
-    return Math.sqrt(variance);
-  }
-
-  /**
-   * Log normal density function
-   */
-  private static logNormalDensity(x: number, mean: number, sigma: number): number {
-    const variance = sigma * sigma;
-    return -0.5 * Math.log(2 * Math.PI * variance) - Math.pow(x - mean, 2) / (2 * variance);
   }
 
   /**

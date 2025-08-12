@@ -112,6 +112,52 @@ class BetaPosterior implements Posterior {
   }
 
   /**
+   * Sample parameters from the Beta posterior
+   * Returns a probability p ~ Beta(alpha, beta)
+   */
+  sampleParameters(): { p: number } {
+    // Sample from Beta distribution
+    const p = this.distribution.sample(1)[0];
+    return { p };
+  }
+
+  /**
+   * Compute log likelihood of data given specific parameter value
+   * This is the Binomial likelihood, not the Beta-Binomial predictive
+   * @param data - Must have {successes, trials} format
+   * @param params - Parameter value {p: probability}
+   */
+  static logLikelihood(data: { successes: number; trials: number }, params: { p: number }): number {
+    const { successes: s, trials: n } = data;
+    const { p } = params;
+
+    // Binomial log likelihood: log C(n,s) + s*log(p) + (n-s)*log(1-p)
+    // Use helper for log choose
+    const logChoose = (n: number, k: number): number => {
+      if (k > n || k < 0) return -Infinity;
+      if (k === 0 || k === n) return 0;
+
+      let result = 0;
+      for (let i = 1; i <= k; i++) {
+        result += Math.log(n - k + i) - Math.log(i);
+      }
+      return result;
+    };
+
+    const eps = 1e-10; // Avoid log(0)
+    const pSafe = Math.max(eps, Math.min(1 - eps, p));
+
+    return logChoose(n, s) + s * Math.log(pSafe) + (n - s) * Math.log(1 - pSafe);
+  }
+
+  /**
+   * Instance method for log likelihood (delegates to static method)
+   */
+  logLikelihood(data: { successes: number; trials: number }, params: { p: number }): number {
+    return BetaPosterior.logLikelihood(data, params);
+  }
+
+  /**
    * Mode of the Beta distribution (for α > 1, β > 1)
    */
   mode(): number {

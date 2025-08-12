@@ -22,6 +22,7 @@ import { StandardData, DataType } from '../../../core/data/StandardData';
 import { TycheError, ErrorCode } from '../../../core/errors';
 import { DirichletDistribution } from '../../../core/distributions/DirichletDistribution';
 import { LogNormalConjugate, LogNormalPosterior } from '../../exact/LogNormalConjugate';
+import { LogNormalDistribution } from '../../../core/distributions/LogNormalDistribution';
 
 /**
  * Parameters for Normal-Inverse-Gamma prior
@@ -238,6 +239,76 @@ export class LogNormalMixturePosterior implements Posterior {
    */
   getWeightPosterior(): DirichletDistribution {
     return this.weightPosterior;
+  }
+
+  /**
+   * Sample parameters from the posterior distributions
+   * Returns sampled weights and component parameters
+   */
+  sampleParameters(): {
+    weights: number[];
+    componentParams: Array<{ mu: number; sigma2: number }>;
+  } {
+    // Sample weights from Dirichlet posterior
+    const weights = this.weightPosterior.sample(1)[0];
+
+    // Sample parameters from each component's Normal-Inverse-Gamma posterior
+    const componentParams = this.components.map((comp) => {
+      return comp.posterior.sampleParameters();
+    });
+
+    return { weights, componentParams };
+  }
+
+  /**
+   * Compute log likelihood of data given specific parameters
+   * Uses LogNormalDistribution.logPdf for the actual computation
+   * @param data - Single data point or array of data points (numbers or {converted, value} objects)
+   * @param params - Parameters sampled from sampleParameters()
+   */
+  logLikelihood(
+    data:
+      | number
+      | number[]
+      | { converted: boolean; value: number }
+      | { converted: boolean; value: number }[],
+    params: { weights: number[]; componentParams: Array<{ mu: number; sigma2: number }> }
+  ): number {
+    // Handle both simple number format and compound {converted, value} format
+    let values: number[];
+    if (Array.isArray(data)) {
+      values = data.map((d) => (typeof d === 'number' ? d : d.value));
+    } else {
+      values = [typeof data === 'number' ? data : data.value];
+    }
+
+    let totalLogLik = 0;
+
+    for (const x of values) {
+      if (x <= 0) {
+        totalLogLik += -Infinity;
+        continue;
+      }
+
+      // Compute log likelihood for each component using LogNormalDistribution.logPdf
+      const componentLogLiks = params.componentParams.map((compParams, k) => {
+        const { mu, sigma2 } = compParams;
+        // Create a LogNormalDistribution with these specific parameters
+        // and use its logPdf method
+        const dist = new LogNormalDistribution(mu, Math.sqrt(sigma2));
+        return Math.log(params.weights[k]) + dist.logPdf(x);
+      });
+
+      // Log-sum-exp for mixture
+      const maxLogLik = Math.max(...componentLogLiks);
+      const logSumExp =
+        maxLogLik +
+        Math.log(componentLogLiks.reduce((sum, ll) => sum + Math.exp(ll - maxLogLik), 0));
+
+      totalLogLik += logSumExp;
+    }
+
+    return totalLogLik;
   }
 }
 

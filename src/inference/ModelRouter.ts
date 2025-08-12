@@ -658,8 +658,13 @@ export class ModelRouter {
     }
 
     if (isUserLevelData(data)) {
-      // For WAIC, we need the raw values
-      return data.userLevel!.users.map((u) => u.value);
+      // For compound models, we need the full user data with conversion status
+      // For simple models, we just need the values
+      // We'll return the full user data and let the posterior decide what to use
+      return data.userLevel!.users.map((u) => ({
+        converted: u.converted,
+        value: u.value,
+      }));
     }
 
     throw new Error(`Cannot extract data for WAIC: ${data.type}`);
