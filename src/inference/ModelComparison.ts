@@ -56,14 +56,20 @@ export interface ModelComparisonResult {
  */
 export interface ComponentComparisonResult {
   selectedK: number; // What was initially selected
-  optimalK: number; // What criterion suggests
+  optimalK: number; // What BIC suggests (primary)
+  optimalKWAIC?: number; // What WAIC suggests (secondary)
   models: Array<{
     k: number;
-    score: number;
-    deltaScore: number;
-    weight: number;
+    bic: number;
+    waic: number;
+    deltaBIC: number;
+    deltaWAIC: number;
+    weightBIC: number;
+    weightWAIC: number;
+    parameters: number;
   }>;
-  confidence: number; // Weight of best model
+  confidence: number; // Weight of best model (BIC)
+  agreement: boolean; // Whether BIC and WAIC agree
   criterion: string;
   computeTimeMs: number;
 }
@@ -122,29 +128,14 @@ export class ModelComparison {
         posterior: m.result.posterior,
         modelType: m.config.type || m.config.valueType || 'unknown',
         config: m.config,
+        parameterCount: m.result.diagnostics.parameterCount,
       }));
 
       // Extract data for comparison
       const comparisonData = this.extractDataForComparison(data);
 
-      // Run comparison based on criterion
-      let comparison;
-      switch (criterion) {
-        case 'WAIC':
-          comparison = await ModelSelectionCriteria.compareModels(candidates, comparisonData);
-          break;
-        case 'BIC':
-          comparison = await ModelSelectionCriteria.compareModelsBIC(candidates, comparisonData);
-          break;
-        case 'DIC':
-          comparison = await ModelSelectionCriteria.compareModelsDIC(candidates, comparisonData);
-          break;
-        default:
-          throw new TycheError(
-            ErrorCode.INVALID_INPUT,
-            `Unknown comparison criterion: ${criterion}`
-          );
-      }
+      // Run comparison - use BIC method which computes both WAIC and BIC efficiently
+      const comparison = await ModelSelectionCriteria.compareModelsBIC(candidates, comparisonData);
 
       // Format results
       const models = comparison.map((c) => ({
@@ -221,27 +212,48 @@ export class ModelComparison {
       config: isCompound ? { ...baseConfig, valueComponents: k } : { ...baseConfig, components: k },
     }));
 
-    // Run general comparison
-    const comparisonResult = await this.compareModels(data, {
-      models,
-      criterion: 'WAIC',
-      parallel: true,
-    });
+    // Run comparison with both BIC and WAIC
+    const fittedModels = await this.fitModelsParallel(data, models);
 
-    // Extract optimal k
-    const optimalModel = comparisonResult.best;
-    const optimalK = isCompound
-      ? optimalModel.config.valueComponents || 1
-      : optimalModel.config.components || 1;
+    // Prepare candidates
+    const candidates: ModelCandidate[] = fittedModels.map((m) => ({
+      name: m.name,
+      posterior: m.result.posterior,
+      modelType: isCompound ? baseConfig.valueType! : baseConfig.type!,
+      config: m.config,
+      parameterCount: m.result.diagnostics.parameterCount,
+    }));
+
+    // Extract data for comparison
+    const comparisonData = this.extractDataForComparison(data);
+
+    // Run comparison with both metrics
+    const comparison = await ModelSelectionCriteria.compareModelsBIC(candidates, comparisonData);
+
+    // Sort by BIC (primary criterion)
+    const byBIC = [...comparison].sort((a, b) => (a.bic || 0) - (b.bic || 0));
+    const optimalKBIC = isCompound
+      ? byBIC[0].config?.valueComponents || 1
+      : byBIC[0].config?.components || 1;
+
+    // Also get WAIC optimal
+    const byWAIC = [...comparison].sort((a, b) => a.waic - b.waic);
+    const optimalKWAIC = isCompound
+      ? byWAIC[0].config?.valueComponents || 1
+      : byWAIC[0].config?.components || 1;
 
     // Format for component comparison result
-    const componentModels = comparisonResult.models.map((m) => {
-      const k = isCompound ? m.config.valueComponents || 1 : m.config.components || 1;
+    const componentModels = comparison.map((m) => {
+      const k = isCompound ? m.config?.valueComponents || 1 : m.config?.components || 1;
       return {
         k,
-        score: m.score,
-        deltaScore: m.deltaScore,
-        weight: m.weight,
+        bic: m.bic || 0,
+        waic: m.waic,
+        deltaBIC: m.deltaBIC || 0,
+        deltaWAIC: m.deltaWAIC,
+        weightBIC: m.weightBIC || 0,
+        weightWAIC: m.weight,
+        parameters: m.parameterCount || 2,
       };
     });
 
@@ -250,10 +262,12 @@ export class ModelComparison {
 
     return {
       selectedK: currentK,
-      optimalK,
+      optimalK: optimalKBIC, // Use BIC for primary selection
+      optimalKWAIC,
       models: componentModels,
-      confidence: comparisonResult.best.confidence,
-      criterion: comparisonResult.criterion,
+      confidence: byBIC[0].weightBIC || 0,
+      agreement: optimalKBIC === optimalKWAIC,
+      criterion: 'BIC+WAIC',
       computeTimeMs: Date.now() - startTime,
     };
   }

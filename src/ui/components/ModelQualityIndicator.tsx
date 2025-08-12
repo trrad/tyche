@@ -22,7 +22,8 @@ export const ModelQualityIndicator: React.FC<ModelQualityProps> = ({ waicInfo, r
       {waicInfo && waicInfo.models && (
         <div className="mb-4">
           <h4 className="text-sm font-semibold text-gray-700 mb-2">
-            Component Selection ({waicInfo.criterion || 'WAIC'} Comparison)
+            Component Selection (
+            {waicInfo.criterion === 'BIC+WAIC' ? 'BIC & WAIC' : waicInfo.criterion || 'WAIC'})
           </h4>
 
           {/* Summary */}
@@ -50,12 +51,10 @@ export const ModelQualityIndicator: React.FC<ModelQualityProps> = ({ waicInfo, r
               Confidence: {(waicInfo.confidence * 100).toFixed(1)}%
             </div>
 
-            {/* Show ΔScore if not optimal */}
-            {waicInfo.selectedK !== waicInfo.optimalK && (
+            {/* Show disagreement between BIC and WAIC if present */}
+            {waicInfo.optimalKWAIC && waicInfo.optimalK !== waicInfo.optimalKWAIC && (
               <div className="text-sm text-amber-700 mt-1">
-                Δ{waicInfo.criterion || 'WAIC'}:{' '}
-                {waicInfo.models.find((m) => m.k === waicInfo.optimalK)?.deltaScore.toFixed(1) ||
-                  '?'}
+                BIC prefers k={waicInfo.optimalK}, WAIC prefers k={waicInfo.optimalKWAIC}
               </div>
             )}
           </div>
@@ -65,9 +64,14 @@ export const ModelQualityIndicator: React.FC<ModelQualityProps> = ({ waicInfo, r
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-600">
-                  <th className="pb-1">Components</th>
-                  <th className="pb-1">{waicInfo.criterion || 'WAIC'}</th>
-                  <th className="pb-1">Δ{waicInfo.criterion || 'WAIC'}</th>
+                  <th className="pb-1">k</th>
+                  <th className="pb-1">Params</th>
+                  <th className="pb-1" title="Per-observation BIC">
+                    BIC/n
+                  </th>
+                  <th className="pb-1" title="Per-observation WAIC">
+                    WAIC/n
+                  </th>
                   <th className="pb-1">Weight</th>
                 </tr>
               </thead>
@@ -80,23 +84,41 @@ export const ModelQualityIndicator: React.FC<ModelQualityProps> = ({ waicInfo, r
                     }`}
                   >
                     <td className="py-1">
-                      k={model.k}
-                      {model.k === waicInfo.selectedK && ' (selected)'}
-                      {model.k === waicInfo.optimalK &&
-                        model.k !== waicInfo.selectedK &&
-                        ' (optimal)'}
+                      {model.k}
+                      {model.k === waicInfo.selectedK && ' ✓'}
                     </td>
-                    <td className="py-1">{model.score.toFixed(1)}</td>
-                    <td className="py-1">{model.deltaScore.toFixed(1)}</td>
-                    <td className="py-1">{(model.weight * 100).toFixed(1)}%</td>
+                    <td className="py-1">{model.parameters || '?'}</td>
+                    <td
+                      className="py-1 ${
+                      model.k === waicInfo.optimalK ? 'font-semibold' : ''
+                    }"
+                    >
+                      {model.bic ? model.bic.toFixed(3) : '-'}
+                      {model.deltaBIC === 0 && ' *'}
+                    </td>
+                    <td
+                      className="py-1 ${
+                      model.k === waicInfo.optimalKWAIC ? 'font-semibold' : ''
+                    }"
+                    >
+                      {model.waic.toFixed(3)}
+                      {model.deltaWAIC === 0 && ' *'}
+                    </td>
+                    <td className="py-1">{(model.weightBIC * 100).toFixed(1)}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          {/* Computation time */}
-          <div className="text-xs text-gray-500 mt-2">Computed in {waicInfo.computeTimeMs}ms</div>
+          {/* Computation time and explanation */}
+          <div className="text-xs text-gray-500 mt-2">
+            <div>Computed in {waicInfo.computeTimeMs}ms</div>
+            <div className="mt-1">
+              * = best | BIC for structure selection, WAIC for prediction | Per-observation values
+              shown
+            </div>
+          </div>
         </div>
       )}
 

@@ -374,6 +374,7 @@ export class LogNormalConjugate extends InferenceEngine {
         iterations: 1,
         runtime,
         modelType: 'lognormal',
+        parameterCount: 2, // mu and sigma^2
       },
     };
   }
@@ -447,6 +448,7 @@ export class LogNormalConjugate extends InferenceEngine {
         iterations: 1,
         runtime,
         modelType: 'lognormal',
+        parameterCount: 2, // mu and sigma^2
       },
     };
   }
