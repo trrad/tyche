@@ -175,6 +175,38 @@ export class NormalPosterior implements Posterior {
   }
 
   /**
+   * Sample parameters from the posterior (not data!)
+   * Returns mu and sigma2 sampled from the Normal-Inverse-Gamma posterior
+   */
+  sampleParameters(): { mu: number; sigma2: number } {
+    // 1. Sample σ² from Inverse-Gamma(α, β)
+    const sigma2 = this.sampleInverseGamma(this.params.alpha, this.params.beta);
+
+    // 2. Sample μ from Normal(μ₀, σ²/λ)
+    const muDist = new NormalDistribution(this.params.mu0, Math.sqrt(sigma2 / this.params.lambda));
+    const mu = muDist.sample(1)[0];
+
+    return { mu, sigma2 };
+  }
+
+  /**
+   * Compute log likelihood of data given specific parameter values
+   * @param data - Data point(s) - can be number or {converted, value} format
+   * @param params - Specific parameter values {mu, sigma2}
+   */
+  logLikelihood(
+    data: number | { converted: boolean; value: number },
+    params: { mu: number; sigma2: number }
+  ): number {
+    // Extract value from compound format if needed
+    const value = typeof data === 'number' ? data : data.value;
+
+    // Use NormalDistribution to compute log pdf
+    const dist = new NormalDistribution(params.mu, Math.sqrt(params.sigma2));
+    return dist.logPdf(value);
+  }
+
+  /**
    * Compute KL divergence from a prior Normal-Inverse-Gamma distribution
    * KL(q||p) where q is this posterior and p is the prior
    *

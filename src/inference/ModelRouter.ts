@@ -8,26 +8,9 @@ import {
 import { ModelConfig, ModelStructure, ModelType, FitOptions } from './base/types';
 import { InferenceEngine } from './base/InferenceEngine';
 import { TycheError, ErrorCode } from '../core/errors';
-import { ModelSelectionCriteria, ModelCandidate } from './ModelSelectionCriteria';
 
 // Legacy imports for bridge pattern
 import { DataInput, CompoundDataInput } from './base/types';
-
-/**
- * Result of component comparison using WAIC
- */
-export interface ComponentComparisonResult {
-  selectedK: number; // What heuristic chose
-  optimalK: number; // What WAIC suggests
-  models: Array<{
-    k: number;
-    waic: number;
-    deltaWAIC: number;
-    weight: number;
-  }>;
-  confidence: number; // Weight of best model
-  computeTimeMs: number;
-}
 
 /**
  * Result of model routing decision
@@ -41,11 +24,6 @@ export interface ModelRouteResult {
     config: ModelConfig;
     reason: string;
   }>;
-  // Optional background WAIC comparison for component selection
-  componentComparison?: {
-    promise: Promise<ComponentComparisonResult>;
-    cancel?: () => void;
-  };
 }
 
 /**
@@ -175,17 +153,7 @@ export class ModelRouter {
       valueComponents,
     };
 
-    const result = await this.createRouteResult(config, reasoning, 0.85);
-
-    // Add background component comparison for the value distribution
-    if (this.shouldRunComponentComparison(data, config, fitOptions)) {
-      result.componentComparison = {
-        promise: this.compareComponents(data, config),
-        cancel: () => {}, // Could implement cancellation if needed
-      };
-    }
-
-    return result;
+    return this.createRouteResult(config, reasoning, 0.85);
   }
 
   /**
@@ -210,17 +178,7 @@ export class ModelRouter {
       components,
     };
 
-    const result = await this.createRouteResult(config, reasoning, 0.8);
-
-    // Add background component comparison for mixture-capable models
-    if (this.shouldRunComponentComparison(data, config, fitOptions)) {
-      result.componentComparison = {
-        promise: this.compareComponents(data, config),
-        cancel: () => {}, // Could implement cancellation if needed
-      };
-    }
-
-    return result;
+    return this.createRouteResult(config, reasoning, 0.8);
   }
 
   /**
@@ -489,179 +447,5 @@ export class ModelRouter {
     const relativeGap = meanGap / range;
 
     return relativeGap > 0.3; // Gap larger than 30% of range suggests multiple modes
-  }
-
-  // =============================================================================
-  // COMPONENT COMPARISON (WAIC-BASED)
-  // =============================================================================
-
-  /**
-   * Determine if we should run background component comparison
-   */
-  private static shouldRunComponentComparison(
-    data: StandardData,
-    config: ModelConfig,
-    fitOptions?: FitOptions
-  ): boolean {
-    // Don't run if user forced a specific config
-    if (fitOptions?.forceConfig) {
-      return false;
-    }
-
-    // Need sufficient data (at least 50 points)
-    if (data.n < 50) {
-      return false;
-    }
-
-    // Check if model supports mixtures
-    if (config.structure === 'simple') {
-      // Simple models: must be a mixture-capable type
-      return config.type === 'lognormal' || config.type === 'normal';
-    } else if (config.structure === 'compound') {
-      // Compound models: value distribution must be mixture-capable
-      return config.valueType === 'lognormal' || config.valueType === 'normal';
-    }
-
-    return false;
-  }
-
-  /**
-   * Compare different numbers of components using WAIC
-   * Runs in background to avoid blocking initial results
-   */
-  private static async compareComponents(
-    data: StandardData,
-    baseConfig: ModelConfig
-  ): Promise<ComponentComparisonResult> {
-    const startTime = Date.now();
-
-    // Determine current k and whether it's compound
-    const isCompound = baseConfig.structure === 'compound';
-    const currentK = isCompound ? baseConfig.valueComponents! : baseConfig.components!;
-
-    // Determine k values to test based on data size
-    const maxK = Math.min(4, Math.floor(data.n / 30)); // Need at least 30 points per component
-    const kValues = Array.from({ length: maxK }, (_, i) => i + 1);
-
-    // If only one k value is viable, skip comparison
-    if (kValues.length === 1) {
-      return {
-        selectedK: currentK,
-        optimalK: 1,
-        models: [
-          {
-            k: 1,
-            waic: 0,
-            deltaWAIC: 0,
-            weight: 1.0,
-          },
-        ],
-        confidence: 1.0,
-        computeTimeMs: Date.now() - startTime,
-      };
-    }
-
-    try {
-      // Fit all models in parallel
-      const fittedModels = await Promise.all(
-        kValues.map(async (k) => {
-          // Create config with this k value
-          const config = isCompound
-            ? { ...baseConfig, valueComponents: k }
-            : { ...baseConfig, components: k };
-
-          // Get engine and fit
-          const engine = await this.selectEngine(config);
-          const result = await engine.fit(data, config);
-
-          return {
-            k,
-            config,
-            posterior: result.posterior,
-            engine,
-          };
-        })
-      );
-
-      // Prepare for WAIC comparison
-      const candidates: ModelCandidate[] = fittedModels.map((m) => ({
-        name: isCompound ? `value_k=${m.k}` : `k=${m.k}`,
-        posterior: m.posterior,
-        modelType: isCompound ? baseConfig.valueType! : baseConfig.type!,
-        config: m.config,
-      }));
-
-      // Extract data for WAIC (convert to appropriate format)
-      const waicData = this.extractDataForWAIC(data);
-
-      // Run WAIC comparison
-      const comparison = await ModelSelectionCriteria.compareModels(candidates, waicData);
-
-      // Find optimal k (best WAIC)
-      const optimalResult = comparison[0]; // Already sorted by WAIC
-      const optimalK = isCompound
-        ? optimalResult.config?.valueComponents || 1
-        : optimalResult.config?.components || 1;
-
-      // Format results
-      const models = comparison.map((c) => {
-        const k = isCompound ? c.config?.valueComponents || 1 : c.config?.components || 1;
-
-        return {
-          k,
-          waic: c.waic,
-          deltaWAIC: c.deltaWAIC,
-          weight: c.weight,
-        };
-      });
-
-      // Sort by k for consistent display
-      models.sort((a, b) => a.k - b.k);
-
-      return {
-        selectedK: currentK,
-        optimalK,
-        models,
-        confidence: comparison[0].weight, // Confidence in best model
-        computeTimeMs: Date.now() - startTime,
-      };
-    } catch (error) {
-      console.warn('Component comparison failed:', error);
-
-      // Return fallback result on error
-      return {
-        selectedK: currentK,
-        optimalK: currentK,
-        models: [
-          {
-            k: currentK,
-            waic: 0,
-            deltaWAIC: 0,
-            weight: 1.0,
-          },
-        ],
-        confidence: 0,
-        computeTimeMs: Date.now() - startTime,
-      };
-    }
-  }
-
-  /**
-   * Extract data in format needed for WAIC computation
-   */
-  private static extractDataForWAIC(data: StandardData): any {
-    if (isBinomialData(data)) {
-      return {
-        successes: data.binomial!.successes,
-        trials: data.binomial!.trials,
-      };
-    }
-
-    if (isUserLevelData(data)) {
-      // For WAIC, we need the raw values
-      return data.userLevel!.users.map((u) => u.value);
-    }
-
-    throw new Error(`Cannot extract data for WAIC: ${data.type}`);
   }
 }
