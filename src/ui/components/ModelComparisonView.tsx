@@ -4,9 +4,10 @@ import { getModelName } from '../constants/modelDescriptions';
 interface ModelComparisonProps {
   waicComparison?: Array<{
     name: string;
-    waic: number;
-    deltaWAIC: number;
+    score: number;
+    deltaScore: number;
     weight: number;
+    criterion?: string;
   }>;
 }
 
@@ -24,16 +25,16 @@ export const ModelComparisonView: React.FC<ModelComparisonProps> = ({ waicCompar
           <div
             key={i}
             className={`p-3 rounded border ${
-              model.deltaWAIC === 0 ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+              model.deltaScore === 0 ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
             }`}
           >
             <div className="flex justify-between items-center">
               <div>
                 <h4 className="font-medium">{model.name}</h4>
                 <p className="text-sm text-gray-600">
-                  WAIC: {model.waic.toFixed(1)}
-                  {model.deltaWAIC > 0 && (
-                    <span className="ml-2 text-red-600">(+{model.deltaWAIC.toFixed(1)})</span>
+                  {model.criterion || 'WAIC'}: {model.score.toFixed(1)}
+                  {model.deltaScore > 0 && (
+                    <span className="ml-2 text-red-600">(+{model.deltaScore.toFixed(1)})</span>
                   )}
                 </p>
               </div>
@@ -55,10 +56,10 @@ export const ModelComparisonView: React.FC<ModelComparisonProps> = ({ waicCompar
             • <strong>Weight</strong>: Probability this is the best model
           </li>
           <li>
-            • <strong>ΔWAIC &lt; 4</strong>: Models are practically equivalent
+            • <strong>ΔScore &lt; 4</strong>: Models are practically equivalent
           </li>
           <li>
-            • <strong>ΔWAIC &gt; 10</strong>: Strong evidence against the model
+            • <strong>ΔScore &gt; 10</strong>: Strong evidence against the model
           </li>
         </ul>
       </div>

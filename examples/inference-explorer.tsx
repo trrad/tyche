@@ -14,6 +14,7 @@ import {
 // Data model imports
 import { StandardData, StandardDataFactory, UserLevelData } from '../src/core/data/StandardData';
 import { ModelRouter } from '../src/inference/ModelRouter';
+import { ModelComparison } from '../src/inference/ModelComparison';
 
 // Removed worker hook - using ModelRouter directly
 
@@ -72,6 +73,8 @@ function InferenceExplorer() {
   const [modelConfig, setModelConfig] = useState<ModelConfig | null>(null);
   const [inferenceResult, setInferenceResult] = useState<InferenceResult | null>(null);
   const [waicInfo, setWaicInfo] = useState<any>(null);
+  const [isComparingModels, setIsComparingModels] = useState(false);
+  const [lastStandardData, setLastStandardData] = useState<StandardData | null>(null);
   const [routeInfo, setRouteInfo] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -475,64 +478,31 @@ return { ...base, data: new DataGenerator(seed).applyNoiseLevel(base.data, '${no
           confidence: routeResult.confidence,
         });
 
-        // Handle async component comparison if available
-        if (routeResult.componentComparison) {
-          // Clear previous WAIC info
-          setWaicInfo(null);
-
-          // Set up async handling for component comparison
-          routeResult.componentComparison.promise
-            .then((comparisonResult) => {
-              console.log('Component comparison completed:', comparisonResult);
-              setWaicInfo(comparisonResult);
-            })
-            .catch((err) => {
-              console.warn('Component comparison failed:', err);
-            });
-        }
+        // Clear previous WAIC info when new inference is run
+        setWaicInfo(null);
       } else if (modelConfig) {
         // Manual model selection: use the config from ModelSelector
         finalConfig = modelConfig;
 
-        // For manual mixture model selection, still run component comparison
-        // but without forcing the config initially
-        routeResult = await ModelRouter.route(standardData, fitOptions);
+        // Route with forced config to get the engine
+        routeResult = await ModelRouter.route(standardData, {
+          ...fitOptions,
+          forceConfig: finalConfig,
+        });
 
-        // Handle async component comparison if available
-        if (routeResult.componentComparison) {
-          setWaicInfo(null);
-          routeResult.componentComparison.promise
-            .then((comparisonResult) => {
-              console.log('Component comparison completed (manual):', comparisonResult);
-              // Update selectedK to reflect the manual selection
-              const manualK =
-                finalConfig.structure === 'simple'
-                  ? finalConfig.components || 1
-                  : finalConfig.valueComponents || 1;
-              setWaicInfo({
-                ...comparisonResult,
-                selectedK: manualK,
-              });
-            })
-            .catch((err) => {
-              console.warn('Component comparison failed:', err);
-            });
-        }
+        // Clear previous WAIC info for manual selection too
+        setWaicInfo(null);
       } else {
         setError('No model configuration selected');
         return;
       }
 
       // Run inference with the determined config
-      const { config, engine } = await ModelRouter.route(standardData, {
-        ...fitOptions,
-        forceConfig: finalConfig,
-      });
-
-      const result = await engine.fit(standardData, config, fitOptions);
+      const result = await routeResult.engine.fit(standardData, finalConfig, fitOptions);
 
       setInferenceResult(result);
-      setModelConfig(config);
+      setModelConfig(finalConfig);
+      setLastStandardData(standardData); // Store for later use in comparison
 
       // Reset comparison state when new inference is run
       setShowComparison(false);
@@ -545,6 +515,37 @@ return { ...base, data: new DataGenerator(seed).applyNoiseLevel(base.data, '${no
       setIsAnalyzing(false);
     }
   }, [generatedData, selectedModelKey, modelConfig]);
+
+  // Function to run model comparison
+  const runModelComparison = useCallback(async () => {
+    if (!lastStandardData || !modelConfig || isComparingModels) return;
+
+    try {
+      setIsComparingModels(true);
+      setWaicInfo(null);
+
+      const comparisonResult = await ModelComparison.compareMixtureComponents(
+        lastStandardData,
+        modelConfig
+      );
+
+      // Update selectedK to reflect the current model
+      const currentK =
+        modelConfig.structure === 'simple'
+          ? modelConfig.components || 1
+          : modelConfig.valueComponents || 1;
+
+      setWaicInfo({
+        ...comparisonResult,
+        selectedK: currentK,
+      });
+    } catch (err) {
+      console.error('Model comparison failed:', err);
+      setError(`Model comparison failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsComparingModels(false);
+    }
+  }, [lastStandardData, modelConfig, isComparingModels]);
 
   // UI Components
   const DataSourceSelector = () => (
@@ -1159,34 +1160,83 @@ return { ...base, data: new DataGenerator(seed).applyNoiseLevel(base.data, '${no
         )}
 
         {/* Model Quality Section */}
-        {(() => {
-          console.log('🔍 [UI Debug] waicInfo:', waicInfo);
-          console.log('🔍 [UI Debug] routeInfo:', routeInfo);
-          console.log('🔍 [UI Debug] showModelQuality:', showModelQuality);
-          return (waicInfo || routeInfo) && showModelQuality;
-        })() && (
+        {(routeInfo || lastStandardData) && (
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">Model Quality</h3>
-              <button
-                onClick={() => setShowModelQuality(!showModelQuality)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                {showModelQuality ? '−' : '+'}
-              </button>
+              {/* Button to run component comparison */}
+              {lastStandardData &&
+                modelConfig &&
+                ModelComparison.shouldRunComparison(lastStandardData, modelConfig) &&
+                !waicInfo && (
+                  <button
+                    onClick={runModelComparison}
+                    disabled={isComparingModels}
+                    className={`px-3 py-1 text-sm rounded ${
+                      isComparingModels
+                        ? 'bg-gray-200 text-gray-400'
+                        : 'bg-purple-600 text-white hover:bg-purple-700'
+                    }`}
+                  >
+                    {isComparingModels ? (
+                      <span className="flex items-center gap-1">
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          />
+                        </svg>
+                        Comparing...
+                      </span>
+                    ) : (
+                      'Compare Components'
+                    )}
+                  </button>
+                )}
             </div>
 
-            <ModelQualityIndicator waicInfo={waicInfo} routeInfo={routeInfo} />
-
-            {/* Add comparison button for auto mode */}
-            {selectedModelKey === 'auto' && routeInfo?.modelParams?.waicComparison && (
-              <button
-                onClick={() => setShowComparison(!showComparison)}
-                className="mt-3 text-sm text-gray-500 hover:text-gray-700 underline"
-              >
-                {showComparison ? 'Hide' : 'Show'} alternative models
-              </button>
+            {/* Show routing info if available */}
+            {routeInfo && (
+              <div className="mb-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-2">Model Selection</h4>
+                <div className="text-sm text-gray-600">
+                  {routeInfo.reasoning?.map((r: string, i: number) => (
+                    <div key={i} className="mb-1">
+                      • {r}
+                    </div>
+                  ))}
+                </div>
+                {routeInfo.confidence && (
+                  <div className="mt-2 text-sm text-gray-700">
+                    Confidence: {(routeInfo.confidence * 100).toFixed(0)}%
+                  </div>
+                )}
+              </div>
             )}
+
+            {/* Show WAIC comparison if run */}
+            {waicInfo && <ModelQualityIndicator waicInfo={waicInfo} routeInfo={null} />}
+
+            {/* Show message if comparison is available but not run */}
+            {!waicInfo &&
+              !isComparingModels &&
+              lastStandardData &&
+              modelConfig &&
+              ModelComparison.shouldRunComparison(lastStandardData, modelConfig) && (
+                <div className="text-sm text-gray-500 italic">
+                  Click "Compare Components" to evaluate different mixture configurations
+                </div>
+              )}
           </div>
         )}
 

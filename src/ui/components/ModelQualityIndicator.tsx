@@ -1,5 +1,5 @@
 import React from 'react';
-import { ComponentComparisonResult } from '../../inference/ModelRouter';
+import { ComponentComparisonResult } from '../../inference/ModelComparison';
 
 interface ModelQualityProps {
   waicInfo?: ComponentComparisonResult | null;
@@ -22,7 +22,7 @@ export const ModelQualityIndicator: React.FC<ModelQualityProps> = ({ waicInfo, r
       {waicInfo && waicInfo.models && (
         <div className="mb-4">
           <h4 className="text-sm font-semibold text-gray-700 mb-2">
-            Component Selection (WAIC Comparison)
+            Component Selection ({waicInfo.criterion || 'WAIC'} Comparison)
           </h4>
 
           {/* Summary */}
@@ -50,11 +50,11 @@ export const ModelQualityIndicator: React.FC<ModelQualityProps> = ({ waicInfo, r
               Confidence: {(waicInfo.confidence * 100).toFixed(1)}%
             </div>
 
-            {/* Show ΔWAIC if not optimal */}
+            {/* Show ΔScore if not optimal */}
             {waicInfo.selectedK !== waicInfo.optimalK && (
               <div className="text-sm text-amber-700 mt-1">
-                ΔWAIC:{' '}
-                {waicInfo.models.find((m) => m.k === waicInfo.optimalK)?.deltaWAIC.toFixed(1) ||
+                Δ{waicInfo.criterion || 'WAIC'}:{' '}
+                {waicInfo.models.find((m) => m.k === waicInfo.optimalK)?.deltaScore.toFixed(1) ||
                   '?'}
               </div>
             )}
@@ -66,8 +66,8 @@ export const ModelQualityIndicator: React.FC<ModelQualityProps> = ({ waicInfo, r
               <thead>
                 <tr className="text-left text-gray-600">
                   <th className="pb-1">Components</th>
-                  <th className="pb-1">WAIC</th>
-                  <th className="pb-1">ΔWAIC</th>
+                  <th className="pb-1">{waicInfo.criterion || 'WAIC'}</th>
+                  <th className="pb-1">Δ{waicInfo.criterion || 'WAIC'}</th>
                   <th className="pb-1">Weight</th>
                 </tr>
               </thead>
@@ -86,8 +86,8 @@ export const ModelQualityIndicator: React.FC<ModelQualityProps> = ({ waicInfo, r
                         model.k !== waicInfo.selectedK &&
                         ' (optimal)'}
                     </td>
-                    <td className="py-1">{model.waic.toFixed(1)}</td>
-                    <td className="py-1">{model.deltaWAIC.toFixed(1)}</td>
+                    <td className="py-1">{model.score.toFixed(1)}</td>
+                    <td className="py-1">{model.deltaScore.toFixed(1)}</td>
                     <td className="py-1">{(model.weight * 100).toFixed(1)}%</td>
                   </tr>
                 ))}

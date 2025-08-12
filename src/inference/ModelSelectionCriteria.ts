@@ -32,6 +32,70 @@ export interface ModelComparisonResult {
  */
 export class ModelSelectionCriteria {
   /**
+   * Get adaptive sample sizes based on dataset size
+   * Reduces computation time for large datasets while maintaining accuracy
+   */
+  private static getAdaptiveSampleSizes(dataSize: number): {
+    dataSample: number;
+    paramSample: number;
+  } {
+    if (dataSize <= 100) {
+      return { dataSample: dataSize, paramSample: 200 };
+    }
+    if (dataSize <= 500) {
+      return { dataSample: dataSize, paramSample: 100 };
+    }
+    if (dataSize <= 1000) {
+      return { dataSample: dataSize, paramSample: 50 };
+    }
+    // Large datasets: subsample to max 1000 points
+    return { dataSample: 1000, paramSample: 50 };
+  }
+
+  /**
+   * Random sample from array
+   */
+  private static randomSample<T>(array: T[], size: number): T[] {
+    if (size >= array.length) return array;
+
+    const sampled: T[] = [];
+    const indices = new Set<number>();
+
+    while (indices.size < size) {
+      indices.add(Math.floor(Math.random() * array.length));
+    }
+
+    indices.forEach((i) => sampled.push(array[i]));
+    return sampled;
+  }
+
+  /**
+   * Stratified sampling for compound data to maintain conversion rate
+   */
+  private static stratifiedSample(data: any[], targetSize: number): any[] {
+    if (targetSize >= data.length) return data;
+
+    // Check if this is compound data with conversion status
+    if (data.length > 0 && typeof data[0] === 'object' && 'converted' in data[0]) {
+      const converted = data.filter((d) => d.converted && d.value > 0);
+      const notConverted = data.filter((d) => !d.converted || d.value === 0);
+
+      // Maintain the conversion rate in the sample
+      const conversionRate = converted.length / data.length;
+      const targetConverted = Math.round(targetSize * conversionRate);
+      const targetNotConverted = targetSize - targetConverted;
+
+      return [
+        ...this.randomSample(converted, targetConverted),
+        ...this.randomSample(notConverted, targetNotConverted),
+      ];
+    }
+
+    // For simple data, just random sample
+    return this.randomSample(data, targetSize);
+  }
+
+  /**
    * Compare models using WAIC (Watanabe-Akaike Information Criterion)
    * Returns models ranked by WAIC (lower is better)
    */
@@ -117,16 +181,29 @@ export class ModelSelectionCriteria {
       throw new Error('No data points for WAIC computation');
     }
 
+    // Apply adaptive subsampling for large datasets
+    const originalSize = dataArray.length;
+    const { dataSample, paramSample } = this.getAdaptiveSampleSizes(originalSize);
+
+    // Subsample data if needed
+    let sampledData = dataArray;
+    if (dataSample < originalSize) {
+      sampledData = this.stratifiedSample(dataArray, dataSample);
+      console.log(
+        `WAIC: Subsampling ${originalSize} data points to ${sampledData.length} for efficiency`
+      );
+    }
+
     let lppd = 0;
     let pWaic = 0;
 
     if (hasParameterSampling) {
       // Full WAIC with parameter sampling (for mixture models and other complex posteriors)
-      const S = 200; // Number of parameter samples for computing variance
+      const S = paramSample; // Use adaptive parameter sample size
       const logLikelihoodSamples: number[][] = [];
 
       // For each data point, compute log likelihood under S parameter samples
-      for (const dataPoint of dataArray) {
+      for (const dataPoint of sampledData) {
         const pointLogLiks: number[] = [];
 
         for (let s = 0; s < S; s++) {
@@ -151,7 +228,7 @@ export class ModelSelectionCriteria {
     } else {
       // Fallback: use logPdf (integrated over parameters) without variance correction
       // This gives a simplified WAIC but is still useful for model comparison
-      for (const dataPoint of dataArray) {
+      for (const dataPoint of sampledData) {
         const logProb = posterior.logPdf(dataPoint);
         if (!isFinite(logProb)) {
           console.warn(`Non-finite log probability for data point ${dataPoint}`);
@@ -161,6 +238,13 @@ export class ModelSelectionCriteria {
       }
       // Without parameter samples, we can't compute proper p_waic
       pWaic = 0;
+    }
+
+    // Scale up if we subsampled
+    if (sampledData.length < originalSize) {
+      const scaleFactor = originalSize / sampledData.length;
+      lppd *= scaleFactor;
+      pWaic *= scaleFactor;
     }
 
     // Compute final WAIC
