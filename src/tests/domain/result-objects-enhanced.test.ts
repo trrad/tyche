@@ -24,14 +24,14 @@ describe('Enhanced Result Objects (Issue #108)', () => {
       const treatmentUsers: UserData[] = [];
 
       // Control: 3% conversion, $80 average order value when converted
-      for (let i = 0; i < 5000; i++) {
+      for (let i = 0; i < 20000; i++) {
         const converted = Math.random() < 0.03;
         const value = converted ? 60 + Math.random() * 40 : 0; // $60-100 AOV
         controlUsers.push({ userId: `c${i}`, converted, value });
       }
 
       // Treatment: 4% conversion, $85 average order value (both conversion and AOV improve)
-      for (let i = 0; i < 5000; i++) {
+      for (let i = 0; i < 20000; i++) {
         const converted = Math.random() < 0.04;
         const value = converted ? 65 + Math.random() * 40 : 0; // $65-105 AOV
         treatmentUsers.push({ userId: `t${i}`, converted, value });
@@ -53,7 +53,7 @@ describe('Enhanced Result Objects (Issue #108)', () => {
 
       const metadata: ResultMetadata = {
         timestamp: new Date(),
-        sampleSize: 5000,
+        sampleSize: 20000,
         algorithm: 'compound',
         converged: true,
       };
