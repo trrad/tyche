@@ -6,6 +6,8 @@
 import { AnalysisResult } from './AnalysisResult';
 import { ResultMetadata } from './ResultMetadata';
 import { VariantResult } from './VariantResult';
+import { ComparisonOptions, VariantComparison } from './types';
+import { ComparisonUtils } from './ComparisonUtils';
 
 /**
  * Result from analyzing an experiment with multiple variants
@@ -41,12 +43,109 @@ export class ExperimentResult extends AnalysisResult {
   }
 
   /**
-   * Compare variants (placeholder for Phase 2 implementation)
-   * Will compute lift, effect sizes, credible intervals, etc.
+   * Compare variants with full posterior distributions
+   * Returns lift and effect posteriors for all treatments vs baseline
    */
-  async compareVariants(): Promise<any> {
-    // TODO: Implement in Phase 2 when we have comparison logic
-    throw new Error('compareVariants not yet implemented - coming in Phase 2');
+  async compareVariants(options?: ComparisonOptions): Promise<VariantComparison> {
+    const baselineName = options?.baseline || 'control';
+    const baseline = this.variants.get(baselineName);
+
+    if (!baseline) {
+      throw new Error(`Baseline variant '${baselineName}' not found`);
+    }
+
+    const comparisons = new Map();
+
+    // Compare each variant against the baseline
+    for (const [variantName, variant] of this.variants) {
+      if (variantName === baselineName) {
+        continue; // Skip comparing baseline to itself
+      }
+
+      const comparison = await ComparisonUtils.computeComparison(baseline, variant, options);
+
+      // Update metadata with correct variant names
+      comparison.metadata.variants.baseline = baselineName;
+      comparison.metadata.variants.treatment = variantName;
+
+      comparisons.set(variantName, comparison);
+    }
+
+    // Determine winning variant and primary comparison
+    const winningVariant = ComparisonUtils.determineWinner(comparisons);
+    const primaryComparison = ComparisonUtils.findPrimaryComparison(comparisons);
+
+    return {
+      comparisons,
+      winningVariant,
+      primaryComparison,
+    };
+  }
+
+  /**
+   * Get a summary of the experiment results
+   * Useful for Layer 1 API and quick insights
+   */
+  async getExperimentSummary(options?: ComparisonOptions): Promise<{
+    totalVariants: number;
+    hasWinner: boolean;
+    winnerName: string | null;
+    primaryEffect: {
+      treatmentName: string;
+      baseline: string;
+      probabilityPositive: number;
+      isCompound: boolean;
+    } | null;
+    allComparisons: VariantComparison;
+  }> {
+    const allComparisons = await this.compareVariants(options);
+
+    return {
+      totalVariants: this.variants.size,
+      hasWinner: allComparisons.winningVariant !== null,
+      winnerName: allComparisons.winningVariant,
+      primaryEffect: allComparisons.primaryComparison
+        ? {
+            treatmentName: allComparisons.primaryComparison.treatmentName,
+            baseline: options?.baseline || 'control',
+            probabilityPositive: allComparisons.primaryComparison.result.probabilityPositive,
+            isCompound: allComparisons.primaryComparison.result.decomposition !== undefined,
+          }
+        : null,
+      allComparisons,
+    };
+  }
+
+  /**
+   * Check if any variant in the experiment uses compound models
+   */
+  hasCompoundModels(): boolean {
+    for (const variant of this.variants.values()) {
+      if (variant.isCompoundModel()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get the baseline variant (defaults to 'control')
+   */
+  getBaselineVariant(baselineName: string = 'control'): VariantResult | undefined {
+    return this.variants.get(baselineName);
+  }
+
+  /**
+   * Get all treatment variants (excluding baseline)
+   */
+  getTreatmentVariants(baselineName: string = 'control'): Map<string, VariantResult> {
+    const treatments = new Map<string, VariantResult>();
+    for (const [name, variant] of this.variants) {
+      if (name !== baselineName) {
+        treatments.set(name, variant);
+      }
+    }
+    return treatments;
   }
 
   /**
