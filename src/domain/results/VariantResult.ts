@@ -56,8 +56,11 @@ export class VariantResult extends AnalysisResult {
    */
   getComponents(): ComponentInfo[] | null {
     // Check if it's a compound posterior with severity components
-    if ('getSeverityComponents' in this.posterior && this.posterior.getSeverityComponents) {
-      return (this.posterior as CompoundPosterior).getSeverityComponents();
+    if ('getSeverityComponents' in this.posterior) {
+      const compoundPosterior = this.posterior as CompoundPosterior;
+      if (compoundPosterior.getSeverityComponents) {
+        return compoundPosterior.getSeverityComponents();
+      }
     }
 
     // Check if the posterior itself has components (simple mixture)
@@ -66,6 +69,56 @@ export class VariantResult extends AnalysisResult {
     }
 
     return null;
+  }
+
+  /**
+   * Get posterior samples - helper method for comparisons
+   * @param n Number of samples to generate (default: 10000)
+   * @returns Array of posterior samples
+   */
+  getPosteriorSamples(n: number = 10000): number[] {
+    return this.posterior.sample(n);
+  }
+
+  /**
+   * Check if this variant uses a compound model
+   * @returns true if compound (has decomposition), false otherwise
+   */
+  isCompoundModel(): boolean {
+    return this.getDecomposition() !== null;
+  }
+
+  /**
+   * Get basic summary statistics from the posterior
+   * Uses cached samples for efficiency
+   */
+  getSummaryStats(nSamples: number = 10000): {
+    mean: number;
+    variance: number;
+    credibleInterval: [number, number];
+  } {
+    // Use analytical methods if available for better performance
+    if (this.posterior.mean && this.posterior.variance && this.posterior.credibleInterval) {
+      return {
+        mean: this.posterior.mean()[0],
+        variance: this.posterior.variance()[0],
+        credibleInterval: this.posterior.credibleInterval(0.8)[0],
+      };
+    }
+
+    // Fall back to sample-based calculation
+    const samples = this.getPosteriorSamples(nSamples);
+    const sorted = [...samples].sort((a, b) => a - b);
+
+    const mean = samples.reduce((sum, x) => sum + x, 0) / samples.length;
+    const variance =
+      samples.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / (samples.length - 1);
+
+    const lowerIndex = Math.floor(0.1 * sorted.length);
+    const upperIndex = Math.floor(0.9 * sorted.length);
+    const credibleInterval: [number, number] = [sorted[lowerIndex], sorted[upperIndex]];
+
+    return { mean, variance, credibleInterval };
   }
 
   /**
