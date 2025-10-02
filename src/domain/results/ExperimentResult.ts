@@ -6,7 +6,7 @@
 import { AnalysisResult } from './AnalysisResult';
 import { ResultMetadata } from './ResultMetadata';
 import { VariantResult } from './VariantResult';
-import { ComparisonOptions, VariantComparison } from './types';
+import { ComparisonOptions, VariantComparison, ComparisonResult } from './types';
 import { ComparisonUtils } from './ComparisonUtils';
 
 /**
@@ -54,7 +54,7 @@ export class ExperimentResult extends AnalysisResult {
       throw new Error(`Baseline variant '${baselineName}' not found`);
     }
 
-    const comparisons = new Map();
+    const comparisons = new Map<string, ComparisonResult>();
 
     // Compare each variant against the baseline
     for (const [variantName, variant] of this.variants) {
