@@ -6,6 +6,11 @@
 import { AnalysisResult } from './AnalysisResult';
 import { ResultMetadata } from './ResultMetadata';
 import { Posterior, CompoundPosterior } from '../../inference/base/types';
+import {
+  isCompoundPosterior,
+  hasSeverityComponents,
+  hasComponents,
+} from '../../core/utils/type-guards';
 
 /**
  * Component information for mixture models
@@ -43,8 +48,8 @@ export class VariantResult extends AnalysisResult {
    */
   getDecomposition(): { frequency: Posterior; severity: Posterior } | null {
     // Runtime type checking - only compound posteriors have decomposition
-    if ('getDecomposition' in this.posterior) {
-      return (this.posterior as CompoundPosterior).getDecomposition();
+    if (isCompoundPosterior(this.posterior)) {
+      return this.posterior.getDecomposition();
     }
     return null;
   }
@@ -56,16 +61,13 @@ export class VariantResult extends AnalysisResult {
    */
   getComponents(): ComponentInfo[] | null {
     // Check if it's a compound posterior with severity components
-    if ('getSeverityComponents' in this.posterior) {
-      const compoundPosterior = this.posterior as CompoundPosterior;
-      if (compoundPosterior.getSeverityComponents) {
-        return compoundPosterior.getSeverityComponents();
-      }
+    if (hasSeverityComponents(this.posterior)) {
+      return this.posterior.getSeverityComponents();
     }
 
     // Check if the posterior itself has components (simple mixture)
-    if ('getComponents' in this.posterior && typeof this.posterior.getComponents === 'function') {
-      return (this.posterior as any).getComponents();
+    if (hasComponents(this.posterior)) {
+      return this.posterior.getComponents();
     }
 
     return null;

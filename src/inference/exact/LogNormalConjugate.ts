@@ -17,6 +17,7 @@ import {
 import { StandardData, DataType } from '../../core/data/StandardData';
 import { TycheError, ErrorCode } from '../../core/errors';
 import { LogNormalDistribution } from '../../core/distributions/LogNormalDistribution';
+import { isNormalInverseGammaDistribution, hasGetParameters } from '../../core/utils/type-guards';
 import { NormalDistribution } from '../../core/distributions/NormalDistribution';
 import { GammaDistribution } from '../../core/distributions/GammaDistribution';
 import { logGamma, digamma } from '../../core/utils/math/special';
@@ -521,8 +522,8 @@ export class LogNormalConjugate extends InferenceEngine {
     // If prior specified, use it
     if (options?.prior) {
       // Check if it's a NormalInverseGammaDistribution
-      if (options.prior.constructor.name === 'NormalInverseGammaDistribution') {
-        const params = (options.prior as any).getParameters();
+      if (isNormalInverseGammaDistribution(options.prior) && hasGetParameters(options.prior)) {
+        const params = options.prior.getParameters();
         return {
           mu0: params.mu0,
           lambda: params.lambda,

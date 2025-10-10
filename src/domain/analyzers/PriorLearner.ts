@@ -16,6 +16,7 @@ import { Distribution } from '../../core/distributions/Distribution';
 import { BetaDistribution } from '../../core/distributions/BetaDistribution';
 import { LogNormalDistribution } from '../../core/distributions/LogNormalDistribution';
 import { TycheError, ErrorCode } from '../../core/errors';
+import { isCompoundPosterior, hasComponents, hasGetParameters } from '../../core/utils/type-guards';
 
 /**
  * DatasetAnalyzer for learning priors from historical data
@@ -100,8 +101,8 @@ export class PriorLearner implements DatasetAnalyzer {
 
     try {
       // For simple Beta posteriors (conversion rates)
-      if ('getParameters' in posterior && posterior.hasAnalyticalForm()) {
-        const params = (posterior as any).getParameters();
+      if (hasGetParameters(posterior) && posterior.hasAnalyticalForm()) {
+        const params = posterior.getParameters();
 
         // Beta posterior from BetaPosterior class
         if ('alpha' in params && 'beta' in params) {
@@ -127,8 +128,8 @@ export class PriorLearner implements DatasetAnalyzer {
       }
 
       // For compound posteriors - extract frequency or severity component
-      if ('getDecomposition' in posterior) {
-        const decomposition = (posterior as any).getDecomposition();
+      if (isCompoundPosterior(posterior)) {
+        const decomposition = posterior.getDecomposition();
 
         // Could extract frequency prior (Beta) for conversion component
         if (decomposition.frequency) {
@@ -152,18 +153,17 @@ export class PriorLearner implements DatasetAnalyzer {
       }
 
       // For mixture posteriors - extract dominant component
-      if ('getComponents' in posterior) {
-        const components = (posterior as any).getComponents();
+      if (hasComponents(posterior)) {
+        const components = posterior.getComponents();
         if (components && components.length > 0) {
           // Find component with highest weight
           const dominant = components.reduce((max: any, c: any) =>
             c.weight > max.weight ? c : max
           );
 
-          // If the component has a posterior, try to extract from it
-          if (dominant.posterior) {
-            return this.extractPrior(new VariantResult(dominant.posterior, result.getMetadata()));
-          }
+          // Note: Component info only contains summary statistics (mean, variance, weight)
+          // For proper prior extraction from mixture components, we would need access
+          // to the component posteriors, which is not available through the current interface
 
           // Otherwise, create distribution from component parameters
           if (dominant.mean !== undefined && dominant.variance !== undefined) {

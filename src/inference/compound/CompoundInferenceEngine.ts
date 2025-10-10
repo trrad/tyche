@@ -14,6 +14,7 @@ import { ModelConfig, InferenceResult, FitOptions, Posterior } from '../base/typ
 import { EngineCapabilities } from '../base/InferenceEngine';
 import { TycheError, ErrorCode } from '../../core/errors';
 import { BetaBinomialConjugate } from '../exact/BetaBinomialConjugate';
+import { hasComponents, hasSampleParameters, hasLogLikelihood } from '../../core/utils/type-guards';
 import { LogNormalConjugate } from '../exact/LogNormalConjugate';
 import { NormalConjugate } from '../exact/NormalConjugate';
 import { LogNormalMixtureVBEM } from '../approximate/em/LogNormalMixtureVBEM';
@@ -195,7 +196,10 @@ export class CompoundPosterior implements Posterior {
   }> | null {
     // Check if severity posterior has getComponents method
     if ('getComponents' in this.severity && typeof this.severity.getComponents === 'function') {
-      return (this.severity as any).getComponents();
+      if (hasComponents(this.severity)) {
+        return this.severity.getComponents();
+      }
+      return null;
     }
     return null;
   }
@@ -209,16 +213,16 @@ export class CompoundPosterior implements Posterior {
     severityParams: any;
   } {
     // Check if both posteriors support parameter sampling
-    const freqHasSampling = typeof (this.frequency as any).sampleParameters === 'function';
-    const sevHasSampling = typeof (this.severity as any).sampleParameters === 'function';
+    const freqHasSampling = hasSampleParameters(this.frequency);
+    const sevHasSampling = hasSampleParameters(this.severity);
 
     if (!freqHasSampling || !sevHasSampling) {
       throw new Error('Both frequency and severity posteriors must support parameter sampling');
     }
 
     return {
-      frequencyParams: (this.frequency as any).sampleParameters(),
-      severityParams: (this.severity as any).sampleParameters(),
+      frequencyParams: freqHasSampling ? this.frequency.sampleParameters() : null,
+      severityParams: sevHasSampling ? this.severity.sampleParameters() : null,
     };
   }
 
@@ -234,8 +238,8 @@ export class CompoundPosterior implements Posterior {
     let totalLogLik = 0;
 
     // Check if posteriors support log likelihood computation
-    const freqHasLikelihood = typeof (this.frequency as any).logLikelihood === 'function';
-    const sevHasLikelihood = typeof (this.severity as any).logLikelihood === 'function';
+    const freqHasLikelihood = hasLogLikelihood(this.frequency);
+    const sevHasLikelihood = hasLogLikelihood(this.severity);
 
     if (!freqHasLikelihood || !sevHasLikelihood) {
       throw new Error('Both posteriors must support logLikelihood computation');
@@ -247,7 +251,9 @@ export class CompoundPosterior implements Posterior {
         // log p(converted) + log p(value | converted)
         const p = params.frequencyParams.p;
         const logPConverted = Math.log(p);
-        const logPValue = (this.severity as any).logLikelihood(obs.value, params.severityParams);
+        const logPValue = sevHasLikelihood
+          ? this.severity.logLikelihood(obs.value, params.severityParams)
+          : 0;
         totalLogLik += logPConverted + logPValue;
       } else if (!obs.converted || obs.value === 0) {
         // User didn't convert or has zero value
