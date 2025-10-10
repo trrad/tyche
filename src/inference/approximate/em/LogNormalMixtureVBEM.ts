@@ -23,6 +23,7 @@ import { TycheError, ErrorCode } from '../../../core/errors';
 import { DirichletDistribution } from '../../../core/distributions/DirichletDistribution';
 import { LogNormalConjugate, LogNormalPosterior } from '../../exact/LogNormalConjugate';
 import { LogNormalDistribution } from '../../../core/distributions/LogNormalDistribution';
+import { NormalInverseGammaDistribution } from '../../../core/distributions/NormalInverseGammaDistribution';
 
 /**
  * Parameters for Normal-Inverse-Gamma prior
@@ -501,18 +502,17 @@ export class LogNormalMixtureVBEM extends MixtureEMBase {
         },
       };
 
-      // Keep the same prior throughout
+      // Keep the same prior throughout - use NormalInverseGammaDistribution
+      const componentPrior = new NormalInverseGammaDistribution(
+        currentComponents[k].prior.mu0,
+        currentComponents[k].prior.lambda,
+        currentComponents[k].prior.alpha,
+        currentComponents[k].prior.beta
+      );
+
       const componentOptions: FitOptions = {
         ...options,
-        priorParams: {
-          type: 'normal-inverse-gamma',
-          params: [
-            currentComponents[k].prior.mu0,
-            currentComponents[k].prior.lambda,
-            currentComponents[k].prior.alpha,
-            currentComponents[k].prior.beta,
-          ],
-        },
+        prior: componentPrior,
       };
 
       const result = await currentComponents[k].inference.fitWeighted(

@@ -4,16 +4,7 @@
  */
 
 import { RNG } from '../../core/utils/math/random';
-
-/**
- * Probability distribution interface for all posterior distributions
- */
-export interface Distribution {
-  logProb(value: number): number;
-  sample(rng?: RNG): number;
-  mean(): number;
-  variance(): number;
-}
+import { Distribution } from '../../core/distributions/Distribution';
 
 /**
  * Compound posterior interface from InterfaceStandards.md
@@ -167,7 +158,7 @@ export interface FitProgress {
 }
 
 export interface FitOptions {
-  priorParams?: PriorSpec;
+  prior?: Distribution; // Priors are analytical distributions (per InterfaceStandards.md)
   maxIterations?: number;
   tolerance?: number;
   warmStart?: boolean;

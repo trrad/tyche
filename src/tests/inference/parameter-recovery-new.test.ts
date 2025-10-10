@@ -12,6 +12,7 @@ import { LogNormalMixtureVBEM } from '../../inference/approximate/em/LogNormalMi
 import { StandardData } from '../../core/data/StandardData';
 import { ModelConfig } from '../../inference/base/types';
 import { LegacyDataAdapter } from '../utilities/LegacyDataAdapter';
+import { BetaDistribution } from '../../core/distributions/BetaDistribution';
 
 describe('Parameter Recovery - New Architecture', () => {
   describe('BetaBinomialConjugate', () => {
@@ -60,10 +61,7 @@ describe('Parameter Recovery - New Architecture', () => {
 
       // Use strong prior believing in 80% conversion rate
       const options = {
-        priorParams: {
-          type: 'beta' as const,
-          params: [80, 20], // Strong prior for 0.8
-        },
+        prior: new BetaDistribution(80, 20), // Strong prior for 0.8
       };
 
       const result = await engine.fit(standardData, config, options);

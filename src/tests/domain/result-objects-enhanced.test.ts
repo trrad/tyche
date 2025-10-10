@@ -9,8 +9,8 @@ import { ResultMetadata } from '../../domain/results/ResultMetadata';
 import { BetaBinomialConjugate } from '../../inference/exact/BetaBinomialConjugate';
 import { LogNormalConjugate } from '../../inference/exact/LogNormalConjugate';
 import { CompoundInferenceEngine } from '../../inference/compound/CompoundInferenceEngine';
-import { StandardDataFactory } from '../../core/data/StandardData';
-import { UserData, ModelConfig } from '../../inference/base/types';
+import { StandardDataFactory, UserLevelData } from '../../core/data/StandardData';
+import { ModelConfig } from '../../inference/base/types';
 
 describe('Enhanced Result Objects (Issue #108)', () => {
   describe('Compound Model Comparisons (Primary Use Case)', () => {
@@ -20,18 +20,18 @@ describe('Enhanced Result Objects (Issue #108)', () => {
 
     beforeEach(async () => {
       // Create realistic e-commerce data (conversion + revenue)
-      const controlUsers: UserData[] = [];
-      const treatmentUsers: UserData[] = [];
+      const controlUsers: UserLevelData[] = [];
+      const treatmentUsers: UserLevelData[] = [];
 
       // Control: 3% conversion, $80 average order value when converted
-      for (let i = 0; i < 5000; i++) {
+      for (let i = 0; i < 20000; i++) {
         const converted = Math.random() < 0.03;
         const value = converted ? 60 + Math.random() * 40 : 0; // $60-100 AOV
         controlUsers.push({ userId: `c${i}`, converted, value });
       }
 
       // Treatment: 4% conversion, $85 average order value (both conversion and AOV improve)
-      for (let i = 0; i < 5000; i++) {
+      for (let i = 0; i < 20000; i++) {
         const converted = Math.random() < 0.04;
         const value = converted ? 65 + Math.random() * 40 : 0; // $65-105 AOV
         treatmentUsers.push({ userId: `t${i}`, converted, value });
@@ -40,7 +40,7 @@ describe('Enhanced Result Objects (Issue #108)', () => {
       const controlData = StandardDataFactory.fromUserLevel(controlUsers);
       const treatmentData = StandardDataFactory.fromUserLevel(treatmentUsers);
 
-      const engine = new CompoundInferenceEngine();
+      const engine = new CompoundInferenceEngine('compound');
       const config: ModelConfig = {
         structure: 'compound',
         frequencyType: 'beta',
@@ -53,7 +53,7 @@ describe('Enhanced Result Objects (Issue #108)', () => {
 
       const metadata: ResultMetadata = {
         timestamp: new Date(),
-        sampleSize: 5000,
+        sampleSize: 20000,
         algorithm: 'compound',
         converged: true,
       };
@@ -121,8 +121,8 @@ describe('Enhanced Result Objects (Issue #108)', () => {
 
     it('should isolate conversion effect vs value effect in decomposition', async () => {
       // Create scenario where only conversion improves, not AOV
-      const controlUsers: UserData[] = [];
-      const treatmentUsers: UserData[] = [];
+      const controlUsers: UserLevelData[] = [];
+      const treatmentUsers: UserLevelData[] = [];
 
       // Control: 2% conversion, $100 AOV
       for (let i = 0; i < 3000; i++) {
@@ -141,7 +141,7 @@ describe('Enhanced Result Objects (Issue #108)', () => {
       const controlData = StandardDataFactory.fromUserLevel(controlUsers);
       const treatmentData = StandardDataFactory.fromUserLevel(treatmentUsers);
 
-      const engine = new CompoundInferenceEngine();
+      const engine = new CompoundInferenceEngine('compound');
       const config: ModelConfig = {
         structure: 'compound',
         frequencyType: 'beta',
@@ -270,8 +270,8 @@ describe('Enhanced Result Objects (Issue #108)', () => {
 
     beforeEach(async () => {
       // Create compound model data (conversion + value)
-      const controlUsers: UserData[] = [];
-      const treatmentUsers: UserData[] = [];
+      const controlUsers: UserLevelData[] = [];
+      const treatmentUsers: UserLevelData[] = [];
 
       // Control: 20% conversion, $50 average when converted
       for (let i = 0; i < 200; i++) {
@@ -290,7 +290,7 @@ describe('Enhanced Result Objects (Issue #108)', () => {
       const controlData = StandardDataFactory.fromUserLevel(controlUsers);
       const treatmentData = StandardDataFactory.fromUserLevel(treatmentUsers);
 
-      const engine = new CompoundInferenceEngine();
+      const engine = new CompoundInferenceEngine('compound');
 
       // Create compound model config
       const config: ModelConfig = {
@@ -425,9 +425,11 @@ describe('Enhanced Result Objects (Issue #108)', () => {
 
       const engine = new BetaBinomialConjugate();
 
-      const controlFit = await engine.fit(controlData);
-      const treatment1Fit = await engine.fit(treatment1Data);
-      const treatment2Fit = await engine.fit(treatment2Data);
+      const betaConfig: ModelConfig = { structure: 'simple', type: 'beta', components: 1 };
+
+      const controlFit = await engine.fit(controlData, betaConfig);
+      const treatment1Fit = await engine.fit(treatment1Data, betaConfig);
+      const treatment2Fit = await engine.fit(treatment2Data, betaConfig);
 
       const metadata: ResultMetadata = {
         timestamp: new Date(),
@@ -466,9 +468,11 @@ describe('Enhanced Result Objects (Issue #108)', () => {
 
       const engine = new BetaBinomialConjugate();
 
-      const controlFit = await engine.fit(controlData);
-      const treatment1Fit = await engine.fit(treatment1Data);
-      const treatment2Fit = await engine.fit(treatment2Data);
+      const betaConfig: ModelConfig = { structure: 'simple', type: 'beta', components: 1 };
+
+      const controlFit = await engine.fit(controlData, betaConfig);
+      const treatment1Fit = await engine.fit(treatment1Data, betaConfig);
+      const treatment2Fit = await engine.fit(treatment2Data, betaConfig);
 
       const metadata: ResultMetadata = {
         timestamp: new Date(),
