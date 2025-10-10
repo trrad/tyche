@@ -519,20 +519,23 @@ export class LogNormalConjugate extends InferenceEngine {
     data: number[] | null
   ): NormalInverseGammaParams {
     // If prior specified, use it
-    if (options?.priorParams?.type === 'normal-inverse-gamma') {
-      const params = options.priorParams.params;
-      if (params.length !== 4) {
+    if (options?.prior) {
+      // Check if it's a NormalInverseGammaDistribution
+      if (options.prior.constructor.name === 'NormalInverseGammaDistribution') {
+        const params = (options.prior as any).getParameters();
+        return {
+          mu0: params.mu0,
+          lambda: params.lambda,
+          alpha: params.alpha,
+          beta: params.beta,
+        };
+      } else {
         throw new TycheError(
           ErrorCode.INVALID_PRIOR,
-          'Normal-Inverse-Gamma prior needs 4 parameters'
+          'LogNormalConjugate requires NormalInverseGamma distribution prior',
+          { actualType: options.prior.constructor.name }
         );
       }
-      return {
-        mu0: params[0],
-        lambda: params[1],
-        alpha: params[2],
-        beta: params[3],
-      };
     }
 
     // If we have data, use empirical estimates

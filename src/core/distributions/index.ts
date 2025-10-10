@@ -14,6 +14,7 @@ export { GammaDistribution } from './GammaDistribution';
 export { LogNormalDistribution } from './LogNormalDistribution';
 export { NormalDistribution } from './NormalDistribution';
 export { HalfNormalDistribution } from './HalfNormalDistribution';
+export { NormalInverseGammaDistribution } from './NormalInverseGammaDistribution';
 
 // Import for factory functions
 import { BetaDistribution } from './BetaDistribution';

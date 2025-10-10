@@ -272,16 +272,19 @@ export class BetaBinomialConjugate extends InferenceEngine {
     let priorAlpha = 1;
     let priorBeta = 1;
 
-    if (options?.priorParams) {
-      if (options.priorParams.type !== 'beta') {
-        throw new TycheError(ErrorCode.INVALID_PRIOR, 'BetaBinomial requires beta prior', {
-          actualType: options.priorParams.type,
-        });
+    if (options?.prior) {
+      if (!(options.prior instanceof BetaDistribution)) {
+        throw new TycheError(
+          ErrorCode.INVALID_PRIOR,
+          'BetaBinomial requires Beta distribution prior',
+          {
+            actualType: options.prior.constructor.name,
+          }
+        );
       }
-      if (options.priorParams.params.length !== 2) {
-        throw new TycheError(ErrorCode.INVALID_PRIOR, 'Beta prior requires exactly 2 parameters');
-      }
-      [priorAlpha, priorBeta] = options.priorParams.params;
+      const params = options.prior.getParameters();
+      priorAlpha = params.alpha;
+      priorBeta = params.beta;
     }
 
     // Conjugate update

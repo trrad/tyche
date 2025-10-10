@@ -13,10 +13,7 @@ import { VariantResult } from '../results/VariantResult';
 import { ResultMetadata } from '../results/ResultMetadata';
 import { ModelRouter } from '../../inference/ModelRouter';
 import { StandardData, StandardDataFactory, UserLevelData } from '../../core/data/StandardData';
-import { FitOptions, PriorSpec } from '../../inference/base/types';
-import { Distribution } from '../../core/distributions/Distribution';
-import { LogNormalDistribution } from '../../core/distributions/LogNormalDistribution';
-import { BetaDistribution } from '../../core/distributions/BetaDistribution';
+import { FitOptions } from '../../inference/base/types';
 import { TycheError, ErrorCode } from '../../core/errors';
 
 /**
@@ -41,7 +38,7 @@ export class RevenueAnalyzer implements ExperimentAnalyzer {
   configure(options: AnalyzerOptions): void {
     if (options.priors?.has('revenue')) {
       this.fitOptions = {
-        priorParams: this.distributionToPriorSpec(options.priors.get('revenue')!),
+        prior: options.priors.get('revenue')!,
       };
     }
 
@@ -200,66 +197,6 @@ export class RevenueAnalyzer implements ExperimentAnalyzer {
     return (
       data.variants.control.data.n +
       Array.from(data.variants.treatments.values()).reduce((sum, t) => sum + t.data.n, 0)
-    );
-  }
-
-  /**
-   * Convert Distribution to PriorSpec for inference engines
-   * Support both LogNormal and Beta priors for compound models
-   */
-  private distributionToPriorSpec(distribution: Distribution): PriorSpec {
-    // For revenue analysis, we might have LogNormal or Beta priors
-    if (distribution instanceof LogNormalDistribution) {
-      // For LogNormal, we need Normal-Inverse-Gamma parameters
-      // This is simplified - in practice we'd need a way to extract parameters
-      // from LogNormalDistribution or use method of moments
-      const mean = distribution.mean();
-      const variance = distribution.variance();
-
-      // Convert to log-scale parameters
-      const logMean = Math.log(mean);
-      const logVar = Math.log(1 + variance / (mean * mean));
-
-      // Simplified Normal-Inverse-Gamma parameters
-      // In practice, these would need proper derivation
-      return {
-        type: 'normal-inverse-gamma',
-        params: [logMean, 1, 2, logVar], // [mu0, lambda, alpha, beta]
-      };
-    }
-
-    if (distribution instanceof BetaDistribution) {
-      // For Beta (conversion component of compound model)
-      const mean = distribution.mean();
-      const variance = distribution.variance();
-
-      if (variance >= mean * (1 - mean)) {
-        throw new TycheError(
-          ErrorCode.INVALID_PRIOR,
-          'Invalid Beta distribution: variance must be less than mean*(1-mean)'
-        );
-      }
-
-      const alpha = mean * ((mean * (1 - mean)) / variance - 1);
-      const beta = (1 - mean) * ((mean * (1 - mean)) / variance - 1);
-
-      if (alpha <= 0 || beta <= 0) {
-        throw new TycheError(
-          ErrorCode.INVALID_PRIOR,
-          'Invalid Beta parameters derived from distribution'
-        );
-      }
-
-      return {
-        type: 'beta',
-        params: [alpha, beta],
-      };
-    }
-
-    throw new TycheError(
-      ErrorCode.INVALID_PRIOR,
-      'RevenueAnalyzer requires LogNormal or Beta distribution for revenue prior',
-      { distributionType: distribution.constructor.name }
     );
   }
 }
