@@ -521,7 +521,7 @@ export class LogNormalConjugate extends InferenceEngine {
     // If prior specified, use it
     if (options?.prior) {
       // Check if it's a NormalInverseGammaDistribution
-      if (options.prior.constructor.name === 'NormalInverseGammaDistribution') {
+      if (options.prior instanceof NormalInverseGammaDistribution) {
         const params = (options.prior as any).getParameters();
         return {
           mu0: params.mu0,
