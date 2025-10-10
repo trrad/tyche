@@ -8,6 +8,7 @@ import { LogNormalMixtureVBEM } from '../../inference/approximate/em/LogNormalMi
 import { StandardData } from '../../core/data/StandardData';
 import { ModelConfig } from '../../inference/base/types';
 import { TycheError } from '../../core/errors';
+import { BetaDistribution } from '../../core/distributions/BetaDistribution';
 
 describe('InferenceEngine Base Class Tests', () => {
   describe('BetaBinomialConjugate', () => {
@@ -79,10 +80,7 @@ describe('InferenceEngine Base Class Tests', () => {
 
       // Strong prior believing in 80% success rate
       const options = {
-        priorParams: {
-          type: 'beta' as const,
-          params: [80, 20],
-        },
+        prior: new BetaDistribution(80, 20),
       };
 
       const result = await engine.fit(data, config, options);

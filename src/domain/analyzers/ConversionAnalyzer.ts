@@ -12,9 +12,7 @@ import { VariantResult } from '../results/VariantResult';
 import { ResultMetadata } from '../results/ResultMetadata';
 import { ModelRouter } from '../../inference/ModelRouter';
 import { StandardData, StandardDataFactory } from '../../core/data/StandardData';
-import { FitOptions, PriorSpec } from '../../inference/base/types';
-import { Distribution } from '../../core/distributions/Distribution';
-import { BetaDistribution } from '../../core/distributions/BetaDistribution';
+import { FitOptions } from '../../inference/base/types';
 import { TycheError, ErrorCode } from '../../core/errors';
 
 /**
@@ -37,10 +35,9 @@ export class ConversionAnalyzer implements ExperimentAnalyzer {
   configure(options: AnalyzerOptions): void {
     this.fitOptions = {};
 
-    // Convert conversion prior from Distribution to PriorSpec
+    // Pass Distribution object directly - engines handle validation
     if (options.priors?.has('conversion')) {
-      const prior = options.priors.get('conversion')!;
-      this.fitOptions.priorParams = this.distributionToPriorSpec(prior);
+      this.fitOptions.prior = options.priors.get('conversion')!;
     }
 
     // Store progress callback
@@ -214,46 +211,5 @@ export class ConversionAnalyzer implements ExperimentAnalyzer {
   private convertToStandardData(variantData: any): StandardData {
     // VariantData already contains StandardData in the data field
     return variantData.data as StandardData;
-  }
-
-  /**
-   * Convert Distribution to PriorSpec for inference engines
-   */
-  private distributionToPriorSpec(distribution: Distribution): PriorSpec {
-    // For conversion analysis, we expect Beta priors
-    if (distribution instanceof BetaDistribution) {
-      // Use method of moments to estimate parameters from mean/variance
-      const mean = distribution.mean();
-      const variance = distribution.variance();
-
-      // Method of moments estimation for Beta parameters
-      if (variance >= mean * (1 - mean)) {
-        throw new TycheError(
-          ErrorCode.INVALID_PRIOR,
-          'Invalid Beta distribution: variance must be less than mean*(1-mean)'
-        );
-      }
-
-      const alpha = mean * ((mean * (1 - mean)) / variance - 1);
-      const beta = (1 - mean) * ((mean * (1 - mean)) / variance - 1);
-
-      if (alpha <= 0 || beta <= 0) {
-        throw new TycheError(
-          ErrorCode.INVALID_PRIOR,
-          'Invalid Beta parameters derived from distribution'
-        );
-      }
-
-      return {
-        type: 'beta',
-        params: [alpha, beta],
-      };
-    }
-
-    throw new TycheError(
-      ErrorCode.INVALID_PRIOR,
-      'ConversionAnalyzer requires Beta distribution for conversion prior',
-      { distributionType: distribution.constructor.name }
-    );
   }
 }

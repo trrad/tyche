@@ -6,6 +6,7 @@
 import jStat from 'jstat';
 import { InferenceEngine } from '../base/InferenceEngine';
 import { DataInput, FitOptions, InferenceResult, Posterior } from '../base/types';
+import { TycheError, ErrorCode } from '../../core/errors';
 
 /**
  * Gamma posterior distribution wrapper
@@ -139,14 +140,17 @@ export class GammaExponentialConjugate extends InferenceEngine {
     let priorShape = 1; // α
     let priorRate = 0.1; // β (small rate = weak prior)
 
-    if (options?.priorParams) {
-      if (options.priorParams.type !== 'gamma') {
-        throw new Error('Gamma conjugate requires gamma prior');
+    if (options?.prior) {
+      if (options.prior.constructor.name !== 'GammaDistribution') {
+        throw new TycheError(
+          ErrorCode.INVALID_PRIOR,
+          'GammaExponential requires Gamma distribution prior',
+          { actualType: options.prior.constructor.name }
+        );
       }
-      if (options.priorParams.params.length !== 2) {
-        throw new Error('Gamma prior requires exactly 2 parameters [shape, rate]');
-      }
-      [priorShape, priorRate] = options.priorParams.params;
+      const params = (options.prior as any).getParameters();
+      priorShape = params.shape;
+      priorRate = (options.prior as any).rate(); // GammaDistribution has a rate() method
     }
 
     // Conjugate update
