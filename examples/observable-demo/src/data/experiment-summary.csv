@@ -1,0 +1,5 @@
+variant,name,totalUsers,convertedUsers,conversionRate,totalRevenue,averageRevenuePerUser,averageOrderValue
+control,,1000,40,0.0400,2036.84,2.04,50.92
+New Checkout Flow,,1000,59,0.0590,3397.03,3.40,57.58
+Personalized Recommendations,,1000,59,0.0590,3641.18,3.64,61.71
+Combined (Checkout + Recs),,1000,56,0.0560,3281.90,3.28,58.61

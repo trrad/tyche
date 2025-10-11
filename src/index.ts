@@ -51,5 +51,15 @@ export {
 // Data structures
 export * from './core/data';
 
+// Analyzers
+export { RevenueAnalyzer } from './domain/analyzers/RevenueAnalyzer';
+export { ConversionAnalyzer } from './domain/analyzers/ConversionAnalyzer';
+
+// Inference engines (needed for analyzers to work properly)
+export { CompoundInferenceEngine } from './inference/compound/CompoundInferenceEngine';
+export { LogNormalConjugate } from './inference/exact/LogNormalConjugate';
+export { BetaBinomialConjugate } from './inference/exact/BetaBinomialConjugate';
+export { ModelRouter } from './inference/ModelRouter';
+
 // Version
 export const VERSION = '0.1.0';
