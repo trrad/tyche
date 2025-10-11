@@ -147,11 +147,12 @@ export class LegacyDataAdapter {
         type: 'user-level',
         n: data.length,
         userLevel: {
-          users: data.map((value) => ({ value, converted: true })),
-          empiricalStats: {
-            mean: data.reduce((a, b) => a + b, 0) / data.length,
-            variance: this.computeVariance(data),
-          },
+          users: data.map((value, index) => ({
+            userId: `user_${index}`,
+            value,
+            converted: true,
+          })),
+          empiricalStats: this.computeEmpiricalStats(data),
         },
         quality: this.computeQuality(data),
       };
@@ -188,11 +189,12 @@ export class LegacyDataAdapter {
       type: 'user-level',
       n: data.length,
       userLevel: {
-        users: data,
-        empiricalStats: {
-          mean: values.reduce((a, b) => a + b, 0) / values.length,
-          variance: this.computeVariance(values),
-        },
+        users: data.map((u, index) => ({
+          userId: `user_${index}`,
+          converted: u.converted,
+          value: u.value,
+        })),
+        empiricalStats: this.computeEmpiricalStats(values),
       },
       quality: this.computeQuality(values),
     };
@@ -219,6 +221,33 @@ export class LegacyDataAdapter {
   private static computeVariance(data: number[]): number {
     const mean = data.reduce((a, b) => a + b, 0) / data.length;
     return data.reduce((sum, x) => sum + Math.pow(x - mean, 2), 0) / data.length;
+  }
+
+  /**
+   * Compute full empirical statistics
+   */
+  private static computeEmpiricalStats(data: number[]) {
+    const sorted = [...data].sort((a, b) => a - b);
+    const mean = data.reduce((a, b) => a + b, 0) / data.length;
+    const variance = this.computeVariance(data);
+
+    const quantile = (p: number) => {
+      const index = p * (sorted.length - 1);
+      const lower = Math.floor(index);
+      const upper = Math.ceil(index);
+      const weight = index - lower;
+      return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+    };
+
+    return {
+      mean,
+      variance,
+      min: sorted[0],
+      max: sorted[sorted.length - 1],
+      q25: quantile(0.25),
+      q50: quantile(0.5),
+      q75: quantile(0.75),
+    };
   }
 
   /**

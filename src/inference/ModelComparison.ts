@@ -123,13 +123,23 @@ export class ModelComparison {
           : await this.fitModelsSequential(data, config.models);
 
       // Prepare candidates for comparison
-      const candidates: ModelCandidate[] = fittedModels.map((m) => ({
-        name: m.name,
-        posterior: m.result.posterior,
-        modelType: m.config.type || m.config.valueType || 'unknown',
-        config: m.config,
-        parameterCount: m.result.diagnostics.parameterCount,
-      }));
+      const candidates: ModelCandidate[] = fittedModels.map((m) => {
+        const modelType = m.config.type || m.config.valueType;
+        if (!modelType) {
+          throw new TycheError(
+            ErrorCode.INVALID_CONFIG,
+            `Model ${m.name} has no type or valueType specified`,
+            { config: m.config }
+          );
+        }
+        return {
+          name: m.name,
+          posterior: m.result.posterior,
+          modelType,
+          config: m.config,
+          parameterCount: m.result.diagnostics.parameterCount,
+        };
+      });
 
       // Extract data for comparison
       const comparisonData = this.extractDataForComparison(data);

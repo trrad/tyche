@@ -103,9 +103,9 @@ export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
               <div>
                 <span className="text-sm text-gray-600">Mean:</span>
                 <span className="ml-2 font-mono">
-                  {formatValue(
-                    decomposition.frequency.mean ? decomposition.frequency.mean()[0] : 'Loading...'
-                  )}
+                  {decomposition.frequency.mean
+                    ? formatValue(decomposition.frequency.mean()[0])
+                    : 'Loading...'}
                 </span>
               </div>
               <div>
@@ -166,7 +166,9 @@ export const AsyncPosteriorSummary: React.FC<AsyncPosteriorSummaryProps> = ({
             <div>
               <span className="text-sm text-gray-600">Expected Revenue per User:</span>
               <span className="ml-2 font-mono font-semibold">
-                ${(decomposition.frequency.mean()[0] * decomposition.severity.mean()[0]).toFixed(2)}
+                {decomposition.frequency.mean && decomposition.severity.mean
+                  ? `$${(decomposition.frequency.mean()[0] * decomposition.severity.mean()[0]).toFixed(2)}`
+                  : 'Loading...'}
               </span>
             </div>
           </div>

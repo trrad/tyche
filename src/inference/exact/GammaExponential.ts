@@ -4,10 +4,18 @@
  */
 
 import jStat from 'jstat';
-import { InferenceEngine } from '../base/InferenceEngine';
-import { DataInput, FitOptions, InferenceResult, Posterior } from '../base/types';
+import { InferenceEngine, EngineCapabilities } from '../base/InferenceEngine';
+import {
+  FitOptions,
+  InferenceResult,
+  Posterior,
+  ModelConfig,
+  ModelStructure,
+  ModelType,
+} from '../base/types';
+import { StandardData, DataType } from '../../core/data/StandardData';
 import { TycheError, ErrorCode } from '../../core/errors';
-import { isGammaDistribution, hasGetParameters, hasRateMethod } from '../../core/utils/type-guards';
+import { GammaDistribution } from '../../core/distributions';
 
 /**
  * Gamma posterior distribution wrapper
@@ -86,6 +94,13 @@ export class GammaPosterior implements Posterior {
     const scale = 1 / this.rate;
     return 1 - jStat.gamma.cdf(threshold, this.shape, scale);
   }
+
+  /**
+   * Returns true since this posterior has analytical forms for mean, variance, credible intervals
+   */
+  hasAnalyticalForm(): boolean {
+    return true;
+  }
 }
 
 /**
@@ -102,47 +117,67 @@ export class GammaPosterior implements Posterior {
  * - General positive continuous data with Gamma prior
  */
 export class GammaExponentialConjugate extends InferenceEngine {
+  /**
+   * Declare capabilities for routing
+   */
+  readonly capabilities: EngineCapabilities = {
+    structures: ['simple'] as ModelStructure[],
+    types: ['gamma'] as ModelType[],
+    dataTypes: ['user-level'] as DataType[],
+    components: [1], // Only single component
+    exact: true,
+    fast: true,
+    stable: true,
+  };
+
+  /**
+   * Algorithm type
+   */
+  readonly algorithm = 'conjugate' as const;
+
   constructor() {
     super('Gamma-Exponential Conjugate');
   }
 
-  async fit(data: DataInput, options?: FitOptions): Promise<InferenceResult> {
-    // Validate input
-    this.validateInput(data);
+  async fit(
+    data: StandardData,
+    config: ModelConfig,
+    options?: FitOptions
+  ): Promise<InferenceResult> {
+    const start = performance.now();
 
-    // Extract data
-    let n: number;
-    let sumX: number;
+    // Validate data
+    this.validateStandardData(data);
 
-    if (Array.isArray(data.data)) {
-      // Raw data
-      const values = data.data;
-
-      // Check all values are positive
-      if (values.some((x) => x <= 0)) {
-        throw new Error('Gamma conjugate requires all positive values');
-      }
-
-      n = values.length;
-      sumX = values.reduce((a, b) => a + b, 0);
-    } else if ('n' in data.data && 'sum' in data.data) {
-      // Summary statistics
-      n = data.data.n;
-      sumX = data.data.sum!;
-
-      if (n <= 0 || sumX <= 0) {
-        throw new Error('Invalid summary statistics');
-      }
-    } else {
-      throw new Error('Gamma conjugate requires array data or summary statistics with n and sum');
+    // Additional validation for user-level data
+    if (data.type !== 'user-level') {
+      throw new TycheError(ErrorCode.INVALID_DATA, 'GammaExponential requires user-level data', {
+        actualType: data.type,
+      });
     }
+
+    if (!data.userLevel) {
+      throw new TycheError(ErrorCode.INVALID_DATA, 'User-level data structure is missing');
+    }
+
+    const values = data.userLevel.users.map((u) => u.value);
+
+    // Check all values are positive
+    if (values.some((x) => x <= 0)) {
+      throw new TycheError(ErrorCode.INVALID_DATA, 'Gamma conjugate requires all positive values', {
+        minValue: Math.min(...values),
+      });
+    }
+
+    const n = values.length;
+    const sumX = values.reduce((a, b) => a + b, 0);
 
     // Get prior parameters (default to weakly informative)
     let priorShape = 1; // α
     let priorRate = 0.1; // β (small rate = weak prior)
 
     if (options?.prior) {
-      if (!isGammaDistribution(options.prior)) {
+      if (!(options.prior instanceof GammaDistribution)) {
         throw new TycheError(
           ErrorCode.INVALID_PRIOR,
           'GammaExponential requires Gamma distribution prior',
@@ -150,14 +185,9 @@ export class GammaExponentialConjugate extends InferenceEngine {
         );
       }
 
-      if (hasGetParameters(options.prior)) {
-        const params = options.prior.getParameters();
-        priorShape = params.shape;
-      }
-
-      if (hasRateMethod(options.prior)) {
-        priorRate = options.prior.rate();
-      }
+      const params = options.prior.getParameters();
+      priorShape = params.shape;
+      priorRate = options.prior.rate();
     }
 
     // Conjugate update
@@ -167,30 +197,19 @@ export class GammaExponentialConjugate extends InferenceEngine {
     // Create posterior
     const posterior = new GammaPosterior(posteriorShape, posteriorRate);
 
+    const runtime = performance.now() - start;
+
     // Return result with diagnostics
     return {
       posterior,
       diagnostics: {
         converged: true, // Always converges (exact inference)
         iterations: 1, // Single update
-        runtime: 0, // Near-instant
+        runtime,
         modelType: 'gamma',
+        parameterCount: 2, // shape and rate
       },
     };
-  }
-
-  canHandle(data: DataInput): boolean {
-    // Can handle positive continuous data
-    if (Array.isArray(data.data)) {
-      return data.data.length > 0 && data.data.every((x) => x > 0);
-    }
-
-    // Can handle summary statistics
-    if (data.data && typeof data.data === 'object') {
-      return 'n' in data.data && 'sum' in data.data;
-    }
-
-    return false;
   }
 
   getDescription(): string {

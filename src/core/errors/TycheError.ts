@@ -15,12 +15,16 @@ export enum ErrorCode {
   INVALID_DATA = 'INVALID_DATA',
   INSUFFICIENT_DATA = 'INSUFFICIENT_DATA',
   DATA_QUALITY = 'DATA_QUALITY',
+  DATA_MISMATCH = 'DATA_MISMATCH', // Data type or structure inconsistency between variants
 
   // Model errors
   MODEL_MISMATCH = 'MODEL_MISMATCH',
   CONVERGENCE_FAILED = 'CONVERGENCE_FAILED',
   INVALID_PRIOR = 'INVALID_PRIOR',
   INVALID_CONFIG = 'INVALID_CONFIG',
+
+  // Computation errors
+  COMPUTATION_ERROR = 'COMPUTATION_ERROR', // Generic computation failure
 
   // Worker errors
   WORKER_TIMEOUT = 'WORKER_TIMEOUT',
