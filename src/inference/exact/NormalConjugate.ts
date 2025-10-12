@@ -487,22 +487,8 @@ export class NormalConjugate extends InferenceEngine {
     options: FitOptions | undefined,
     data: number[] | null
   ): NormalInverseGammaParams {
-    // If prior specified, use it
-    if (options?.priorParams?.type === 'normal-inverse-gamma') {
-      const params = options.priorParams.params;
-      if (params.length !== 4) {
-        throw new TycheError(
-          ErrorCode.INVALID_PRIOR,
-          'Normal-Inverse-Gamma prior needs 4 parameters'
-        );
-      }
-      return {
-        mu0: params[0],
-        lambda: params[1],
-        alpha: params[2],
-        beta: params[3],
-      };
-    }
+    // TODO: Extract parameters from options.prior if it's a NormalDistribution
+    // For now, use empirical or default priors
 
     // If we have data, use empirical estimates
     if (data && data.length > 0) {
