@@ -38,23 +38,22 @@ Then open http://localhost:3001 in your browser.
 
 ## Demo Structure
 
-### Condition View (`/condition-view`)
+### Explore Results (`/explore-results`)
+
+Multi-variant comparison with:
+
+- **Lift distribution per variant**: All treatments vs control
+- **Continuous lift thresholds**: "Probability of >X% improvement"
+- **Probabilistic recommendations**: Based on adjustable evidence thresholds
+
+### Condition Analysis (`/condition-view`)
 
 Deep dive into a single variant with:
 
 - **Interactive revenue thresholds**: "What's the probability revenue > $X?"
 - **Adjustable credible intervals**: Drag from 50% → 99%, watch uncertainty change
 - **PPC diagnostics**: Observed vs predicted with reactive CI bands
-- **Decomposition**: Conversion rate × Revenue-per-converter with thresholds
-
-### Experiment View (`/experiment-view`)
-
-Multi-variant comparison with:
-
-- **Lift distribution per variant**: All treatments vs control
-- **Continuous lift thresholds**: "Probability of >X% improvement"
-- **Effect decomposition with uncertainty**: Attribution as distributions
-- **Probabilistic recommendations**: Based on adjustable evidence thresholds
+- **Decomposition**: Conversion rate × Revenue-per-converter with thresholds (for compound models)
 
 ## Key Interactions
 
@@ -84,15 +83,16 @@ Every statement is about **observable outcomes**:
 
 **Structure**:
 
-- Compound model: `conversion_rate × revenue_per_converter`
-- Mixture: k=2 (budget sellers ~$25, premium sellers ~$95)
+- User-level data with conversion events and revenue values
+- Automatically routes to compound model (conversion × revenue-per-converter) when zeros are detected
 - 4 variants: Control + 3 treatments
+- 1000 users per variant
 
-Generated using Tyche's `DataGenerator` with configurable:
+Generated using synthetic data generator (`lib/generate-data.js`) with configurable:
 
-- Conversion rates (8% → 10%)
-- Seller mix (35% budget → 25% budget)
-- Premium seller values ($95 → $104)
+- Conversion rates (~5-6.5%)
+- Lognormal revenue distributions for converters
+- Deterministic random seed for reproducibility
 
 ## Technical Details
 
