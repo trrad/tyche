@@ -3,7 +3,7 @@ export default {
   port: 3001, // Use different port from Vite (3000)
   pages: [
     {name: "Overview", path: "/"},
-    {name: "Experiment Comparison", path: "/experiment-view"},
+    {name: "Explore Results", path: "/explore-results"},
     {name: "Condition Analysis", path: "/condition-view"}
   ],
   root: "src",
