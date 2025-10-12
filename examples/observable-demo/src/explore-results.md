@@ -150,7 +150,6 @@ const liftThreshold = view(
     label: 'Meaningful lift threshold (%)',
     step: 0.01,
     value: 0.1,
-    format: (d) => `${(d * 100).toFixed(0)}%`,
   })
 );
 ```

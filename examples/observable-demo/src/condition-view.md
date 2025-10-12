@@ -5,7 +5,20 @@ Analyzing a single variant in **outcome space** with interactive threshold explo
 ```js
 import * as Plot from 'npm:@observablehq/plot';
 import * as d3 from 'npm:d3';
-import { analyzeCondition } from '../data/analyze-condition.js';
+```
+
+```js
+// Import Tyche library
+import * as Tyche from './dist/tyche.js';
+```
+
+```js
+// Import data generation utilities
+import { generateMarketplace } from './lib/generate-data.js';
+```
+
+```js
+// Import utility functions
 import {
   credibleInterval,
   probabilityAbove,
@@ -14,27 +27,143 @@ import {
   formatCurrency,
   ksStatistic,
   calibration,
-} from '../components/utils.js';
+} from './components/utils.js';
 ```
 
 ```js
-const selectedCondition = view(
-  Inputs.select(['control', 'treatmentA', 'treatmentB', 'treatmentC'], {
+// Generate synthetic marketplace data
+const rawData = generateMarketplace({ seed: 42, usersPerVariant: 1000 });
+```
+
+```js
+// Build treatments Map (all non-control variants)
+const treatments = new Map();
+for (const [key, variantData] of Object.entries(rawData)) {
+  if (key !== 'control') {
+    treatments.set(variantData.name, {
+      name: variantData.name,
+      data: Tyche.StandardDataFactory.fromUserLevel(variantData.users),
+    });
+  }
+}
+
+// Create properly structured ExperimentData for Tyche
+const experimentData = {
+  id: 'marketplace-experiment-001',
+  name: 'Marketplace Revenue Optimization',
+  variants: {
+    control: {
+      name: rawData.control.name,
+      data: Tyche.StandardDataFactory.fromUserLevel(rawData.control.users),
+    },
+    treatments,
+  },
+  metadata: {
+    startDate: new Date('2024-01-01'),
+    endDate: new Date('2024-01-31'),
+    hypothesis: 'New checkout flow and personalized recommendations will increase revenue per user',
+  },
+};
+```
+
+```js
+// Run Tyche inference
+const analysisResult = await (async () => {
+  try {
+    const analyzer = new Tyche.RevenueAnalyzer();
+    return await analyzer.analyze(experimentData);
+  } catch (error) {
+    console.error('Error running Tyche inference:', error);
+    display(
+      html`<div style="color: red; padding: 1rem; border: 2px solid red;">
+        <strong>Error:</strong> ${error.message || String(error)}
+        <pre>${error.stack || ''}</pre>
+      </div>`
+    );
+    throw error;
+  }
+})();
+```
+
+```js
+// Get list of all variant names for the selector
+const variantNames = analysisResult.getVariantNames();
+```
+
+```js
+const selectedVariant = view(
+  Inputs.select(variantNames, {
     label: 'Select variant to analyze:',
-    format: (v) =>
-      ({
-        control: 'Control (Current Algorithm)',
-        treatmentA: 'Treatment A (Collaborative Filtering)',
-        treatmentB: 'Treatment B (Content-Based)',
-        treatmentC: 'Treatment C (Hybrid)',
-      })[v],
+    format: (v) => rawData[Object.keys(rawData).find((k) => rawData[k].name === v)].displayName,
   })
 );
 ```
 
 ```js
-// Load condition data
-const condition = await analyzeCondition(selectedCondition);
+// Build condition object from selected variant's VariantResult
+const condition = await (async () => {
+  const variantResult = analysisResult.getVariantResult(selectedVariant);
+
+  if (!variantResult) {
+    throw new Error(`Variant ${selectedVariant} not found in results`);
+  }
+
+  // Get the raw data for this variant
+  const variantKey = Object.keys(rawData).find((k) => rawData[k].name === selectedVariant);
+  const variantRawData = rawData[variantKey];
+
+  // Extract posterior samples (for overall revenue per user)
+  const posteriorSamples = variantResult.getPosteriorSamples(10000);
+
+  // Extract observed data (actual revenue values from users)
+  const observedData = variantRawData.users.map((u) => u.value);
+
+  // Debug: Check data quality
+  const hasZeros = observedData.some((v) => v === 0);
+  const zeroCount = observedData.filter((v) => v === 0).length;
+  console.log(`Variant ${selectedVariant}:`, {
+    totalUsers: observedData.length,
+    hasZeros,
+    zeroCount,
+    convertedCount: variantRawData.users.filter((u) => u.converted).length,
+  });
+
+  // Check if this is a compound model with decomposition
+  const isCompound = variantResult.isCompoundModel();
+  const decomposition = variantResult.getDecomposition();
+
+  console.log(`Model type:`, {
+    isCompound,
+    hasDecomposition: decomposition !== null,
+  });
+
+  // Build condition object
+  const cond = {
+    name: variantRawData.displayName,
+    description: `Analysis of ${variantRawData.displayName} showing revenue per customer distribution and uncertainty.`,
+    posteriorSamples: posteriorSamples,
+    observedData: observedData,
+    metadata: {
+      isCompound: isCompound,
+      sampleSize: variantRawData.users.length,
+      convertedCount: variantRawData.users.filter((u) => u.converted).length,
+    },
+  };
+
+  // Add decomposition if available (compound model)
+  if (isCompound && decomposition) {
+    cond.decomposition = {
+      frequency: {
+        samples: decomposition.frequency.sample(10000),
+      },
+      severity: {
+        samples: decomposition.severity.sample(10000),
+      },
+    };
+  }
+
+  return cond;
+})();
 ```
 
 ## ${condition.name}
@@ -89,7 +218,6 @@ const ciLevel = view(
     label: 'Credible interval level',
     step: 0.01,
     value: 0.8,
-    format: (d) => `${(d * 100).toFixed(0)}%`,
   })
 );
 ```
@@ -219,121 +347,170 @@ const cal = calibration(condition.observedData, condition.posteriorSamples, ciLe
 
 ## Decomposition: Conversion × Revenue-per-Converter
 
-${condition.metadata.isCompound ? `
-For compound models, we can decompose revenue into two components:
-
-### Conversion Rate
-
-\`\`\`js
-const convThreshold = view(Inputs.range([0, 0.2], {
-label: "Conversion rate threshold",
-step: 0.005,
-value: 0.08,
-format: d => formatPercent(d, 1)
-}));
-\`\`\`
-
-\`\`\`js
-const probConvAbove = probabilityAbove(condition.decomposition.frequency.samples, convThreshold);
-const convCI = credibleInterval(condition.decomposition.frequency.samples, ciLevel);
-const convMedian = d3.median(condition.decomposition.frequency.samples);
-\`\`\`
-
-<div class="card">
-  <div class="metric">${formatPercent(probConvAbove)}</div>
-  <div style="font-size: 0.875rem; color: #6b7280;">
-    probability conversion rate <strong>exceeds ${formatPercent(convThreshold, 1)}</strong>
-  </div>
-  <div style="font-size: 1.125rem; color: #374151; margin-top: 1.5rem;">
-    <strong>${(ciLevel * 100).toFixed(0)}% confident</strong> conversion rate is between
-    <strong>${formatPercent(convCI[0], 1)} – ${formatPercent(convCI[1], 1)}</strong>
-  </div>
-</div>
-
-### Revenue per Converter
-
-\`\`\`js
-const aovThreshold = view(Inputs.range([0, 150], {
-label: "Revenue per converter threshold ($)",
-step: 5,
-value: 60
-}));
-\`\`\`
-
-\`\`\`js
-const probAOVAbove = probabilityAbove(condition.decomposition.severity.samples, aovThreshold);
-const aovCI = credibleInterval(condition.decomposition.severity.samples, ciLevel);
-const aovMedian = d3.median(condition.decomposition.severity.samples);
-\`\`\`
-
-<div class="card">
-  <div class="metric">${formatPercent(probAOVAbove)}</div>
-  <div style="font-size: 0.875rem; color: #6b7280;">
-    probability revenue per converter <strong>exceeds ${formatCurrency(aovThreshold, 0)}</strong>
-  </div>
-  <div style="font-size: 1.125rem; color: #374151; margin-top: 1.5rem;">
-    <strong>${(ciLevel * 100).toFixed(0)}% confident</strong> revenue per converter is between
-    <strong>${formatCurrency(aovCI[0])} – ${formatCurrency(aovCI[1])}</strong>
-  </div>
-</div>
-
-### Decomposition Visualization
-
-\`\`\`js
-Plot.plot({
-height: 300,
-marks: [
-Plot.density(condition.decomposition.frequency.samples, {
-stroke: "steelblue",
-strokeWidth: 2,
-fill: "steelblue",
-fillOpacity: 0.2
-}),
-Plot.ruleX([convCI[0], convCI[1]], {
-stroke: "steelblue",
-strokeDasharray: "4,2"
-})
-],
-x: {
-label: "Conversion rate",
-percent: true
-},
-y: {
-label: "Density"
+```js
+// Only show decomposition if compound model
+if (condition.metadata.isCompound && condition.decomposition) {
+  display(html`<p>For compound models, we can decompose revenue into two components:</p>`);
+} else {
+  display(
+    html`<div class="card">
+      <p style="color: #6b7280;">
+        This variant does not use a compound model (no decomposition available).
+      </p>
+    </div>`
+  );
 }
-})
-\`\`\`
+```
 
-\`\`\`js
-Plot.plot({
-height: 300,
-marks: [
-Plot.density(condition.decomposition.severity.samples, {
-stroke: "green",
-strokeWidth: 2,
-fill: "green",
-fillOpacity: 0.2
-}),
-Plot.ruleX([aovCI[0], aovCI[1]], {
-stroke: "green",
-strokeDasharray: "4,2"
-})
-],
-x: {
-label: "Revenue per converter ($)"
-},
-y: {
-label: "Density"
+```js
+// Conversion rate threshold (only if compound model)
+const convThreshold = condition.metadata.isCompound
+  ? view(
+      Inputs.range([0, 0.2], {
+        label: 'Conversion rate threshold',
+        step: 0.005,
+        value: 0.08,
+      })
+    )
+  : null;
+```
+
+```js
+// Conversion rate calculations (only if compound model)
+const conversionAnalysis =
+  condition.metadata.isCompound && condition.decomposition
+    ? {
+        probConvAbove: probabilityAbove(condition.decomposition.frequency.samples, convThreshold),
+        convCI: credibleInterval(condition.decomposition.frequency.samples, ciLevel),
+        convMedian: d3.median(condition.decomposition.frequency.samples),
+      }
+    : null;
+```
+
+```js
+// Display conversion rate section
+if (condition.metadata.isCompound && conversionAnalysis) {
+  display(html`
+    <h3>Conversion Rate</h3>
+    <div class="card">
+      <div class="metric">${formatPercent(conversionAnalysis.probConvAbove)}</div>
+      <div style="font-size: 0.875rem; color: #6b7280;">
+        probability conversion rate <strong>exceeds ${formatPercent(convThreshold, 1)}</strong>
+      </div>
+      <div style="font-size: 1.125rem; color: #374151; margin-top: 1.5rem;">
+        <strong>${(ciLevel * 100).toFixed(0)}% confident</strong> conversion rate is between
+        <strong
+          >${formatPercent(conversionAnalysis.convCI[0], 1)} –
+          ${formatPercent(conversionAnalysis.convCI[1], 1)}</strong
+        >
+      </div>
+    </div>
+  `);
 }
-})
-\`\`\`
+```
 
-`:`
+```js
+// Revenue per converter threshold (only if compound model)
+const aovThreshold = condition.metadata.isCompound
+  ? view(
+      Inputs.range([0, 150], {
+        label: 'Revenue per converter threshold ($)',
+        step: 5,
+        value: 60,
+      })
+    )
+  : null;
+```
 
-<div class="card">
-  <p style="color: #6b7280;">This variant does not use a compound model (no decomposition available).</p>
-</div>
-`}
+```js
+// Revenue per converter calculations (only if compound model)
+const aovAnalysis =
+  condition.metadata.isCompound && condition.decomposition
+    ? {
+        probAOVAbove: probabilityAbove(condition.decomposition.severity.samples, aovThreshold),
+        aovCI: credibleInterval(condition.decomposition.severity.samples, ciLevel),
+        aovMedian: d3.median(condition.decomposition.severity.samples),
+      }
+    : null;
+```
+
+```js
+// Display revenue per converter section
+if (condition.metadata.isCompound && aovAnalysis) {
+  display(html`
+    <h3>Revenue per Converter</h3>
+    <div class="card">
+      <div class="metric">${formatPercent(aovAnalysis.probAOVAbove)}</div>
+      <div style="font-size: 0.875rem; color: #6b7280;">
+        probability revenue per converter
+        <strong>exceeds ${formatCurrency(aovThreshold, 0)}</strong>
+      </div>
+      <div style="font-size: 1.125rem; color: #374151; margin-top: 1.5rem;">
+        <strong>${(ciLevel * 100).toFixed(0)}% confident</strong> revenue per converter is between
+        <strong
+          >${formatCurrency(aovAnalysis.aovCI[0])} – ${formatCurrency(aovAnalysis.aovCI[1])}</strong
+        >
+      </div>
+    </div>
+  `);
+}
+```
+
+```js
+// Display decomposition visualizations
+if (condition.metadata.isCompound && condition.decomposition && conversionAnalysis) {
+  display(html`<h3>Decomposition Visualization</h3>`);
+
+  display(
+    Plot.plot({
+      height: 300,
+      marks: [
+        Plot.density(condition.decomposition.frequency.samples, {
+          stroke: 'steelblue',
+          strokeWidth: 2,
+          fill: 'steelblue',
+          fillOpacity: 0.2,
+        }),
+        Plot.ruleX([conversionAnalysis.convCI[0], conversionAnalysis.convCI[1]], {
+          stroke: 'steelblue',
+          strokeDasharray: '4,2',
+        }),
+      ],
+      x: {
+        label: 'Conversion rate',
+        percent: true,
+      },
+      y: {
+        label: 'Density',
+      },
+    })
+  );
+
+  display(
+    Plot.plot({
+      height: 300,
+      marks: [
+        Plot.density(condition.decomposition.severity.samples, {
+          stroke: 'green',
+          strokeWidth: 2,
+          fill: 'green',
+          fillOpacity: 0.2,
+        }),
+        Plot.ruleX([aovAnalysis.aovCI[0], aovAnalysis.aovCI[1]], {
+          stroke: 'green',
+          strokeDasharray: '4,2',
+        }),
+      ],
+      x: {
+        label: 'Revenue per converter ($)',
+      },
+      y: {
+        label: 'Density',
+      },
+    })
+  );
+}
+```
 
 ---
 
