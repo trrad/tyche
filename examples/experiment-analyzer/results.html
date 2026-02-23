@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Experiment Results - Tyche</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f5f5f5;
+    }
+
+    .header {
+      background: white;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 20px 40px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      color: #1f2937;
+      margin: 0;
+    }
+
+    .back-btn {
+      padding: 8px 16px;
+      background: white;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      color: #374151;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .back-btn:hover {
+      background: #f9fafb;
+      border-color: #9ca3af;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 40px;
+    }
+
+    .controls-section {
+      background: white;
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .controls-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      align-items: end;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .control-group label {
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .control-group select,
+    .control-group input {
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+      color: #1f2937;
+      background: white;
+    }
+
+    .control-group select:focus,
+    .control-group input:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .toggle-group {
+      display: flex;
+      gap: 4px;
+      background: #f3f4f6;
+      padding: 4px;
+      border-radius: 6px;
+    }
+
+    .toggle-btn {
+      flex: 1;
+      padding: 8px 16px;
+      border: none;
+      background: transparent;
+      color: #6b7280;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .toggle-btn.active {
+      background: white;
+      color: #1f2937;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .toggle-btn:hover:not(.active) {
+      color: #374151;
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 8px;
+    }
+
+    .checkbox-group input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+
+    .checkbox-group label {
+      font-size: 14px;
+      color: #374151;
+      cursor: pointer;
+      margin: 0;
+    }
+
+    .viz-section {
+      background: white;
+      border-radius: 8px;
+      padding: 32px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      margin-bottom: 24px;
+    }
+
+    .viz-section h2 {
+      font-size: 20px;
+      color: #1f2937;
+      margin: 0 0 24px 0;
+      font-weight: 600;
+    }
+
+    .chart-container {
+      margin: 20px 0;
+      min-height: 300px;
+    }
+
+    .stats-panel {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 20px;
+      margin-top: 24px;
+    }
+
+    .stats-panel h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #374151;
+      margin: 0 0 16px 0;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+    }
+
+    .stat-item {
+      font-size: 14px;
+      color: #6b7280;
+      line-height: 1.6;
+    }
+
+    .stat-item strong {
+      color: #1f2937;
+      font-weight: 600;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 60px;
+      color: #6b7280;
+    }
+
+    .loading-spinner {
+      display: inline-block;
+      width: 40px;
+      height: 40px;
+      border: 4px solid #f3f4f6;
+      border-top-color: #667eea;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+      padding: 16px;
+      border-radius: 6px;
+      margin: 20px 0;
+    }
+
+    .instructions {
+      background: #fffbeb;
+      border: 1px solid #fde047;
+      border-radius: 6px;
+      padding: 16px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      color: #92400e;
+      line-height: 1.6;
+    }
+
+    .instructions strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #78350f;
+    }
+
+    /* D3 visualization styles */
+    .axis {
+      font-size: 12px;
+    }
+
+    .axis path,
+    .axis line {
+      stroke: #9ca3af;
+    }
+
+    .axis text {
+      fill: #4b5563;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Experiment Results</h1>
+    <a href="index.html" class="back-btn">← Back to Upload</a>
+  </div>
+
+  <div class="container">
+    <!-- Controls -->
+    <div class="controls-section">
+      <div class="controls-grid">
+        <!-- Baseline Selector -->
+        <div class="control-group">
+          <label for="baselineSelect">Baseline</label>
+          <select id="baselineSelect">
+            <!-- Populated by JavaScript -->
+          </select>
+        </div>
+
+        <!-- View Toggle -->
+        <div class="control-group">
+          <label>View</label>
+          <div class="toggle-group">
+            <button class="toggle-btn active" data-view="lift">Lift %</button>
+            <button class="toggle-btn" data-view="absolute">Absolute $</button>
+          </div>
+        </div>
+
+        <!-- CI Width -->
+        <div class="control-group">
+          <label for="ciWidth">Credible Interval Width</label>
+          <select id="ciWidth">
+            <option value="0.50">50% (25th-75th)</option>
+            <option value="0.80" selected>80% (10th-90th)</option>
+            <option value="0.90">90% (5th-95th)</option>
+            <option value="0.95">95% (2.5th-97.5th)</option>
+          </select>
+        </div>
+
+        <!-- Control Visibility (only for lift view) -->
+        <div class="control-group" id="controlVisibilityGroup">
+          <div class="checkbox-group">
+            <input type="checkbox" id="showControl">
+            <label for="showControl">Show Control uncertainty</label>
+          </div>
+        </div>
+
+        <!-- Threshold Toggle -->
+        <div class="control-group">
+          <button id="toggleThreshold" style="padding: 8px 16px; background: #ea580c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+            + Add Threshold
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Main Visualization -->
+    <div class="viz-section">
+      <h2 id="vizTitle">Revenue Lift vs Control</h2>
+      <div id="chart" class="chart-container">
+        <div class="loading">
+          <div class="loading-spinner"></div>
+          <p style="margin-top: 16px;">Running Bayesian analysis...</p>
+        </div>
+      </div>
+
+      <div class="stats-panel" id="statsPanel" style="display: none;">
+        <h3>Summary Statistics</h3>
+        <div id="stats" class="stats-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script type="module">
+    import { StandardDataFactory } from '../../src/core/data/StandardData.js';
+    import { RevenueAnalyzer } from '../../src/domain/analyzers/RevenueAnalyzer.js';
+    import { RidgeDotplot } from '../../src/visualizations/core/RidgeDotplot.js';
+    import { getSortedPairs } from '../../src/visualizations/utils/quantiles.js';
+
+    // Load data from sessionStorage
+    const rawData = JSON.parse(sessionStorage.getItem('experimentData') || 'null');
+
+    if (!rawData) {
+      document.getElementById('chart').innerHTML = '<div class="error">No experiment data found. Please <a href="index.html">upload data</a> first.</div>';
+      throw new Error('No data');
+    }
+
+    // State
+    let currentView = 'lift';
+    let currentBaseline = 'control';
+    let currentCILower = 0.1;
+    let currentCIUpper = 0.9;
+    let currentThreshold = 0;  // Default to 0% in lift mode (no change threshold)
+    let showControlUncertainty = false;
+
+    let analysisResult = null;
+    let vizData = null;
+    let vizInstance = null; // Cache the viz instance for performance
+    let variantDataMap = {}; // Store raw variant data for sample size calculations
+
+    // DOM elements
+    const baselineSelect = document.getElementById('baselineSelect');
+    const ciWidthSelect = document.getElementById('ciWidth');
+    const showControlCheckbox = document.getElementById('showControl');
+    const controlVisibilityGroup = document.getElementById('controlVisibilityGroup');
+    const viewToggles = document.querySelectorAll('.toggle-btn');
+    const vizTitle = document.getElementById('vizTitle');
+    const statsPanel = document.getElementById('statsPanel');
+
+    // Parse raw data into ExperimentData format
+    function parseExperimentData(rawData) {
+      const variantMap = {};
+
+      // Group by variant
+      rawData.forEach(row => {
+        const variant = row.variant;
+        if (!variantMap[variant]) {
+          variantMap[variant] = [];
+        }
+        variantMap[variant].push({
+          userId: `user_${variantMap[variant].length}`,
+          value: parseFloat(row.revenue),
+          converted: parseInt(row.converted) === 1,
+        });
+      });
+
+      // Determine control (first alphabetically or named "control")
+      const variantNames = Object.keys(variantMap).sort();
+      const controlName = variantNames.includes('control') ? 'control' : variantNames[0];
+      const treatmentNames = variantNames.filter(v => v !== controlName);
+
+      // Populate baseline selector
+      variantNames.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = formatVariantName(name);
+        if (name === controlName) option.selected = true;
+        baselineSelect.appendChild(option);
+      });
+
+      currentBaseline = controlName;
+
+      // Store variant data globally for sample size calculations
+      variantDataMap = variantMap;
+
+      // Build ExperimentData
+      return {
+        id: 'uploaded_experiment',
+        name: 'Uploaded Experiment',
+        variants: {
+          control: {
+            name: controlName,
+            data: StandardDataFactory.fromUserLevel(variantMap[controlName]),
+          },
+          treatments: new Map(
+            treatmentNames.map(name => [
+              name,
+              {
+                name,
+                data: StandardDataFactory.fromUserLevel(variantMap[name]),
+              }
+            ])
+          ),
+        },
+        metadata: {
+          startDate: new Date(),
+          hypothesis: 'User experiment',
+        },
+      };
+    }
+
+    // Run analysis
+    async function runAnalysis() {
+      const experimentData = parseExperimentData(rawData);
+      const analyzer = new RevenueAnalyzer();
+      analysisResult = await analyzer.analyze(experimentData);
+
+      // DEBUG: Check raw posterior samples before any lift calculation
+      console.log('=== RAW POSTERIOR SAMPLES (before lift) ===');
+      for (const [name, result] of analysisResult.getAllVariantResults()) {
+        const samples = Array.from(result.getPosteriorSamples(10000));
+        console.log(`${name} posterior:`, {
+          min: d3.min(samples),
+          p01: d3.quantile(samples, 0.01),
+          p05: d3.quantile(samples, 0.05),
+          p25: d3.quantile(samples, 0.25),
+          median: d3.median(samples),
+          mean: d3.mean(samples),
+          p75: d3.quantile(samples, 0.75),
+          p95: d3.quantile(samples, 0.95),
+          p99: d3.quantile(samples, 0.99),
+          max: d3.max(samples),
+          countNearZero: samples.filter(s => Math.abs(s) < 0.01).length
+        });
+      }
+
+      // Update UI
+      updateVisualization();
+    }
+
+    // Update visualization based on current state
+    async function updateVisualization() {
+      const comparison = await analysisResult.compareVariants({ baseline: currentBaseline });
+
+      // Get control baseline RPU samples (needed for $ ↔ % conversion)
+      const controlResult = analysisResult.getVariantResult(currentBaseline);
+      const controlSamples = controlResult ? Array.from(controlResult.getPosteriorSamples(10000)) : [];
+
+      if (currentView === 'lift') {
+        // Lift view
+        vizTitle.textContent = `Revenue Lift vs ${formatVariantName(currentBaseline)}`;
+
+        const variants = [];
+
+        // Add treatments (lift samples)
+        for (const [name, comp] of comparison.comparisons) {
+          const liftSamples = Array.from(comp.liftSamples);    // % lift
+          const effectSamples = Array.from(comp.effectSamples); // $ lift
+
+          // DEBUG: Check lift samples
+          console.log(`=== LIFT SAMPLES for ${name} ===`, {
+            min: d3.min(liftSamples),
+            p01: d3.quantile(liftSamples, 0.01),
+            p05: d3.quantile(liftSamples, 0.05),
+            median: d3.median(liftSamples),
+            mean: d3.mean(liftSamples),
+            p95: d3.quantile(liftSamples, 0.95),
+            p99: d3.quantile(liftSamples, 0.99),
+            max: d3.max(liftSamples),
+            countExtreme: liftSamples.filter(s => Math.abs(s) > 5).length
+          });
+
+          // Get sample size from raw variant data
+          const variantData = variantDataMap[name] || [];
+          const userCount = variantData.length;
+          const converterCount = variantData.filter(d => d.converted).length;
+
+          variants.push({
+            name,
+            displayName: formatVariantName(name),
+            samples: liftSamples,  // Keep % lift for x-axis scale
+            isBaseline: false,
+            // Add full sample arrays for tooltips and dual-axis display
+            effectSamples: effectSamples,  // Full $ lift samples for tooltips
+            controlSamples: controlSamples,  // Control RPU samples for $ ↔ % conversion
+            // Add sample size information
+            userCount: userCount,
+            converterCount: converterCount
+          });
+        }
+
+        // Optionally add control (shows uncertainty in estimating control itself)
+        // This is an A/A test: comparing two independent samples from the same posterior
+        // Should show mean ≈ 0% if model is unbiased
+        if (showControlUncertainty) {
+          const controlResult = analysisResult.getVariantResult(currentBaseline);
+          if (controlResult) {
+            // Generate two independent samples from control posterior (A/A test)
+            // This shows "if we ran this experiment again, how much would vary due to sampling?"
+            const samplesA = Array.from(controlResult.getPosteriorSamples(10000));
+            const samplesB = Array.from(controlResult.getPosteriorSamples(10000));
+
+            // DEBUG: Check if samples are actually different
+            console.log('=== A/A TEST DEBUG ===', {
+              samplesA_first10: samplesA.slice(0, 10),
+              samplesB_first10: samplesB.slice(0, 10),
+              samplesA_mean: d3.mean(samplesA),
+              samplesB_mean: d3.mean(samplesB),
+              areSamplesIdentical: samplesA.every((a, i) => a === samplesB[i])
+            });
+
+            // Compute lift and effect using same paired-sample logic as treatments
+            const liftSamples = samplesA.map((a, i) => (a - samplesB[i]) / samplesB[i]);
+            const effectSamples = samplesA.map((a, i) => a - samplesB[i]);
+
+            // DEBUG: Check computed lift samples
+            console.log('=== A/A LIFT CALCULATION ===', {
+              liftSamples_first10: liftSamples.slice(0, 10),
+              effectSamples_first10: effectSamples.slice(0, 10),
+              liftSamples_mean: d3.mean(liftSamples),
+              effectSamples_mean: d3.mean(effectSamples)
+            });
+
+            const controlData = variantDataMap[currentBaseline] || [];
+            const userCount = controlData.length;
+            const converterCount = controlData.filter(d => d.converted).length;
+
+            variants.unshift({
+              name: currentBaseline,
+              displayName: formatVariantName(currentBaseline) + ' (self)',
+              samples: liftSamples,
+              isBaseline: true,
+              effectSamples: effectSamples,  // Add $ lift samples for dual-axis display
+              controlSamples: samplesB,      // Use sampleB as "baseline" for $ conversion
+              userCount: userCount,
+              converterCount: converterCount
+            });
+          }
+        }
+
+        // Threshold is optional - only set if user clicks "Add Threshold" button
+        // Don't auto-initialize
+
+        vizData = { variants, threshold: currentThreshold };
+
+        // Debug logging
+        console.log('Lift view data:', {
+          variantCount: variants.length,
+          sampleCounts: variants.map(v => v.samples.length),
+          extents: variants.map(v => d3.extent(v.samples)),
+          medians: variants.map(v => d3.median(v.samples)),
+          means: variants.map(v => d3.mean(v.samples)),
+          threshold: currentThreshold
+        });
+
+        // DEBUG: Check first 10 samples of each variant
+        console.log('=== FIRST 10 SAMPLES BEING PASSED TO VIZ ===');
+        variants.forEach(v => {
+          console.log(`${v.name}: [${v.samples.slice(0, 10).map(s => s.toFixed(4)).join(', ')}...]`);
+        });
+
+        renderChart(vizData, 'lift');
+
+      } else {
+        // Absolute view
+        vizTitle.textContent = 'Revenue Per User';
+
+        const variants = [];
+        const allVariants = [currentBaseline, ...Array.from(analysisResult.getAllVariantResults().keys()).filter(v => v !== currentBaseline)];
+
+        for (const name of allVariants) {
+          const variantResult = analysisResult.getVariantResult(name);
+          if (variantResult) {
+            const variantData = variantDataMap[name] || [];
+            const userCount = variantData.length;
+            const converterCount = variantData.filter(d => d.converted).length;
+
+            variants.push({
+              name,
+              displayName: formatVariantName(name),
+              samples: Array.from(variantResult.getPosteriorSamples(10000)),
+              isBaseline: name === currentBaseline,
+              userCount: userCount,
+              converterCount: converterCount
+            });
+          }
+        }
+
+        // For absolute view, initialize threshold to median of control if not set
+        if (currentThreshold === null && variants.length > 0) {
+          const controlVariant = variants.find(v => v.name === currentBaseline);
+          if (controlVariant) {
+            currentThreshold = d3.median(controlVariant.samples);
+          }
+        }
+
+        vizData = { variants, threshold: currentThreshold };
+        renderChart(vizData, 'absolute');
+      }
+
+      updateStats();
+      statsPanel.style.display = 'block';
+    }
+
+    // Render chart with D3 visualization component
+    function renderChart(data, mode) {
+      const container = d3.select('#chart');
+
+      // Only clear and rebuild if we don't have a cached instance
+      // or if we're switching views/baselines
+      const needsRebuild = !vizInstance;
+
+      if (needsRebuild) {
+        container.selectAll('*').remove();
+
+        // Use null to let RidgeDotplot auto-size to container
+        vizInstance = RidgeDotplot()
+          .width(null)
+          .ciLower(currentCILower)
+          .ciUpper(currentCIUpper)
+          .numDots(20)
+          .showViolin(true)
+          .showCIBounds(true)
+          .showStatistics(true)
+          .valueFormat(mode === 'absolute' ? (v) => `$${v.toFixed(2)}` : null);
+
+        // Wire up events (only once)
+        vizInstance.on('ciDrag', (event) => {
+          currentCILower = event.detail.lower;
+          currentCIUpper = event.detail.upper;
+
+          // PERFORMANCE FIX: Just update the viz, don't rebuild everything
+          vizInstance.ciLower(currentCILower).ciUpper(currentCIUpper);
+          container.datum(vizData).call(vizInstance);
+          updateStats();
+        });
+
+        vizInstance.on('thresholdDrag', (event) => {
+          currentThreshold = event.detail.value;
+
+          // PERFORMANCE FIX: Just update the data with new threshold
+          vizData.threshold = currentThreshold;
+          container.datum(vizData).call(vizInstance);
+          updateStats();
+        });
+
+        vizInstance.on('variantClick', (event) => {
+          // Navigate to deep-dive (we'll create this later)
+          sessionStorage.setItem('selectedVariant', event.detail.variant.name);
+          window.location.href = 'deep-dive.html';
+        });
+      }
+
+      // Render with current data
+      container.datum(data).call(vizInstance);
+    }
+
+    // Update stats panel
+    function updateStats() {
+      const statsDiv = document.getElementById('stats');
+      const stats = [];
+
+      if (currentView === 'lift') {
+        vizData.variants.forEach(v => {
+          if (!v.isBaseline) {
+            const sorted = [...v.samples].sort((a, b) => a - b);
+            const median = d3.median(v.samples);
+            const ciLower = sorted[Math.floor(sorted.length * currentCILower)];
+            const ciUpper = sorted[Math.floor(sorted.length * currentCIUpper)];
+            const probPositive = v.samples.filter(x => x > 0).length / v.samples.length;
+
+            stats.push(`
+              <div class="stat-item">
+                <strong>${v.displayName}:</strong> ${formatPercent(median)} median lift<br>
+                ${Math.round((currentCIUpper - currentCILower) * 100)}% CI: ${formatPercent(ciLower)} to ${formatPercent(ciUpper)}<br>
+                ${(probPositive * 100).toFixed(0)}% probability positive
+              </div>
+            `);
+          }
+        });
+      } else {
+        vizData.variants.forEach(v => {
+          const sorted = [...v.samples].sort((a, b) => a - b);
+          const median = d3.median(v.samples);
+          const ciLower = sorted[Math.floor(sorted.length * currentCILower)];
+          const ciUpper = sorted[Math.floor(sorted.length * currentCIUpper)];
+
+          stats.push(`
+            <div class="stat-item">
+              <strong>${v.displayName}:</strong> ${formatDollar(median)} median<br>
+              ${Math.round((currentCIUpper - currentCILower) * 100)}% CI: ${formatDollar(ciLower)} to ${formatDollar(ciUpper)}
+            </div>
+          `);
+        });
+      }
+
+      statsDiv.innerHTML = stats.join('');
+    }
+
+    // Event handlers
+    baselineSelect.addEventListener('change', (e) => {
+      currentBaseline = e.target.value;
+      vizInstance = null; // Force rebuild with new baseline
+      updateVisualization();
+    });
+
+    ciWidthSelect.addEventListener('change', (e) => {
+      const width = parseFloat(e.target.value);
+      currentCILower = (1 - width) / 2;
+      currentCIUpper = 1 - currentCILower;
+
+      // PERFORMANCE: Just update CI, don't rebuild
+      if (vizInstance) {
+        const container = d3.select('#chart');
+        vizInstance.ciLower(currentCILower).ciUpper(currentCIUpper);
+        container.datum(vizData).call(vizInstance);
+        updateStats();
+      }
+    });
+
+    showControlCheckbox.addEventListener('change', (e) => {
+      showControlUncertainty = e.target.checked;
+      vizInstance = null; // Force rebuild when toggling control
+      updateVisualization();
+    });
+
+    viewToggles.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        viewToggles.forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        currentView = e.target.dataset.view;
+
+        // Show/hide control visibility option
+        controlVisibilityGroup.style.display = currentView === 'lift' ? 'block' : 'none';
+
+        vizInstance = null; // Force rebuild when switching views
+        updateVisualization();
+      });
+    });
+
+    // Threshold toggle button
+    const thresholdButton = document.getElementById('toggleThreshold');
+    thresholdButton.addEventListener('click', () => {
+      if (currentThreshold === null) {
+        // Add threshold at median of best performing variant
+        if (vizData && vizData.variants.length > 0) {
+          const medians = vizData.variants.map(v => d3.median(v.samples));
+          currentThreshold = d3.max(medians);
+          thresholdButton.textContent = '− Remove Threshold';
+          thresholdButton.style.background = '#dc2626';
+        }
+      } else {
+        // Remove threshold
+        currentThreshold = null;
+        thresholdButton.textContent = '+ Add Threshold';
+        thresholdButton.style.background = '#ea580c';
+      }
+
+      // Update visualization
+      vizData.threshold = currentThreshold;
+      const container = d3.select('#chart');
+      container.datum(vizData).call(vizInstance);
+      updateStats();
+    });
+
+    // Utility functions
+    function formatVariantName(name) {
+      return name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    }
+
+    function formatPercent(value) {
+      const sign = value >= 0 ? '+' : '';
+      return `${sign}${(value * 100).toFixed(1)}%`;
+    }
+
+    function formatDollar(value) {
+      return `$${value.toFixed(2)}`;
+    }
+
+    // Initialize
+    runAnalysis();
+  </script>
+</body>
+</html>

@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tyche Experiment Analyzer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 800px;
+      width: 100%;
+    }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      padding: 48px;
+    }
+
+    h1 {
+      font-size: 32px;
+      color: #1f2937;
+      margin-bottom: 12px;
+      font-weight: 700;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: #6b7280;
+      margin-bottom: 40px;
+      line-height: 1.5;
+    }
+
+    .section {
+      margin-bottom: 32px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      background: #667eea;
+      color: white;
+      border-radius: 50%;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    /* Upload Area */
+    .upload-area {
+      border: 2px dashed #d1d5db;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: #f9fafb;
+    }
+
+    .upload-area:hover {
+      border-color: #667eea;
+      background: #f3f4f6;
+    }
+
+    .upload-area.dragover {
+      border-color: #667eea;
+      background: #eef2ff;
+      border-style: solid;
+    }
+
+    .upload-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    .upload-text {
+      font-size: 16px;
+      color: #374151;
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
+    .upload-hint {
+      font-size: 14px;
+      color: #6b7280;
+    }
+
+    .file-input {
+      display: none;
+    }
+
+    /* Example Datasets */
+    .examples-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 12px;
+    }
+
+    .example-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: white;
+    }
+
+    .example-card:hover {
+      border-color: #667eea;
+      background: #f9fafb;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+    }
+
+    .example-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 6px;
+    }
+
+    .example-desc {
+      font-size: 13px;
+      color: #6b7280;
+      line-height: 1.4;
+    }
+
+    .example-meta {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-top: 8px;
+      display: flex;
+      gap: 12px;
+    }
+
+    /* Validation Messages */
+    .message {
+      padding: 12px 16px;
+      border-radius: 6px;
+      margin-top: 16px;
+      font-size: 14px;
+      display: none;
+    }
+
+    .message.show {
+      display: block;
+    }
+
+    .message.error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+    }
+
+    .message.success {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      color: #166534;
+    }
+
+    .message.warning {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
+    }
+
+    /* File Info */
+    .file-info {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 16px;
+      margin-top: 16px;
+      display: none;
+    }
+
+    .file-info.show {
+      display: block;
+    }
+
+    .file-name {
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 8px;
+    }
+
+    .file-stats {
+      font-size: 14px;
+      color: #6b7280;
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    /* Analyze Button */
+    .analyze-btn {
+      width: 100%;
+      padding: 16px 32px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-top: 24px;
+    }
+
+    .analyze-btn:hover:not(:disabled) {
+      background: #5568d3;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
+    }
+
+    .analyze-btn:disabled {
+      background: #d1d5db;
+      cursor: not-allowed;
+    }
+
+    /* Format Info */
+    .format-info {
+      background: #f0f9ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 6px;
+      padding: 16px;
+      margin-top: 16px;
+      font-size: 13px;
+      color: #1e40af;
+      line-height: 1.6;
+    }
+
+    .format-info strong {
+      display: block;
+      margin-bottom: 8px;
+      color: #1e3a8a;
+    }
+
+    .format-info code {
+      background: white;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Tyche Experiment Analyzer</h1>
+      <p class="subtitle">
+        Upload your A/B test data for rigorous Bayesian analysis. Get full posterior distributions,
+        not just p-values.
+      </p>
+
+      <!-- Section 1: Upload or Select Data -->
+      <div class="section">
+        <div class="section-title">
+          <span class="section-number">1</span>
+          Upload Your Data
+        </div>
+
+        <div class="upload-area" id="uploadArea">
+          <div class="upload-icon">📊</div>
+          <div class="upload-text">Drop CSV file here or click to browse</div>
+          <div class="upload-hint">Required columns: variant, converted, revenue</div>
+        </div>
+        <input type="file" id="fileInput" class="file-input" accept=".csv">
+
+        <div class="file-info" id="fileInfo">
+          <div class="file-name" id="fileName"></div>
+          <div class="file-stats" id="fileStats"></div>
+        </div>
+
+        <div class="message" id="validationMessage"></div>
+
+        <div class="format-info">
+          <strong>Expected CSV format:</strong>
+          • <code>variant</code> - Variant name (e.g., "control", "treatment_a")<br>
+          • <code>converted</code> - 0 or 1<br>
+          • <code>revenue</code> - Dollar amount (can be 0 for non-converters)<br>
+          • At least 2 variants, 30+ users per variant
+        </div>
+      </div>
+
+      <!-- Section 2: Or Use Example -->
+      <div class="section">
+        <div class="section-title">
+          <span class="section-number">2</span>
+          Or Try an Example
+        </div>
+
+        <div class="examples-grid" id="examplesGrid">
+          <!-- Examples will be populated by JavaScript -->
+        </div>
+      </div>
+
+      <!-- Analyze Button -->
+      <button class="analyze-btn" id="analyzeBtn" disabled>
+        Analyze Experiment
+      </button>
+    </div>
+  </div>
+
+  <script type="module">
+    import { StandardDataFactory } from '../../src/core/data/StandardData.js';
+
+    // Example datasets
+    const EXAMPLES = [
+      {
+        name: 'Small Lift (5%)',
+        description: 'Subtle revenue improvement, 800 users per variant',
+        file: 'data/small-lift.csv',
+        variants: 2,
+        users: 1600
+      },
+      {
+        name: 'Medium Lift (15%)',
+        description: 'Clear revenue improvement, 800 users per variant',
+        file: 'data/medium-lift.csv',
+        variants: 2,
+        users: 1600
+      },
+      {
+        name: 'Multi-Variant Test',
+        description: '3 treatments with varying effects, 600 each',
+        file: 'data/multi-variant.csv',
+        variants: 4,
+        users: 2400
+      },
+      {
+        name: 'Low Conversion',
+        description: '2% conversion rate, larger sample needed',
+        file: 'data/low-conversion.csv',
+        variants: 2,
+        users: 3000
+      }
+    ];
+
+    // State
+    let parsedData = null;
+    let experimentData = null;
+
+    // DOM elements
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const fileStats = document.getElementById('fileStats');
+    const validationMessage = document.getElementById('validationMessage');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const examplesGrid = document.getElementById('examplesGrid');
+
+    // Populate examples
+    EXAMPLES.forEach(example => {
+      const card = document.createElement('div');
+      card.className = 'example-card';
+      card.innerHTML = `
+        <div class="example-title">${example.name}</div>
+        <div class="example-desc">${example.description}</div>
+        <div class="example-meta">
+          <span>${example.variants} variants</span>
+          <span>${example.users} users</span>
+        </div>
+      `;
+      card.addEventListener('click', () => loadExample(example));
+      examplesGrid.appendChild(card);
+    });
+
+    // Upload area click
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.csv')) {
+        handleFile(file);
+      } else {
+        showMessage('Please drop a CSV file', 'error');
+      }
+    });
+
+    // File input change
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        handleFile(file);
+      }
+    });
+
+    // Handle file upload
+    async function handleFile(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const csvText = e.target.result;
+        parseAndValidateCSV(csvText, file.name);
+      };
+      reader.onerror = () => {
+        showMessage('Failed to read file', 'error');
+      };
+      reader.readAsText(file);
+    }
+
+    // Load example dataset
+    async function loadExample(example) {
+      try {
+        const response = await fetch(example.file);
+        if (!response.ok) {
+          // For now, generate synthetic data since files don't exist yet
+          showMessage(`Loading example: ${example.name}`, 'warning');
+          generateSyntheticData(example);
+          return;
+        }
+        const csvText = await response.text();
+        parseAndValidateCSV(csvText, example.name);
+      } catch (error) {
+        // Generate synthetic for demo purposes
+        generateSyntheticData(example);
+      }
+    }
+
+    // Parse and validate CSV
+    function parseAndValidateCSV(csvText, name) {
+      try {
+        // Simple CSV parser (we'll enhance this)
+        const lines = csvText.trim().split('\n');
+        const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
+
+        // Validate headers
+        const requiredColumns = ['variant', 'converted', 'revenue'];
+        const missingColumns = requiredColumns.filter(col => !headers.includes(col));
+
+        if (missingColumns.length > 0) {
+          showMessage(`Missing required columns: ${missingColumns.join(', ')}`, 'error');
+          return;
+        }
+
+        // Parse rows
+        const rows = lines.slice(1).map(line => {
+          const values = line.split(',').map(v => v.trim());
+          const row = {};
+          headers.forEach((header, i) => {
+            row[header] = values[i];
+          });
+          return row;
+        });
+
+        // Validate data
+        const validation = validateData(rows);
+        if (!validation.valid) {
+          showMessage(validation.error, 'error');
+          return;
+        }
+
+        // Success!
+        parsedData = rows;
+        showFileInfo(name, validation.stats);
+        showMessage(`✓ Valid data: ${validation.stats.totalUsers} users, ${validation.stats.variants} variants`, 'success');
+        analyzeBtn.disabled = false;
+
+      } catch (error) {
+        showMessage(`Failed to parse CSV: ${error.message}`, 'error');
+      }
+    }
+
+    // Validate data
+    function validateData(rows) {
+      const stats = {
+        totalUsers: rows.length,
+        variants: new Set(rows.map(r => r.variant)).size,
+        variantCounts: {},
+        totalConverted: 0,
+        totalRevenue: 0
+      };
+
+      // Check minimum users
+      if (stats.totalUsers < 60) {
+        return { valid: false, error: 'Need at least 60 total users' };
+      }
+
+      // Check variants
+      if (stats.variants < 2) {
+        return { valid: false, error: 'Need at least 2 variants' };
+      }
+
+      // Validate each row and count by variant
+      for (const row of rows) {
+        const variant = row.variant;
+        const converted = parseInt(row.converted);
+        const revenue = parseFloat(row.revenue);
+
+        if (!variant) {
+          return { valid: false, error: 'Missing variant name in some rows' };
+        }
+
+        if (converted !== 0 && converted !== 1) {
+          return { valid: false, error: `Invalid converted value: ${row.converted} (must be 0 or 1)` };
+        }
+
+        if (isNaN(revenue) || revenue < 0) {
+          return { valid: false, error: `Invalid revenue value: ${row.revenue}` };
+        }
+
+        stats.variantCounts[variant] = (stats.variantCounts[variant] || 0) + 1;
+        stats.totalConverted += converted;
+        stats.totalRevenue += revenue;
+      }
+
+      // Check minimum per variant
+      for (const [variant, count] of Object.entries(stats.variantCounts)) {
+        if (count < 30) {
+          return { valid: false, error: `Variant "${variant}" has only ${count} users (need 30+)` };
+        }
+      }
+
+      return { valid: true, stats };
+    }
+
+    // Show file info
+    function showFileInfo(name, stats) {
+      fileName.textContent = name;
+      fileStats.innerHTML = `
+        <span><strong>${stats.totalUsers}</strong> total users</span>
+        <span><strong>${stats.variants}</strong> variants</span>
+        <span><strong>${stats.totalConverted}</strong> conversions</span>
+        <span><strong>$${stats.totalRevenue.toFixed(2)}</strong> total revenue</span>
+      `;
+      fileInfo.classList.add('show');
+    }
+
+    // Show validation message
+    function showMessage(text, type) {
+      validationMessage.textContent = text;
+      validationMessage.className = `message ${type} show`;
+    }
+
+    // Generate synthetic data (placeholder until we create real example files)
+    function generateSyntheticData(example) {
+      showMessage(`Generated synthetic data for: ${example.name}`, 'warning');
+
+      // This is just a placeholder - we'll replace with real data
+      const usersPerVariant = Math.floor(example.users / example.variants);
+      const rows = [];
+
+      const variantNames = ['control', ...Array.from({length: example.variants - 1}, (_, i) => `treatment_${String.fromCharCode(97 + i)}`)];
+
+      variantNames.forEach((variant, vIdx) => {
+        const baseConversion = 0.10;
+        const baseLift = vIdx === 0 ? 0 : (vIdx * 0.05); // 0%, 5%, 10%, 15%
+        const baseRevenue = 50;
+        const revenueMultiplier = 1 + baseLift;
+
+        for (let i = 0; i < usersPerVariant; i++) {
+          const converted = Math.random() < (baseConversion + baseLift * 0.02) ? 1 : 0;
+          const revenue = converted ? (baseRevenue * revenueMultiplier * (0.8 + Math.random() * 0.4)) : 0;
+
+          rows.push({
+            variant,
+            converted: String(converted),
+            revenue: revenue.toFixed(2)
+          });
+        }
+      });
+
+      parseAndValidateCSV(
+        'variant,converted,revenue\n' + rows.map(r => `${r.variant},${r.converted},${r.revenue}`).join('\n'),
+        example.name
+      );
+    }
+
+    // Analyze button
+    analyzeBtn.addEventListener('click', () => {
+      if (parsedData) {
+        // Store data in sessionStorage and navigate
+        sessionStorage.setItem('experimentData', JSON.stringify(parsedData));
+        window.location.href = 'results.html';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -61,5 +61,42 @@ export { LogNormalConjugate } from './inference/exact/LogNormalConjugate';
 export { BetaBinomialConjugate } from './inference/exact/BetaBinomialConjugate';
 export { ModelRouter } from './inference/ModelRouter';
 
+// D3 Visualization Components
+export {
+  QuantileDots,
+  RidgeDotplot,
+  DraggableCIBounds,
+  ThresholdLine,
+  Tooltip,
+} from './visualizations';
+
+// Visualization Types
+export type {
+  QuantileDotsData,
+  RidgeDotplotData,
+  VariantData,
+  ColorScheme,
+  QuantileDotsOptions,
+  CIBoundsOptions,
+  ThresholdLineOptions,
+  DotHoverEventDetail,
+  DotClickEventDetail,
+  CIDragEventDetail,
+  ThresholdDragEventDetail,
+  VariantClickEventDetail,
+} from './visualizations';
+
+// Visualization Utilities
+export {
+  computeQuantiles,
+  sortSamples,
+  getCIBounds,
+  getPercentile,
+  computeKDE,
+  validateSamples,
+  validateCIBounds,
+  validateNumDots,
+} from './visualizations';
+
 // Version
 export const VERSION = '0.1.0';

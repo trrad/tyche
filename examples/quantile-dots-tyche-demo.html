@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QuantileDots with Real Tyche Data</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #1f2937;
+      margin-bottom: 10px;
+    }
+
+    .demo-section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .demo-section h2 {
+      margin-top: 0;
+      color: #374151;
+      font-size: 18px;
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 10px;
+    }
+
+    .chart-container {
+      margin: 20px 0;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+      padding: 15px;
+      background: #f9fafb;
+      border-radius: 4px;
+    }
+
+    .control-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 5px;
+    }
+
+    .control-group input,
+    .control-group select {
+      width: 100%;
+      padding: 6px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .control-group button {
+      width: 100%;
+      padding: 8px 16px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .control-group button:hover {
+      background: #2563eb;
+    }
+
+    .stats-panel {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 4px;
+      padding: 15px;
+      margin-top: 15px;
+    }
+
+    .stats-panel h3 {
+      margin: 0 0 10px 0;
+      color: #1e40af;
+      font-size: 14px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .stat-item {
+      color: #1e40af;
+      font-size: 13px;
+    }
+
+    .stat-item strong {
+      font-weight: 600;
+    }
+
+    /* D3 visualization styles */
+    .axis {
+      font-size: 12px;
+    }
+
+    .axis path,
+    .axis line {
+      stroke: #9ca3af;
+    }
+
+    .axis text {
+      fill: #4b5563;
+    }
+
+    .ci-bound {
+      stroke: #6366f1;
+      stroke-width: 2;
+      stroke-dasharray: 4,2;
+    }
+
+    .ci-label {
+      fill: #6366f1;
+      font-size: 11px;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>QuantileDots with Real Tyche Data</h1>
+    <p style="color: #6b7280; margin-bottom: 30px;">
+      Visualizing actual Bayesian A/B test results using tyche analyzers
+    </p>
+
+    <!-- Demo 1: Revenue Experiment -->
+    <div class="demo-section">
+      <h2>Revenue Experiment: Treatment vs Control</h2>
+      <div class="controls">
+        <div class="control-group">
+          <label>Sample Size (per variant):</label>
+          <input type="number" id="sampleSize" value="500" min="50" max="5000" step="50">
+        </div>
+        <div class="control-group">
+          <label>Treatment Effect (%):</label>
+          <input type="number" id="effect" value="15" min="-50" max="100" step="5">
+        </div>
+        <div class="control-group">
+          <label>Number of Dots:</label>
+          <select id="numDots">
+            <option value="20">20 (overview)</option>
+            <option value="50">50</option>
+            <option value="100" selected>100 (detailed)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Show Violin:</label>
+          <select id="showViolin">
+            <option value="true" selected>On</option>
+            <option value="false">Off</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>&nbsp;</label>
+          <button onclick="runExperiment()">Run New Experiment</button>
+        </div>
+      </div>
+
+      <div id="chart-lift" class="chart-container"></div>
+
+      <div class="stats-panel">
+        <h3>Experiment Results</h3>
+        <div id="stats" class="stats-grid"></div>
+      </div>
+    </div>
+
+    <!-- Demo 2: Conversion Experiment -->
+    <div class="demo-section">
+      <h2>Conversion Rate Experiment</h2>
+      <div id="chart-conversion" class="chart-container"></div>
+      <div class="stats-panel">
+        <h3>Conversion Results</h3>
+        <div id="stats-conversion" class="stats-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script type="module">
+    // Import tyche and visualization components
+    import { StandardDataFactory } from '../src/core/data/StandardData.js';
+    import { RevenueAnalyzer } from '../src/domain/analyzers/RevenueAnalyzer.js';
+    import { ConversionAnalyzer } from '../src/domain/analyzers/ConversionAnalyzer.js';
+    import { QuantileDots } from '../src/visualizations/core/QuantileDots.js';
+
+    // Make available globally for demo controls
+    window.QuantileDots = QuantileDots;
+    window.StandardDataFactory = StandardDataFactory;
+    window.RevenueAnalyzer = RevenueAnalyzer;
+    window.ConversionAnalyzer = ConversionAnalyzer;
+
+    // Generate synthetic experiment data
+    function generateRevenueData(n, conversionRate, avgRevenue, stdRevenue) {
+      const users = [];
+      for (let i = 0; i < n; i++) {
+        const converted = Math.random() < conversionRate;
+        let revenue = 0;
+        if (converted) {
+          // Log-normal distribution for revenue
+          const u1 = Math.random();
+          const u2 = Math.random();
+          const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+          revenue = Math.exp(Math.log(avgRevenue) + z * stdRevenue / avgRevenue);
+        }
+        users.push({
+          userId: `user_${i}`,
+          value: revenue,
+          converted: converted,
+        });
+      }
+      return users;
+    }
+
+    function generateConversionData(n, conversionRate) {
+      const users = [];
+      for (let i = 0; i < n; i++) {
+        const converted = Math.random() < conversionRate;
+        users.push({
+          userId: `user_${i}`,
+          value: converted ? 1 : 0,
+          converted: converted,
+        });
+      }
+      return users;
+    }
+
+    // Run revenue experiment
+    window.runExperiment = async function() {
+      const sampleSize = parseInt(document.getElementById('sampleSize').value);
+      const effectPercent = parseFloat(document.getElementById('effect').value);
+      const numDots = parseInt(document.getElementById('numDots').value);
+      const showViolin = document.getElementById('showViolin').value === 'true';
+
+      // Control group: 10% conversion, $50 avg revenue
+      const controlData = generateRevenueData(sampleSize, 0.10, 50, 0.3);
+
+      // Treatment group: apply lift to revenue
+      const liftMultiplier = 1 + (effectPercent / 100);
+      const treatmentData = generateRevenueData(sampleSize, 0.10, 50 * liftMultiplier, 0.3);
+
+      // Create ExperimentData
+      const experimentData = {
+        id: 'revenue_test',
+        name: 'Revenue Test',
+        variants: {
+          control: {
+            name: 'control',
+            data: StandardDataFactory.fromUserLevel(controlData),
+          },
+          treatments: new Map([
+            ['treatment', {
+              name: 'treatment',
+              data: StandardDataFactory.fromUserLevel(treatmentData),
+            }]
+          ]),
+        },
+        metadata: {
+          startDate: new Date(),
+          hypothesis: 'Treatment increases revenue',
+        },
+      };
+
+      // Analyze with tyche
+      const analyzer = new RevenueAnalyzer();
+      const result = await analyzer.analyze(experimentData);
+
+      // Compare variants to get lift
+      const comparison = await result.compareVariants({ baseline: 'control' });
+      const treatmentComparison = comparison.comparisons.get('treatment');
+
+      // Get posterior samples for lift
+      const liftSamples = treatmentComparison.liftSamples;
+
+      // Update stats display
+      const median = d3.median(liftSamples);
+      const sorted = [...liftSamples].sort((a, b) => a - b);
+      const ci80Lower = sorted[Math.floor(sorted.length * 0.1)];
+      const ci80Upper = sorted[Math.floor(sorted.length * 0.9)];
+      const probPositive = liftSamples.filter(x => x > 0).length / liftSamples.length;
+
+      document.getElementById('stats').innerHTML = `
+        <div class="stat-item">Median Lift: <strong>${(median * 100).toFixed(1)}%</strong></div>
+        <div class="stat-item">80% CI: <strong>[${(ci80Lower * 100).toFixed(1)}%, ${(ci80Upper * 100).toFixed(1)}%]</strong></div>
+        <div class="stat-item">P(Lift > 0): <strong>${(probPositive * 100).toFixed(1)}%</strong></div>
+        <div class="stat-item">Sample Size: <strong>${sampleSize} per variant</strong></div>
+      `;
+
+      // Render visualization
+      renderQuantilePlot('#chart-lift', liftSamples, numDots, showViolin, 0.10);
+    };
+
+    // Run conversion experiment
+    async function runConversionExperiment() {
+      const controlData = generateConversionData(1000, 0.08);
+      const treatmentData = generateConversionData(1000, 0.10);
+
+      const experimentData = {
+        id: 'conversion_test',
+        name: 'Conversion Test',
+        variants: {
+          control: {
+            name: 'control',
+            data: StandardDataFactory.fromUserLevel(controlData),
+          },
+          treatments: new Map([
+            ['treatment', {
+              name: 'treatment',
+              data: StandardDataFactory.fromUserLevel(treatmentData),
+            }]
+          ]),
+        },
+        metadata: {
+          startDate: new Date(),
+          hypothesis: 'Treatment increases conversion',
+        },
+      };
+
+      const analyzer = new ConversionAnalyzer();
+      const result = await analyzer.analyze(experimentData);
+      const comparison = await result.compareVariants({ baseline: 'control' });
+      const treatmentComparison = comparison.comparisons.get('treatment');
+      const liftSamples = treatmentComparison.liftSamples;
+
+      const median = d3.median(liftSamples);
+      const sorted = [...liftSamples].sort((a, b) => a - b);
+      const ci80Lower = sorted[Math.floor(sorted.length * 0.1)];
+      const ci80Upper = sorted[Math.floor(sorted.length * 0.9)];
+      const probPositive = liftSamples.filter(x => x > 0).length / liftSamples.length;
+
+      document.getElementById('stats-conversion').innerHTML = `
+        <div class="stat-item">Median Lift: <strong>${(median * 100).toFixed(1)}%</strong></div>
+        <div class="stat-item">80% CI: <strong>[${(ci80Lower * 100).toFixed(1)}%, ${(ci80Upper * 100).toFixed(1)}%]</strong></div>
+        <div class="stat-item">P(Lift > 0): <strong>${(probPositive * 100).toFixed(1)}%</strong></div>
+      `;
+
+      renderQuantilePlot('#chart-conversion', liftSamples, 50, true, 0);
+    }
+
+    // Render quantile plot with axes and CI indicators
+    function renderQuantilePlot(selector, samples, numDots, showViolin, threshold) {
+      const container = d3.select(selector);
+      container.selectAll('*').remove();
+
+      const margin = { top: 20, right: 40, bottom: 40, left: 60 };
+      const width = 900;
+      const height = 150;
+      const plotWidth = width - margin.left - margin.right;
+      const plotHeight = height - margin.top - margin.bottom;
+
+      // Create SVG
+      const svg = container
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      const g = svg.append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+      // Create scale
+      const extent = d3.extent(samples);
+      const xScale = d3.scaleLinear()
+        .domain(extent)
+        .nice()
+        .range([0, plotWidth]);
+
+      // Add axis
+      const xAxis = d3.axisBottom(xScale)
+        .ticks(10)
+        .tickFormat(d => `${(d * 100).toFixed(0)}%`);
+
+      g.append('g')
+        .attr('class', 'axis')
+        .attr('transform', `translate(0,${plotHeight})`)
+        .call(xAxis);
+
+      // Add axis label
+      g.append('text')
+        .attr('x', plotWidth / 2)
+        .attr('y', plotHeight + 35)
+        .attr('text-anchor', 'middle')
+        .style('font-size', '12px')
+        .style('fill', '#4b5563')
+        .text('Lift (%)');
+
+      // Add CI bound indicators
+      const sorted = [...samples].sort((a, b) => a - b);
+      const ci80Lower = sorted[Math.floor(sorted.length * 0.1)];
+      const ci80Upper = sorted[Math.floor(sorted.length * 0.9)];
+
+      // Lower bound
+      g.append('line')
+        .attr('class', 'ci-bound')
+        .attr('x1', xScale(ci80Lower))
+        .attr('x2', xScale(ci80Lower))
+        .attr('y1', 0)
+        .attr('y2', plotHeight);
+
+      g.append('text')
+        .attr('class', 'ci-label')
+        .attr('x', xScale(ci80Lower))
+        .attr('y', -5)
+        .attr('text-anchor', 'middle')
+        .text('10%');
+
+      // Upper bound
+      g.append('line')
+        .attr('class', 'ci-bound')
+        .attr('x1', xScale(ci80Upper))
+        .attr('x2', xScale(ci80Upper))
+        .attr('y1', 0)
+        .attr('y2', plotHeight);
+
+      g.append('text')
+        .attr('class', 'ci-label')
+        .attr('x', xScale(ci80Upper))
+        .attr('y', -5)
+        .attr('text-anchor', 'middle')
+        .text('90%');
+
+      // Render quantile dots
+      const dotsContainer = g.append('g');
+      const viz = QuantileDots()
+        .width(plotWidth)
+        .height(plotHeight)
+        .scale(xScale)
+        .numDots(numDots)
+        .ciLower(0.1)
+        .ciUpper(0.9)
+        .showViolin(showViolin);
+
+      dotsContainer
+        .datum({ samples: samples, threshold: threshold })
+        .call(viz);
+    }
+
+    // Initialize demos
+    window.runExperiment();
+    runConversionExperiment();
+  </script>
+</body>
+</html>

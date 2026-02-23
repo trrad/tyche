@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Tyche Visualization Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #1f2937;
+    }
+
+    .demo-section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .demo-section h2 {
+      margin-top: 0;
+      color: #374151;
+      border-bottom: 2px solid #e5e7eb;
+      padding-bottom: 10px;
+    }
+
+    .chart-container {
+      margin: 20px 0;
+      min-height: 180px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 20px;
+      padding: 15px;
+      background: #f9fafb;
+      border-radius: 4px;
+    }
+
+    .control-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #374151;
+      margin-bottom: 5px;
+    }
+
+    .control-group button {
+      width: 100%;
+      padding: 8px 16px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .control-group button:hover {
+      background: #2563eb;
+    }
+
+    .stats-panel {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 4px;
+      padding: 15px;
+      margin-top: 15px;
+    }
+
+    .stats-panel h3 {
+      margin: 0 0 10px 0;
+      color: #1e40af;
+      font-size: 14px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px;
+    }
+
+    .stat-item {
+      color: #1e40af;
+      font-size: 13px;
+    }
+
+    .axis {
+      font-size: 12px;
+    }
+
+    .axis path,
+    .axis line {
+      stroke: #9ca3af;
+    }
+
+    .axis text {
+      fill: #4b5563;
+    }
+
+    .instructions {
+      background: #fef3c7;
+      border: 1px solid #fde047;
+      border-radius: 4px;
+      padding: 12px;
+      margin-bottom: 15px;
+      font-size: 13px;
+      color: #713f12;
+    }
+
+    .instructions strong {
+      display: block;
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Interactive Tyche Visualization</h1>
+    <p style="color: #6b7280; margin-bottom: 30px;">
+      Demonstrating the full interactive component system with real tyche data
+    </p>
+
+    <div class="demo-section">
+      <h2>A/B Test Results: Revenue Lift</h2>
+
+      <div class="instructions">
+        <strong>Try the interactive features:</strong>
+        • Drag the blue CI bound handles to adjust the credible interval<br>
+        • Drag the orange threshold line to change the decision threshold<br>
+        • Watch how the dots change color based on the threshold (green = above, gray = below)
+      </div>
+
+      <div class="controls">
+        <div class="control-group">
+          <button onclick="runNewExperiment()">Generate New Data</button>
+        </div>
+      </div>
+
+      <div id="chart" class="chart-container"></div>
+
+      <div class="stats-panel">
+        <h3>Current Settings & Results</h3>
+        <div id="stats" class="stats-grid"></div>
+      </div>
+    </div>
+
+    <!-- Multi-Variant Comparison Demo -->
+    <div class="demo-section">
+      <h2>Multi-Variant Comparison: Ridge Plot</h2>
+
+      <div class="instructions">
+        <strong>Ridge plot features:</strong>
+        • Compare multiple variants at once in a ridge layout<br>
+        • Shared x-axis scale for easy comparison<br>
+        • Click on variant labels for deep-dive view (placeholder)
+      </div>
+
+      <div class="controls">
+        <div class="control-group">
+          <button onclick="runMultiVariantExperiment()">Generate Multi-Variant Test</button>
+        </div>
+      </div>
+
+      <div id="ridge-chart" class="chart-container" style="min-height: 400px;"></div>
+
+      <div class="stats-panel">
+        <h3>Multi-Variant Results</h3>
+        <div id="ridge-stats" class="stats-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script type="module">
+    import { StandardDataFactory } from '../src/core/data/StandardData.js';
+    import { RevenueAnalyzer } from '../src/domain/analyzers/RevenueAnalyzer.js';
+    import { QuantileDots } from '../src/visualizations/core/QuantileDots.js';
+    import { DraggableCIBounds } from '../src/visualizations/core/DraggableCIBounds.js';
+    import { ThresholdLine } from '../src/visualizations/core/ThresholdLine.js';
+    import { RidgeDotplot } from '../src/visualizations/core/RidgeDotplot.js';
+
+    // Global state
+    let currentSamples = [];
+    let currentCILower = 0.1;
+    let currentCIUpper = 0.9;
+    let currentThreshold = 0.10;
+
+    // Generate experiment data
+    function generateRevenueData(n, conversionRate, avgRevenue, stdRevenue) {
+      const users = [];
+      for (let i = 0; i < n; i++) {
+        const converted = Math.random() < conversionRate;
+        let revenue = 0;
+        if (converted) {
+          const u1 = Math.random();
+          const u2 = Math.random();
+          const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+          revenue = Math.exp(Math.log(avgRevenue) + z * stdRevenue / avgRevenue);
+        }
+        users.push({
+          userId: `user_${i}`,
+          value: revenue,
+          converted: converted,
+        });
+      }
+      return users;
+    }
+
+    // Run experiment and visualize
+    window.runNewExperiment = async function() {
+      // Generate data
+      const controlData = generateRevenueData(800, 0.10, 50, 0.3);
+      const treatmentData = generateRevenueData(800, 0.10, 57.5, 0.3); // 15% lift
+
+      const experimentData = {
+        id: 'revenue_test',
+        name: 'Revenue Test',
+        variants: {
+          control: {
+            name: 'control',
+            data: StandardDataFactory.fromUserLevel(controlData),
+          },
+          treatments: new Map([
+            ['treatment', {
+              name: 'treatment',
+              data: StandardDataFactory.fromUserLevel(treatmentData),
+            }]
+          ]),
+        },
+        metadata: {
+          startDate: new Date(),
+          hypothesis: 'Treatment increases revenue',
+        },
+      };
+
+      // Analyze
+      const analyzer = new RevenueAnalyzer();
+      const result = await analyzer.analyze(experimentData);
+      const comparison = await result.compareVariants({ baseline: 'control' });
+      const treatmentComparison = comparison.comparisons.get('treatment');
+
+      currentSamples = treatmentComparison.liftSamples;
+      currentThreshold = d3.median(currentSamples); // Set threshold to median
+
+      renderVisualization();
+    };
+
+    function renderVisualization() {
+      const container = d3.select('#chart');
+      container.selectAll('*').remove();
+
+      const margin = { top: 40, right: 40, bottom: 50, left: 60 };
+      const width = 1000;
+      const height = 200;
+      const plotWidth = width - margin.left - margin.right;
+      const plotHeight = height - margin.top - margin.bottom;
+
+      const svg = container
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height);
+
+      const g = svg.append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+      // Create scale with controlled domain
+      // For lift distributions, use a reasonable range rather than .nice()
+      // which can extend too far with skewed data
+      const extent = d3.extent(currentSamples);
+      const padding = (extent[1] - extent[0]) * 0.1; // 10% padding
+      const xScale = d3.scaleLinear()
+        .domain([extent[0] - padding, extent[1] + padding])
+        .range([0, plotWidth]);
+
+      // Add X axis
+      const xAxis = d3.axisBottom(xScale)
+        .ticks(10)
+        .tickFormat(d => `${(d * 100).toFixed(0)}%`);
+
+      g.append('g')
+        .attr('class', 'axis')
+        .attr('transform', `translate(0,${plotHeight})`)
+        .call(xAxis);
+
+      g.append('text')
+        .attr('x', plotWidth / 2)
+        .attr('y', plotHeight + 40)
+        .attr('text-anchor', 'middle')
+        .style('font-size', '13px')
+        .style('font-weight', '500')
+        .style('fill', '#374151')
+        .text('Revenue Lift (%)');
+
+      // Render QuantileDots
+      const dotsGroup = g.append('g').attr('class', 'dots-group');
+      const quantileDots = QuantileDots()
+        .width(plotWidth)
+        .height(plotHeight)
+        .scale(xScale)
+        .numDots(100)
+        .ciLower(currentCILower)
+        .ciUpper(currentCIUpper)
+        .showViolin(true);
+
+      dotsGroup
+        .datum({ samples: currentSamples, threshold: currentThreshold })
+        .call(quantileDots);
+
+      // Add DraggableCIBounds
+      const ciBoundsGroup = g.append('g').attr('class', 'ci-bounds-group');
+      const ciBounds = DraggableCIBounds()
+        .scale(xScale)
+        .samples(currentSamples)
+        .lowerPercentile(currentCILower)
+        .upperPercentile(currentCIUpper)
+        .yRange([0, plotHeight]);
+
+      ciBoundsGroup.call(ciBounds);
+
+      ciBounds.on('ciDrag', (event) => {
+        currentCILower = event.detail.lower;
+        currentCIUpper = event.detail.upper;
+
+        // Update the quantile dots with new CI bounds
+        quantileDots
+          .ciLower(currentCILower)
+          .ciUpper(currentCIUpper);
+
+        dotsGroup
+          .datum({ samples: currentSamples, threshold: currentThreshold })
+          .call(quantileDots);
+
+        updateStats();
+      });
+
+      // Add ThresholdLine
+      const thresholdGroup = g.append('g').attr('class', 'threshold-group');
+      const threshold = ThresholdLine()
+        .scale(xScale)
+        .value(currentThreshold)
+        .yRange([0, plotHeight]);
+
+      thresholdGroup.call(threshold);
+
+      threshold.on('thresholdDrag', (event) => {
+        currentThreshold = event.detail.value;
+
+        // Update the quantile dots with new threshold for coloring
+        dotsGroup
+          .datum({ samples: currentSamples, threshold: currentThreshold })
+          .call(quantileDots);
+
+        updateStats();
+      });
+
+      updateStats();
+    }
+
+    function updateStats() {
+      const sorted = [...currentSamples].sort((a, b) => a - b);
+      const median = d3.median(currentSamples);
+      const ciLowerVal = sorted[Math.floor(sorted.length * currentCILower)];
+      const ciUpperVal = sorted[Math.floor(sorted.length * currentCIUpper)];
+      const coverage = (currentCIUpper - currentCILower) * 100;
+      const probAboveThreshold = currentSamples.filter(x => x > currentThreshold).length / currentSamples.length;
+
+      document.getElementById('stats').innerHTML = `
+        <div class="stat-item">Median Lift: <strong>${(median * 100).toFixed(1)}%</strong></div>
+        <div class="stat-item">CI Coverage: <strong>${coverage.toFixed(0)}%</strong></div>
+        <div class="stat-item">CI Bounds: <strong>[${(ciLowerVal * 100).toFixed(1)}%, ${(ciUpperVal * 100).toFixed(1)}%]</strong></div>
+        <div class="stat-item">Threshold: <strong>${(currentThreshold * 100).toFixed(1)}%</strong></div>
+        <div class="stat-item">P(Lift > Threshold): <strong>${(probAboveThreshold * 100).toFixed(1)}%</strong></div>
+        <div class="stat-item">Dots Above Threshold: <strong style="color: #10b981;">${Math.round(probAboveThreshold * 100)} green</strong>, <strong style="color: #94a3b8;">${Math.round((1-probAboveThreshold) * 100)} gray</strong></div>
+      `;
+    }
+
+    // Multi-variant experiment
+    window.runMultiVariantExperiment = async function() {
+      // Generate data for 4 variants: control + 3 treatments with different lift levels
+      const controlData = generateRevenueData(800, 0.10, 50, 0.3);
+      const treatment1Data = generateRevenueData(800, 0.10, 52.5, 0.3); // 5% lift
+      const treatment2Data = generateRevenueData(800, 0.10, 57.5, 0.3); // 15% lift
+      const treatment3Data = generateRevenueData(800, 0.10, 60, 0.3);   // 20% lift
+
+      // Analyze each variant vs control
+      const analyzer = new RevenueAnalyzer();
+
+      const variantResults = [];
+
+      for (const [name, displayName, data] of [
+        ['treatment1', 'Treatment A', treatment1Data],
+        ['treatment2', 'Treatment B', treatment2Data],
+        ['treatment3', 'Treatment C', treatment3Data],
+      ]) {
+        const experimentData = {
+          id: `test_${name}`,
+          name: displayName,
+          variants: {
+            control: {
+              name: 'control',
+              data: StandardDataFactory.fromUserLevel(controlData),
+            },
+            treatments: new Map([[name, {
+              name,
+              data: StandardDataFactory.fromUserLevel(data),
+            }]]),
+          },
+          metadata: {
+            startDate: new Date(),
+            hypothesis: `${displayName} increases revenue`,
+          },
+        };
+
+        const result = await analyzer.analyze(experimentData);
+        const comparison = await result.compareVariants({ baseline: 'control' });
+        const treatmentComparison = comparison.comparisons.get(name);
+
+        variantResults.push({
+          name,
+          displayName,
+          samples: treatmentComparison.liftSamples,
+          median: d3.median(treatmentComparison.liftSamples),
+        });
+      }
+
+      // Render ridge plot
+      const container = d3.select('#ridge-chart');
+      container.selectAll('*').remove();
+
+      const ridgePlot = RidgeDotplot()
+        .width(1000)
+        .ridgeHeight(60)
+        .ridgeSpacing(15)
+        .numDots(50)
+        .ciLower(0.1)
+        .ciUpper(0.9)
+        .showViolin(true);
+
+      container
+        .datum({
+          variants: variantResults.map(v => ({
+            name: v.name,
+            displayName: v.displayName,
+            samples: v.samples,
+            isBaseline: false,
+          })),
+          threshold: 0.10, // 10% lift threshold
+        })
+        .call(ridgePlot);
+
+      // Event handlers
+      ridgePlot.on('variantClick', (event) => {
+        console.log('Clicked variant:', event.detail.variant.displayName);
+        alert(`Deep-dive view for ${event.detail.variant.displayName} (not implemented in demo)`);
+      });
+
+      ridgePlot.on('thresholdDrag', (event) => {
+        console.log('Threshold dragged to:', event.detail.value);
+        // Re-render with new threshold
+        container
+          .datum({
+            variants: variantResults.map(v => ({
+              name: v.name,
+              displayName: v.displayName,
+              samples: v.samples,
+              isBaseline: false,
+            })),
+            threshold: event.detail.value,
+          })
+          .call(ridgePlot);
+      });
+
+      ridgePlot.on('ciDrag', (event) => {
+        console.log('CI bounds dragged:', event.detail);
+        // Update ridge plot with new CI bounds
+        ridgePlot
+          .ciLower(event.detail.lower)
+          .ciUpper(event.detail.upper);
+
+        container
+          .datum({
+            variants: variantResults.map(v => ({
+              name: v.name,
+              displayName: v.displayName,
+              samples: v.samples,
+              isBaseline: false,
+            })),
+            threshold: 0.10,
+          })
+          .call(ridgePlot);
+      });
+
+      // Update stats with plain English
+      const statsHtml = variantResults.map(v => {
+        const sorted = [...v.samples].sort((a, b) => a - b);
+        const ciLower = sorted[Math.floor(sorted.length * 0.1)];
+        const ciUpper = sorted[Math.floor(sorted.length * 0.9)];
+        const probPositive = v.samples.filter(x => x > 0).length / v.samples.length;
+
+        // Helper function to format value with sign
+        const formatVal = (val) => {
+          const percent = (val * 100).toFixed(1).replace('.0', '');
+          const sign = val >= 0 ? '+' : '';
+          return `${sign}${percent}%`;
+        };
+
+        return `
+          <div class="stat-item">
+            <strong>${v.displayName}:</strong> ${formatVal(v.median)} median lift
+            · 80% likely between ${formatVal(ciLower)} and ${formatVal(ciUpper)}
+            · ${(probPositive * 100).toFixed(0)}% chance positive
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('ridge-stats').innerHTML = statsHtml;
+    };
+
+    // Initialize both demos
+    window.runNewExperiment();
+    window.runMultiVariantExperiment();
+  </script>
+</body>
+</html>

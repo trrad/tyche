@@ -47,7 +47,8 @@ Thumbs.db
 .cache/
 
 # Observable Framework
-.observablehq/cache/
+.observablehq/
+**/.observablehq/
 
 # Misc
 .eslintcache
